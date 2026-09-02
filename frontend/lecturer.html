@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lecturer -- Live Submissions</title>
+<style>
+  :root {
+    --navy: #1e2761;
+    --bg: #f7f8fb;
+    --card: #ffffff;
+    --muted: #5a6072;
+    --bad: #b85042;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Calibri, Arial, sans-serif;
+    background: var(--bg);
+    color: #1a1a2e;
+  }
+  header {
+    background: var(--navy);
+    color: white;
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  header h1 { margin: 0; font-size: 1.3rem; }
+  #stats { font-size: 0.95rem; opacity: 0.9; }
+  main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem 3rem; }
+
+  .grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 1.25rem; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card);
+    border-radius: 10px;
+    padding: 1.1rem 1.3rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    margin-bottom: 1.25rem;
+  }
+  .card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.5rem 0.4rem; border-bottom: 1px solid #eceef3; vertical-align: top; }
+  th { color: var(--muted); font-weight: bold; font-size: 0.8rem; text-transform: uppercase; }
+
+  .verdict-pill {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: bold;
+    color: white;
+    white-space: nowrap;
+  }
+  .verdict-correct { background: #2c5f2d; }
+  .verdict-partially_correct { background: #b8860b; }
+  .verdict-incorrect, .verdict-error { background: var(--bad); }
+
+  #discussion-list { list-style: none; margin: 0; padding: 0; }
+  #discussion-list li {
+    padding: 0.6rem 0;
+    border-bottom: 1px solid #eceef3;
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+  #discussion-list li:last-child { border-bottom: none; }
+
+  #empty-state { color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Interactive Lecture -- Lecturer View</h1>
+  <div id="stats"></div>
+</header>
+<main>
+  <div class="grid">
+    <div class="card">
+      <h2>Submissions (live)</h2>
+      <div id="empty-state">No submissions yet.</div>
+      <table id="sub-table" style="display:none;">
+        <thead>
+          <tr><th>Time</th><th>Student</th><th>Result</th><th>Score</th></tr>
+        </thead>
+        <tbody id="sub-body"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Discussion points for the class</h2>
+      <ul id="discussion-list"><li style="color:#5a6072;">Nothing yet.</li></ul>
+    </div>
+    <div class="card">
+      <h2>Common issues (by count)</h2>
+      <table id="cluster-table" style="display:none;">
+        <thead>
+          <tr><th>Issue</th><th>Count</th></tr>
+        </thead>
+        <tbody id="cluster-body"></tbody>
+      </table>
+      <div id="cluster-empty" style="color:#5a6072; font-size:0.9rem;">Nothing yet.</div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const API_BASE = "";
+  const POLL_MS = 3000;
+
+  function verdictClass(v) { return "verdict-pill verdict-" + v; }
+  function verdictLabel(v) {
+    return { correct: "Correct", partially_correct: "Partial", incorrect: "Incorrect", error: "Error" }[v] || v;
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch(`${API_BASE}/api/lecturer/submissions`);
+      const rows = await res.json();
+
+      document.getElementById("stats").textContent = `${rows.length} submission${rows.length === 1 ? "" : "s"}`;
+
+      if (rows.length === 0) {
+        document.getElementById("empty-state").style.display = "block";
+        document.getElementById("sub-table").style.display = "none";
+        return;
+      }
+      document.getElementById("empty-state").style.display = "none";
+      document.getElementById("sub-table").style.display = "table";
+
+      const tbody = document.getElementById("sub-body");
+      tbody.innerHTML = "";
+      const seenDiscussion = new Set();
+      const discussionItems = [];
+
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        const time = (row.created_at || "").split(" ")[1] || row.created_at;
+        tr.innerHTML = `
+          <td>${time || ""}</td>
+          <td>${escapeHtml(row.student_name)}</td>
+          <td><span class="${verdictClass(row.verdict)}">${verdictLabel(row.verdict)}</span></td>
+          <td>${row.tests_passed}/${row.tests_total}</td>
+        `;
+        tbody.appendChild(tr);
+
+        if (row.discussion_point && !seenDiscussion.has(row.discussion_point)) {
+          seenDiscussion.add(row.discussion_point);
+          discussionItems.push(row.discussion_point);
+        }
+      }
+
+      const list = document.getElementById("discussion-list");
+      if (discussionItems.length === 0) {
+        list.innerHTML = '<li style="color:#5a6072;">Nothing yet.</li>';
+      } else {
+        list.innerHTML = discussionItems.slice(0, 12).map(d => `<li>${escapeHtml(d)}</li>`).join("");
+      }
+    } catch (e) {
+      // Backend not reachable yet -- stay quiet and retry on the next poll.
+    }
+  }
+
+  function clusterLabel(c) {
+    if (c.exec_verdict === "rejected") return "Rejected submission";
+    if (c.exec_verdict === "pass") return "Passing";
+    const verdict = (c.exec_verdict || "unknown").replace(/_/g, " ");
+    return c.error_type && c.error_type !== "none" ? `${verdict} (${c.error_type})` : verdict;
+  }
+
+  async function pollClusters() {
+    try {
+      const res = await fetch(`${API_BASE}/api/lecturer/clusters`);
+      const clusters = await res.json();
+
+      const table = document.getElementById("cluster-table");
+      const empty = document.getElementById("cluster-empty");
+      const body = document.getElementById("cluster-body");
+
+      if (clusters.length === 0) {
+        table.style.display = "none";
+        empty.style.display = "block";
+        return;
+      }
+      empty.style.display = "none";
+      table.style.display = "table";
+      body.innerHTML = clusters.map(c => `
+        <tr><td>${escapeHtml(clusterLabel(c))}</td><td>${c.count}</td></tr>
+      `).join("");
+    } catch (e) {
+      // Backend not reachable yet -- stay quiet and retry on the next poll.
+    }
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement("div");
+    div.textContent = s == null ? "" : String(s);
+    return div.innerHTML;
+  }
+
+  poll();
+  pollClusters();
+  setInterval(poll, POLL_MS);
+  setInterval(pollClusters, POLL_MS);
+</script>
+</body>
+</html>

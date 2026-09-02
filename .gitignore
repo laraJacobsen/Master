@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+backend/*.db
+.pytest_cache/
