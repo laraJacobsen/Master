@@ -89,6 +89,42 @@ Once Claude Code started drafting the taxonomy, three concrete design questions 
    absolute number to set defaults from directly — the simulated-student blind spot noted above
    still applies, which is exactly what the human/expert checkpoint (decision 3) exists to catch.
 
+## Runtime resource finding (2026-09-15): local-laptop latency/memory ceiling
+
+*Written by Claude Code after wiring the taxonomy into the running `interactive_lecture_prototype`
+backend (`feedback-research/` copied in, `backend/ai_feedback.py` switched from Claude to a local
+Ollama call for verdict/error_type/discussion_point) and testing it against 6 real submissions on
+Lara's laptop. Logged here rather than left as a README footnote because it's directly relevant to
+the open IDUN/VM access question, not just an implementation detail.*
+
+**What was measured**: 6 real submissions through `/api/submit` (correct code, a wrong-answer bug,
+and a `NameError` resubmitted 4 times to watch the hint escalate), with Judge0 (Docker), the FastAPI
+backend, and Ollama (`llama3.2:3b`, chosen over the already-pulled `llama3.2:1b` — the 1b model was
+deliberately picked *weak* for the simulated-student eval role above, the wrong property for a
+grading role) all running together on one machine: 7.6GB RAM, no GPU.
+
+**Findings**:
+- Latency: first grading call after backend startup took ~38s (cold model load into RAM);
+  subsequent calls to the same already-loaded model ranged ~9-33s. Noticeably slower than the
+  Claude forced-tool-use call it replaced.
+- Memory: swap was already at ~7.2-7.5GB/8GB used before this stack was even started (other running
+  applications, not this stack alone). Available RAM dropped from ~2.0GB to ~1.2-1.3GB once the 3B
+  model loaded, and stayed there — thin enough margin that heavier concurrent load (several students
+  submitting at once, which this single-student sequential test does not exercise) could plausibly
+  push it into real thrashing rather than just slow responses.
+
+**Why this matters for the IDUN/VM access question**: this is real evidence, not a guess, that a
+live classroom pilot run against local-laptop Ollama is risky on both axes that matter for a
+lecture-paced feedback loop — tens-of-seconds latency per submission, and a memory margin thin
+enough that it wasn't tested here under realistic multi-student concurrency. Whatever gets decided
+on IDUN/VM access should treat this as the concrete cost of *not* moving the Ollama-serving
+component off the local machine, weighed against however much simpler local-only stays for
+day-to-day development. A fallback worth naming explicitly if IDUN access doesn't land in time:
+keep local Ollama for day-to-day dev/testing (as now) but reconsider whether the actual classroom
+pilot needs a hosted model (Claude, or Ollama on a properly resourced VM) for the grading role,
+purely on latency/reliability grounds — independent of the hint-taxonomy work, which doesn't depend
+on Ollama at all and is unaffected either way.
+
 ## Open questions this still leaves
 
 - Who reviews the expert-checkpoint sample — supervisor, self, or both?
@@ -99,3 +135,6 @@ Once Claude Code started drafting the taxonomy, three concrete design questions 
 - Once per-(verdict, tier) fix-success data exists, what threshold on the curve actually decides
   "this verdict's ceiling is N tiers" — a fixed drop-off percentage, or a judgment call reviewed
   at the human-checkpoint stage?
+- IDUN/VM access: does the classroom-pilot deployment move the Ollama-serving component off the
+  local laptop, and if so, on what timeline relative to the pilot itself? The 2026-09-15 local-run
+  numbers above (latency, memory margin) are the concrete cost of leaving it local-only.
