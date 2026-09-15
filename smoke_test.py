@@ -1,17 +1,18 @@
 """
 Structural smoke test for the prototype backend.
 
-Mocks both external dependencies (Judge0's HTTP API and the Anthropic API)
-so this runs anywhere without a live Judge0 instance or an API key --
+Mocks both external dependencies (Judge0's HTTP API and Ollama's HTTP API)
+so this runs anywhere without a live Judge0 instance or a running Ollama --
 it proves the FastAPI app, SQLite store, and request/response plumbing are
-wired correctly end to end. It does NOT prove Judge0 execution or Claude's
-actual judgment quality; that needs a real run against a live Judge0 (see
-README.md) and a real ANTHROPIC_API_KEY.
+wired correctly end to end. It does NOT prove Judge0 execution or the local
+model's actual judgment quality; that needs a real run against a live
+Judge0 (see README.md) and a real Ollama instance.
 
 Run: python3 smoke_test.py   (from /root/prototype)
 """
 
 import base64
+import json as json_lib  # `fake_post` below has its own `json` parameter (the request body)
 import os
 import sys
 from unittest.mock import MagicMock, patch
@@ -24,11 +25,32 @@ if os.path.exists(os.environ["PROTOTYPE_DB_PATH"]):
 
 
 def fake_post(url, params=None, json=None, timeout=None):
-    """Stands in for requests.post to the Judge0 /submissions endpoint.
-    Actually evaluates 'sum of space-separated ints' so a genuinely correct
-    submission looks correct and a broken one looks broken."""
+    """Stands in for requests.post to either Judge0's /submissions endpoint or
+    Ollama's /api/chat endpoint -- ai_feedback.py and judge0_client.py both
+    call through the same requests.post, so one fake dispatches on URL.
+    Judge0 branch actually evaluates 'sum of space-separated ints' so a
+    genuinely correct submission looks correct and a broken one looks broken.
+    Ollama branch returns a canned, schema-valid JSON verdict."""
     resp = MagicMock()
     resp.raise_for_status = lambda: None
+
+    if url.endswith("/api/chat"):
+        resp.json.return_value = {
+            "message": {
+                "content": json_lib.dumps(
+                    {
+                        "verdict": "correct",
+                        "error_type": "none",
+                        "discussion_point": (
+                            "Several students used sum()+split(); worth showing as the "
+                            "idiomatic approach."
+                        ),
+                    }
+                )
+            }
+        }
+        return resp
+
     stdin = base64.b64decode(json["stdin"]).decode()
     try:
         total = sum(int(x) for x in stdin.split())
@@ -45,42 +67,22 @@ def fake_post(url, params=None, json=None, timeout=None):
         "message": None,
         "time": "0.01",
         "memory": 1234,
+        "exit_code": 0,
     }
     return resp
 
 
-class FakeBlock:
-    def __init__(self, input_):
-        self.type = "tool_use"
-        self.name = "submit_feedback"
-        self.input = input_
-
-
-class FakeResponse:
-    def __init__(self, input_):
-        self.content = [FakeBlock(input_)]
-
-
-class FakeMessages:
-    def create(self, **kwargs):
-        return FakeResponse(
-            {
-                "verdict": "correct",
-                "error_type": "none",
-                "feedback": "Nice work -- your solution handles all the given cases correctly.",
-                "discussion_point": "Several students used sum()+split(); worth showing as the idiomatic approach.",
-            }
-        )
-
-
-class FakeAnthropicClient:
-    def __init__(self, *a, **kw):
-        self.messages = FakeMessages()
+def fake_get(url, timeout=None):
+    """Stands in for requests.get to Ollama's /api/tags reachability check."""
+    resp = MagicMock()
+    resp.raise_for_status = lambda: None
+    resp.json.return_value = {"models": [{"name": "llama3.2:3b"}]}
+    return resp
 
 
 def main():
     with patch("backend.judge0_client.requests.post", side_effect=fake_post), \
-         patch("backend.ai_feedback.Anthropic", FakeAnthropicClient):
+         patch("backend.ai_feedback.requests.get", side_effect=fake_get):
 
         from fastapi.testclient import TestClient
 

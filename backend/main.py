@@ -110,7 +110,11 @@ def api_submit(req: SubmitRequest):
 
     try:
         feedback = judge_and_feedback(
-            question["prompt"], req.source_code, test_results, language=question["language"]
+            question["prompt"],
+            req.source_code,
+            test_results,
+            language=question["language"],
+            attempt_number=attempt_number,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI feedback failed: {e}")
@@ -140,6 +144,9 @@ def api_submit(req: SubmitRequest):
         "tests_total": feedback["tests_total"],
         "verdict": feedback["verdict"],
         "feedback": feedback["feedback"],
+        "attempt_number": attempt_number,
+        "hint_tier": feedback.get("hint_tier"),
+        "hint_ceiling": feedback.get("hint_ceiling"),
     }
 
 

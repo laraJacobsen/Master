@@ -1,66 +1,53 @@
 """
 AI judging + feedback module.
 
-One combined Claude call per submission: given the question, the student's
-code, and the already-computed Judge0 test results, produce a structured
-verdict plus student-facing feedback plus a lecturer-facing discussion point.
-Structured output is enforced via forced tool use (not by asking Claude to
-emit JSON in prose and hoping it parses).
+verdict + discussion_point come from a local Ollama model (JSON-mode chat call).
+The actual hint text shown to the student comes from the tiered taxonomy in
+feedback-research/ (via backend/hints.py), not from the model -- see
+feedback-research/pedagogical-feedback-design-decision.md. Ollama is not asked to
+produce feedback text at all.
 
-Requires ANTHROPIC_API_KEY in the environment. Model is overridable via
-ANTHROPIC_MODEL in case the pinned default is retired later.
+Falls back to a deterministic mock (heuristic verdict from test pass/fail counts)
+whenever Ollama is unreachable, OLLAMA_MODEL isn't pulled, or two consecutive
+JSON-mode calls fail to produce schema-conforming output -- this must never 500
+the submission endpoint.
 """
 
+import json
 import os
 
-from anthropic import Anthropic
+import requests
 
-_client = None
+from backend.hints import hint_for_submission
 
-DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
 
-FEEDBACK_TOOL = {
-    "name": "submit_feedback",
-    "description": "Submit structured feedback on a student's code submission.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "verdict": {
-                "type": "string",
-                "enum": ["correct", "partially_correct", "incorrect", "error"],
-                "description": "Overall verdict across all test cases.",
-            },
-            "error_type": {
-                "type": "string",
-                "enum": ["none", "syntax", "runtime", "logic", "timeout", "other"],
-                "description": "Category of the primary problem, if any.",
-            },
-            "feedback": {
-                "type": "string",
-                "description": (
-                    "2-4 sentences of feedback FOR THE STUDENT, plain and encouraging. "
-                    "Point them toward the issue without just handing them the fixed code."
-                ),
-            },
-            "discussion_point": {
-                "type": "string",
-                "description": (
-                    "One short sentence a lecturer could raise to the whole class about "
-                    "this kind of mistake or approach -- generalized beyond this one student."
-                ),
-            },
-        },
-        "required": ["verdict", "error_type", "feedback", "discussion_point"],
-    },
-}
+VERDICTS = ("correct", "partially_correct", "incorrect", "error")
+ERROR_TYPES = ("none", "syntax", "runtime", "logic", "timeout", "other")
+
+JUDGE_SYSTEM_PROMPT = (
+    "You are grading a student's code submission for a programming exercise. "
+    "Respond with ONLY a JSON object with exactly these keys:\n"
+    f"  \"verdict\": one of {list(VERDICTS)}\n"
+    f"  \"error_type\": one of {list(ERROR_TYPES)}\n"
+    "  \"discussion_point\": one short sentence a lecturer could raise to the "
+    "whole class about this kind of mistake or approach, generalized beyond this "
+    "one student.\n"
+    "No other keys, no markdown fences, no explanation outside the JSON object."
+)
 
 
-def _get_client():
-    global _client
-    if _client is None:
-        # Anthropic() picks up ANTHROPIC_API_KEY from the environment.
-        _client = Anthropic()
-    return _client
+def _ollama_available() -> bool:
+    if not OLLAMA_MODEL:
+        return False
+    try:
+        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        resp.raise_for_status()
+        available = [m["name"] for m in resp.json().get("models", [])]
+    except Exception:
+        return False
+    return OLLAMA_MODEL in available
 
 
 def _format_cases(test_results: list) -> str:
@@ -91,10 +78,10 @@ def _guess_error_type(test_results: list) -> str:
 
 
 def _mock_feedback(test_results: list) -> dict:
-    """Canned verdict used when ANTHROPIC_API_KEY isn't set, so the rest of
+    """Canned verdict used when Ollama isn't reachable/configured, so the rest of
     the pipeline (Judge0 execution, storage, live lecturer view) can be
-    exercised without an API key or cost. Mirrors the shape of a real
-    Claude response but with generic text -- not a substitute for it."""
+    exercised without a local model running. Mirrors the shape of a real
+    Ollama response but with generic text -- not a substitute for it."""
     passed = sum(1 for r in test_results if r["passed"])
     total = len(test_results)
 
@@ -112,27 +99,71 @@ def _mock_feedback(test_results: list) -> dict:
         "verdict": verdict,
         "error_type": error_type,
         "feedback": (
-            f"[Mock feedback -- ANTHROPIC_API_KEY not set] {passed}/{total} test cases passed. "
-            "Set ANTHROPIC_API_KEY to get real AI-generated feedback here."
+            f"[Mock feedback -- Ollama not reachable] {passed}/{total} test cases passed. "
+            f"Start Ollama and set OLLAMA_MODEL (currently {OLLAMA_MODEL!r}) to get real "
+            "AI-generated verdict/discussion point here."
         ),
         "discussion_point": (
-            "[Mock] Set ANTHROPIC_API_KEY to get a real lecturer discussion point here."
+            "[Mock] Start Ollama to get a real lecturer discussion point here."
         ),
         "tests_passed": passed,
         "tests_total": total,
     }
 
 
-def judge_and_feedback(question_prompt: str, source_code: str, test_results: list, language: str = "python") -> dict:
-    """Returns a dict: verdict, error_type, feedback, discussion_point,
-    tests_passed, tests_total."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return _mock_feedback(test_results)
+def _call_ollama(prompt: str) -> dict:
+    """One JSON-mode call. Raises on network failure, invalid JSON, or a response
+    that doesn't satisfy the expected schema -- caller retries/falls back."""
+    resp = requests.post(
+        f"{OLLAMA_URL}/api/chat",
+        json={
+            "model": OLLAMA_MODEL,
+            "stream": False,
+            "format": "json",
+            "messages": [
+                {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+        },
+        timeout=60,
+    )
+    resp.raise_for_status()
+    parsed = json.loads(resp.json()["message"]["content"])
+    if parsed.get("verdict") not in VERDICTS:
+        raise ValueError(f"bad verdict in Ollama response: {parsed!r}")
+    if parsed.get("error_type") not in ERROR_TYPES:
+        raise ValueError(f"bad error_type in Ollama response: {parsed!r}")
+    if not isinstance(parsed.get("discussion_point"), str) or not parsed["discussion_point"].strip():
+        raise ValueError(f"missing discussion_point in Ollama response: {parsed!r}")
+    return {
+        "verdict": parsed["verdict"],
+        "error_type": parsed["error_type"],
+        "discussion_point": parsed["discussion_point"],
+    }
 
+
+def judge_and_feedback(
+    question_prompt: str,
+    source_code: str,
+    test_results: list,
+    language: str = "python",
+    attempt_number: int = 1,
+    expected_function_name: str = None,
+) -> dict:
+    """Returns a dict: verdict, error_type, feedback, discussion_point,
+    tests_passed, tests_total, hint_tier, hint_ceiling."""
     passed = sum(1 for r in test_results if r["passed"])
     total = len(test_results)
+    baseline_feedback = (
+        f"All {total} test cases passed!"
+        if total and passed == total
+        else f"{passed}/{total} test cases passed. Review the cases that didn't match."
+    )
 
-    prompt = f"""A student submitted code for this programming exercise:
+    if not _ollama_available():
+        result = _mock_feedback(test_results)
+    else:
+        prompt = f"""A student submitted code for this programming exercise:
 
 {question_prompt}
 
@@ -146,22 +177,29 @@ Student's code:
 Automated test results ({passed}/{total} passed), from running the code against Judge0:
 {_format_cases(test_results)}
 
-Call submit_feedback with your assessment."""
+Respond with the JSON object described in the system prompt."""
 
-    client = _get_client()
-    resp = client.messages.create(
-        model=DEFAULT_MODEL,
-        max_tokens=600,
-        tools=[FEEDBACK_TOOL],
-        tool_choice={"type": "tool", "name": "submit_feedback"},
-        messages=[{"role": "user", "content": prompt}],
-    )
+        judged = None
+        for _attempt in (1, 2):
+            try:
+                judged = _call_ollama(prompt)
+                break
+            except Exception:
+                continue
 
-    for block in resp.content:
-        if block.type == "tool_use" and block.name == "submit_feedback":
-            result = dict(block.input)
-            result["tests_passed"] = passed
-            result["tests_total"] = total
-            return result
+        result = (
+            {**judged, "feedback": baseline_feedback, "tests_passed": passed, "tests_total": total}
+            if judged is not None
+            else _mock_feedback(test_results)
+        )
 
-    raise RuntimeError("Claude response did not include the expected submit_feedback tool call")
+    try:
+        hint = hint_for_submission(test_results, attempt_number, expected_function_name)
+    except Exception:
+        hint = {"hint_text": None, "hint_tier": None, "hint_ceiling": None}
+
+    if hint["hint_text"] is not None:
+        result["feedback"] = hint["hint_text"]
+    result["hint_tier"] = hint["hint_tier"]
+    result["hint_ceiling"] = hint["hint_ceiling"]
+    return result

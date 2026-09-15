@@ -83,6 +83,15 @@
   .verdict-partially_correct { background: #b8860b; }
   .verdict-incorrect, .verdict-error { background: var(--bad); }
   #feedback-text { margin-top: 0.75rem; line-height: 1.5; }
+  #tier-note {
+    display: none;
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    font-weight: bold;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
   #error-box {
     display: none;
     background: #fdeceb;
@@ -117,6 +126,7 @@ print(sum(int(n) for n in nums))"></textarea>
   <div class="card" id="result">
     <span id="verdict-badge" class="verdict-badge"></span>
     <span id="score-text" style="margin-left:0.6rem; color:var(--muted);"></span>
+    <div id="tier-note"></div>
     <div id="feedback-text"></div>
   </div>
 </main>
@@ -177,6 +187,13 @@ print(sum(int(n) for n in nums))"></textarea>
       setBadge(data.verdict);
       document.getElementById("score-text").textContent =
         `${data.tests_passed}/${data.tests_total} tests passed`;
+      const tierNote = document.getElementById("tier-note");
+      if (data.hint_tier) {
+        tierNote.textContent = `Attempt ${data.attempt_number} · Hint ${data.hint_tier}/${data.hint_ceiling}`;
+        tierNote.style.display = "block";
+      } else {
+        tierNote.style.display = "none";
+      }
       document.getElementById("feedback-text").textContent = data.feedback;
       result.style.display = "block";
     } catch (e) {

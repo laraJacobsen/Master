@@ -79,6 +79,7 @@ def run_submission(source_code: str, stdin: str, language: str = "python", timeo
         "message": _un_b64(data.get("message")),
         "time_s": data.get("time"),
         "memory_kb": data.get("memory"),
+        "exit_code": data.get("exit_code"),
     }
 
 
