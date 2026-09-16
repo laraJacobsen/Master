@@ -1,12 +1,15 @@
 """
 Structural smoke test for the prototype backend.
 
-Mocks both external dependencies (Judge0's HTTP API and Ollama's HTTP API)
-so this runs anywhere without a live Judge0 instance or a running Ollama --
-it proves the FastAPI app, SQLite store, and request/response plumbing are
-wired correctly end to end. It does NOT prove Judge0 execution or the local
-model's actual judgment quality; that needs a real run against a live
-Judge0 (see README.md) and a real Ollama instance.
+Mocks the two external dependencies still in play: Judge0's HTTP API (always) and
+Ollama's HTTP API (only reached from backend/aggregation.py now, for phrasing a
+lecturer discussion point -- see its module docstring for why that's the one place
+a model was brought back). Proves the FastAPI app, SQLite store, and request/response
+plumbing are wired correctly end to end, and that the narrowed Ollama call really is
+narrow: fake_post below records every /api/chat request body so _run_checks can
+assert no student code or name ever reaches it. Does NOT prove Judge0 execution or
+real Ollama's actual output quality; those need a live Judge0 (see README.md) and a
+live Ollama.
 
 Run: python3 smoke_test.py   (from /root/prototype)
 """
@@ -23,35 +26,84 @@ os.environ["PROTOTYPE_DB_PATH"] = "/tmp/smoke_prototype.db"
 if os.path.exists(os.environ["PROTOTYPE_DB_PATH"]):
     os.remove(os.environ["PROTOTYPE_DB_PATH"])
 
+NAME_ERROR_MARKER = "num = inpt().split()"
+WRONG_ANSWER_MARKER = "off_by_one_bug"
+
+# Mutable so _run_checks can flip Ollama between "available" (to exercise the live
+# phrasing call) and "unreachable" (to exercise the deterministic-template fallback)
+# without needing separate patch contexts.
+_ollama_state = {"available": True}
+ollama_chat_calls = []  # request bodies sent to /api/chat, for the no-leakage assertion
+
+
+def fake_get(url, timeout=None):
+    """Stands in for requests.get to Ollama's /api/tags reachability check."""
+    resp = MagicMock()
+    resp.raise_for_status = lambda: None
+    resp.json.return_value = {
+        "models": [{"name": "llama3.2:3b"}] if _ollama_state["available"] else []
+    }
+    return resp
+
 
 def fake_post(url, params=None, json=None, timeout=None):
     """Stands in for requests.post to either Judge0's /submissions endpoint or
-    Ollama's /api/chat endpoint -- ai_feedback.py and judge0_client.py both
-    call through the same requests.post, so one fake dispatches on URL.
-    Judge0 branch actually evaluates 'sum of space-separated ints' so a
-    genuinely correct submission looks correct and a broken one looks broken.
-    Ollama branch returns a canned, schema-valid JSON verdict."""
+    Ollama's /api/chat endpoint -- judge0_client.py and aggregation.py both call
+    through the same requests.post, so one fake dispatches on URL.
+
+    Judge0 branch actually evaluates 'sum of space-separated ints' so a genuinely
+    correct submission looks correct and a broken one looks broken. Source code
+    containing NAME_ERROR_MARKER/WRONG_ANSWER_MARKER short-circuits to a canned
+    crash/wrong-output result, to exercise those cluster paths without needing a
+    real interpreter."""
     resp = MagicMock()
     resp.raise_for_status = lambda: None
 
     if url.endswith("/api/chat"):
+        ollama_chat_calls.append(json)
         resp.json.return_value = {
             "message": {
                 "content": json_lib.dumps(
-                    {
-                        "verdict": "correct",
-                        "error_type": "none",
-                        "discussion_point": (
-                            "Several students used sum()+split(); worth showing as the "
-                            "idiomatic approach."
-                        ),
-                    }
+                    {"discussion_point": "Great moment to talk through this one together."}
                 )
             }
         }
         return resp
 
+    source = base64.b64decode(json["source_code"]).decode()
+    if NAME_ERROR_MARKER in source:
+        resp.json.return_value = {
+            "status": {"id": 11, "description": "Runtime Error (NZEC)"},
+            "stdout": base64.b64encode(b"").decode(),
+            "stderr": base64.b64encode(
+                b"Traceback (most recent call last):\n"
+                b'  File "main.py", line 1, in <module>\n'
+                b"NameError: name 'inpt' is not defined"
+            ).decode(),
+            "compile_output": None,
+            "message": None,
+            "time": "0.01",
+            "memory": 1234,
+            "exit_code": 1,
+        }
+        return resp
+
     stdin = base64.b64decode(json["stdin"]).decode()
+    if WRONG_ANSWER_MARKER in source:
+        stdout_val = str(sum(int(x) for x in stdin.split()) + 1)  # deliberately off by one
+        status = {"id": 3, "description": "Accepted"}
+        resp.json.return_value = {
+            "status": status,
+            "stdout": base64.b64encode((stdout_val + "\n").encode()).decode(),
+            "stderr": None,
+            "compile_output": None,
+            "message": None,
+            "time": "0.01",
+            "memory": 1234,
+            "exit_code": 0,
+        }
+        return resp
+
     try:
         total = sum(int(x) for x in stdin.split())
         stdout_val = str(total)
@@ -72,17 +124,10 @@ def fake_post(url, params=None, json=None, timeout=None):
     return resp
 
 
-def fake_get(url, timeout=None):
-    """Stands in for requests.get to Ollama's /api/tags reachability check."""
-    resp = MagicMock()
-    resp.raise_for_status = lambda: None
-    resp.json.return_value = {"models": [{"name": "llama3.2:3b"}]}
-    return resp
-
-
 def main():
     with patch("backend.judge0_client.requests.post", side_effect=fake_post), \
-         patch("backend.ai_feedback.requests.get", side_effect=fake_get):
+         patch("backend.aggregation.requests.post", side_effect=fake_post), \
+         patch("backend.aggregation.requests.get", side_effect=fake_get):
 
         from fastapi.testclient import TestClient
 
@@ -162,10 +207,81 @@ def _run_checks(client):
         assert r.status_code == 200, r.text
         clusters = r.json()
         pass_cluster = next(c for c in clusters if c["exec_verdict"] == "pass")
-        assert pass_cluster["count"] == 2, clusters  # the two correct submissions above
+        # Both correct submissions above are the same student resubmitting -- cluster
+        # count is distinct students, not raw submission rows.
+        assert pass_cluster["count"] == 1, clusters
         rejected_cluster = next(c for c in clusters if c["exec_verdict"] == "rejected")
         assert rejected_cluster["count"] == 1, clusters
+        assert rejected_cluster["discussion_point"] is None, clusters  # below the threshold
         print("GET /api/lecturer/clusters     OK ->", clusters)
+
+        # Same NameError-causing code from two different students, plus one of them
+        # resubmitting it a second time unchanged. The cluster's distinct-student
+        # count must stay at 2 (not 3), and it should now clear the discussion
+        # threshold with one stable talking point -- not three differently-worded
+        # ones, one per submission. Ollama is "available" for this one, so the
+        # cluster's discussion point should come from the mocked live call.
+        for student in ("Alice", "Bob", "Alice"):
+            r = client.post(
+                "/api/submit",
+                json={
+                    "student_name": student,
+                    "question_id": "sum-ints",
+                    "source_code": NAME_ERROR_MARKER,
+                },
+            )
+            assert r.status_code == 200, r.text
+            assert r.json()["verdict"] == "error", r.json()
+
+        clusters = client.get("/api/lecturer/clusters").json()
+        name_error_cluster = next(
+            c for c in clusters if c["exec_verdict"] == "runtime_error" and c["error_type"] == "NameError"
+        )
+        assert name_error_cluster["count"] == 2, clusters
+        # Composed: mocked Ollama lead-in + the curated factual mechanism sentence --
+        # the lead-in must never replace the factual content, only precede it.
+        assert name_error_cluster["discussion_point"] == (
+            "Great moment to talk through this one together. A NameError means Python "
+            "doesn't recognize a name that was used -- almost always a typo, or a "
+            "variable/function referenced before it was ever defined."
+        ), clusters
+        print("Cluster dedup by student, Ollama phrasing       OK ->", name_error_cluster)
+
+        # The narrowed Ollama call must never see student code, names, or the specific
+        # exception text -- only the category label and count. This is exactly the
+        # information leak that mattered: the earlier, wider call was handed the real
+        # traceback and still fabricated an unrelated cause, so the fix is to never let
+        # it see case-specific detail as well as never let it explain the cause.
+        assert len(ollama_chat_calls) == 1, ollama_chat_calls
+        sent_prompt = json_lib.dumps(ollama_chat_calls[0])
+        for leaked in ("inpt", "Alice", "Bob", NAME_ERROR_MARKER, "Traceback"):
+            assert leaked not in sent_prompt, (leaked, sent_prompt)
+        assert "NameError" in sent_prompt and "2" in sent_prompt, sent_prompt
+        print("Ollama call carries no student code/names       OK")
+
+        # Now the fallback path: Ollama goes unreachable, and a *different* cluster
+        # (wrong_answer, from two more distinct students) must fall back to the
+        # curated deterministic template rather than erroring or going silent.
+        _ollama_state["available"] = False
+        for student in ("Carol", "Dave"):
+            r = client.post(
+                "/api/submit",
+                json={
+                    "student_name": student,
+                    "question_id": "sum-ints",
+                    "source_code": WRONG_ANSWER_MARKER,
+                },
+            )
+            assert r.status_code == 200, r.text
+            assert r.json()["verdict"] == "incorrect", r.json()
+
+        clusters = client.get("/api/lecturer/clusters").json()
+        wrong_answer_cluster = next(c for c in clusters if c["exec_verdict"] == "wrong_answer")
+        assert wrong_answer_cluster["count"] == 2, clusters
+        assert wrong_answer_cluster["discussion_point"] is not None, clusters
+        assert wrong_answer_cluster["discussion_point"].startswith("2 students hit this:"), clusters
+        assert len(ollama_chat_calls) == 1, "Ollama should not have been called while unreachable"
+        print("Ollama-unreachable falls back to template       OK ->", wrong_answer_cluster)
 
         r = client.post(
             "/api/submit",

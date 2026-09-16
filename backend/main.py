@@ -4,16 +4,16 @@ FastAPI backend for the interactive-lecture prototype.
 Flow per submission:
   1. Student POSTs code to /api/submit
   2. Code runs against the question's test cases on Judge0 (SYNC calls)
-  3. ai_feedback.judge_and_feedback() classifies the result (exec_verdict +
-     hint text, deterministic) and asks a local Ollama model for a verdict +
-     lecturer discussion point
+  3. ai_feedback.judge_and_feedback() classifies the result (verdict, exec_verdict,
+     hint text) -- fully deterministic, no model in the loop (see ai_feedback.py)
   4. Everything is saved to SQLite
   5. The student gets pass/fail + a tiered hint back immediately
-  6. The lecturer page polls /api/lecturer/submissions and sees it appear
+  6. The lecturer page polls /api/lecturer/submissions and sees it appear, and
+     /api/lecturer/clusters for talking points (one per cluster of students who hit
+     the same issue, not per submission -- see aggregation.py)
 
 Run with:
-    OLLAMA_MODEL=llama3.2:3b JUDGE0_BASE_URL=http://localhost:2358 \
-        uvicorn backend.main:app --reload --port 8000
+    JUDGE0_BASE_URL=http://localhost:2358 uvicorn backend.main:app --reload --port 8000
 from the /root/prototype directory (see README.md).
 """
 
@@ -81,7 +81,7 @@ def api_submit(req: SubmitRequest):
                 "tests_passed": 0,
                 "tests_total": tests_total,
                 "verdict": "error",
-                "error_type": "other",
+                "error_type": None,
                 "exec_verdict": "rejected",
                 "rejection_reason": rejection_reason,
                 "feedback": f"Submission rejected before running: {rejection_reason}.",
@@ -131,7 +131,10 @@ def api_submit(req: SubmitRequest):
             "exec_verdict": feedback["exec_verdict"],
             "rejection_reason": None,
             "feedback": feedback["feedback"],
-            "discussion_point": feedback["discussion_point"],
+            # Lecturer talking points are no longer per-submission -- they're computed
+            # once per cluster of students who hit the same issue, on demand, by
+            # aggregation.cluster_submissions(). Nothing to store per row.
+            "discussion_point": None,
             "raw_test_results": json.dumps(test_results),
         }
     )

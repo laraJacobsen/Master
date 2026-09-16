@@ -25,6 +25,8 @@ _RUNTIME_FAMILIES = {
             "You're calling a name you never defined -- define it, or fix the typo against the "
             "name you did define.",
         ],
+        discussion="A NameError means Python doesn't recognize a name that was used -- almost "
+        "always a typo, or a variable/function referenced before it was ever defined.",
     ),
     "AttributeError": dict(
         ceiling=4,
@@ -35,6 +37,8 @@ _RUNTIME_FAMILIES = {
             "spelled exactly the way you'd find it in the docs?",
             "Fix the misspelled method name so it matches an actual method on that type.",
         ],
+        discussion="An AttributeError means a method was called that doesn't exist on that "
+        "object -- usually a small misspelling of a real method name.",
     ),
     "RecursionError": dict(
         ceiling=4,
@@ -46,6 +50,8 @@ _RUNTIME_FAMILIES = {
             "Add a base case that returns directly once the input is small enough, instead of "
             "always recursing.",
         ],
+        discussion="A RecursionError means a function kept calling itself without ever hitting a "
+        "base case that stops the recursion.",
     ),
     "TypeError": dict(
         ceiling=4,
@@ -58,6 +64,8 @@ _RUNTIME_FAMILIES = {
             "Fix the mismatched type or argument count on that line so it matches what the "
             "operation or function expects.",
         ],
+        discussion="A TypeError means an operation or function call didn't match the type or "
+        "number of arguments it expected.",
     ),
     "IndexError": dict(
         ceiling=4,
@@ -68,6 +76,8 @@ _RUNTIME_FAMILIES = {
             "length -- what's the last valid index?",
             "Adjust the index so it stays inside the valid range for the sequence's length.",
         ],
+        discussion="An IndexError means the code accessed a position in a sequence that's "
+        "outside its valid range.",
     ),
     "KeyError": dict(
         ceiling=4,
@@ -79,6 +89,8 @@ _RUNTIME_FAMILIES = {
             "Populate the dictionary with that key before you look it up, or use a lookup that "
             "doesn't require it to already exist.",
         ],
+        discussion="A KeyError means the code looked up a dictionary key that was never added "
+        "to it.",
     ),
     "ModuleNotFoundError": dict(
         ceiling=4,
@@ -89,6 +101,8 @@ _RUNTIME_FAMILIES = {
             "need that import at all?",
             "Remove the import and rewrite the line to use only standard string operations.",
         ],
+        discussion="A ModuleNotFoundError means an import was used that isn't available -- worth "
+        "checking whether the exercise actually needs it.",
     ),
     "EOFError": dict(
         ceiling=4,
@@ -99,6 +113,8 @@ _RUNTIME_FAMILIES = {
             "lines of input it's actually given -- do they match?",
             "Remove the extra input call, or provide the extra input it's waiting for.",
         ],
+        discussion="An EOFError means the code tried to read more input than was actually "
+        "given to it.",
     ),
 }
 
@@ -115,6 +131,8 @@ _RUNTIME_FALLBACK = dict(
         "Look at the exact line named at the bottom of the traceback -- what is that line trying "
         "to do, and why might it fail for this input?",
     ],
+    discussion="A {error_type} means something crashed -- worth reading together where exactly "
+    "the traceback points and what that exception generally signals.",
 )
 
 _OTHER_FAMILIES = {
@@ -128,6 +146,9 @@ _OTHER_FAMILIES = {
             "Compare your logic against the problem statement line by line and correct the step "
             "that diverges.",
         ],
+        discussion="The code ran without crashing but produced the wrong output -- worth tracing "
+        "through the test input step by step to see where the logic diverges from what's "
+        "expected.",
     ),
     "syntax_error": dict(
         ceiling=2,
@@ -138,6 +159,8 @@ _OTHER_FAMILIES = {
             "slides for that kind of statement (a function definition, a loop, an if) -- does it "
             "match exactly?",
         ],
+        discussion="The code had a syntax error -- worth comparing the flagged line against the "
+        "exact pattern from the lecture slides for that kind of statement.",
     ),
     "function_not_found": dict(
         ceiling=2,
@@ -146,6 +169,8 @@ _OTHER_FAMILIES = {
             "Check the exact function name you defined against the one the problem statement asks "
             "for.",
         ],
+        discussion="The grader couldn't find the expected function -- worth double-checking the "
+        "exact function name the exercise asks for.",
     ),
     # shared family: timeout / oom / output_limit_exceeded -- see hint-taxonomy-draft.md, split
     # back out only if simulated-student fix-rates diverge meaningfully across the three verdicts.
@@ -160,6 +185,8 @@ _OTHER_FAMILIES = {
             "Add the missing update (increment, append-then-check, or similar) so the loop's "
             "condition can eventually become false.",
         ],
+        discussion="The program didn't finish -- usually a loop whose stopping condition never "
+        "actually becomes true, worth checking what should update it.",
     ),
     "rejected": dict(
         ceiling=1,
@@ -167,6 +194,8 @@ _OTHER_FAMILIES = {
             "Your submission couldn't be graded as-is -- it's empty, or over the allowed size "
             "limit.",
         ],
+        discussion="Some submissions came in empty or over the size limit -- worth a reminder on "
+        "what counts as a valid submission.",
     ),
 }
 
@@ -250,3 +279,44 @@ def hint_for_attempt(verdict, error_type, attempt_number, ship=True):
     if ship:
         tier = min(tier, SHIPPED_TIER_CAP)
     return get_hint(verdict, error_type, tier)
+
+
+def mechanism_for(verdict, error_type=None):
+    """Just the curated 'what this category actually means' sentence -- the reviewed
+    text that already backs the student-facing hints (same family lookup as get_hint()),
+    with no framing or student count attached. This is the one piece of a lecturer
+    discussion point that must never be dropped: see discussion_point_for() and, for how
+    it's meant to be composed with an optional model-written lead-in,
+    backend/aggregation.py.
+
+    Returns None for verdict == "pass" or an unrecognized (verdict, error_type) pair.
+    """
+    if verdict == "pass":
+        return None
+    family = _family_for(verdict, error_type)
+    if family is None:
+        return None
+    mechanism = family["discussion"]
+    if "{error_type}" in mechanism:
+        mechanism = mechanism.format(error_type=error_type)
+    return mechanism
+
+
+def discussion_point_for(verdict, error_type=None, student_count=1):
+    """Deterministic lecturer talking-point sentence for a cluster of students who hit
+    the same (verdict, error_type) issue -- same curated-template approach as
+    hint_for_attempt(), and for the same reason: an LLM judge was tried for this role
+    and dropped. Even handed the exact correct classification, it fabricated causes
+    that didn't match the actual bug (see pedagogical-feedback-design-decision.md), so
+    this reuses the same reviewed mechanism_for() text that already backs the
+    student-facing hints instead of asking a model to improvise one.
+
+    Returns None for verdict == "pass" (nothing to discuss) or an unrecognized
+    (verdict, error_type) pair (nothing safe to say) -- callers should treat that as
+    "no discussion point available", not an error.
+    """
+    mechanism = mechanism_for(verdict, error_type)
+    if mechanism is None:
+        return None
+    plural = "student" if student_count == 1 else "students"
+    return f"{student_count} {plural} hit this: {mechanism}"
