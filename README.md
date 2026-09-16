@@ -20,14 +20,18 @@ backend/
                       the earlier latency/scaling benchmark scripts)
   validation.py        Pre-execution checks (empty/whitespace/too-long/encoding) run
                         before code ever reaches Judge0
-  exec_verdict.py       Deterministic verdict taxonomy (pass/wrong_answer/syntax_error/
-                        runtime_error/timeout/oom/function_not_found/rejected) from raw
-                        Judge0 results -- separate from Claude's own verdict below
   questions.py        The question bank (one MVP question)
-  ai_feedback.py       Local Ollama call -> verdict + discussion point; student-facing
-                        feedback text comes from hints.py instead (see below)
-  hints.py             Bridges feedback-research/'s classify.py + feedback.py into the
-                        backend -- turns a failing test case into a tier-escalating hint
+  ai_feedback.py       Local Ollama call -> verdict + discussion point; also calls
+                        hints.py for exec_verdict + the student-facing hint text
+  hints.py             THE deterministic Judge0-result classifier (via
+                        feedback-research/classify.py) plus tier-escalating hint
+                        lookup (via feedback-research/feedback.py) -- one
+                        classification of a submission feeds both the
+                        exec_verdict column (lecturer aggregation) and the hint
+                        text (student feedback). There used to be a second,
+                        coarser classifier here (exec_verdict.py) duplicating
+                        this job with less detail -- retired in favor of this
+                        one, single source of truth.
   store.py             SQLite session store (backend/prototype.db, created on first run)
   main.py               FastAPI app: /api/submit, /api/questions, /api/lecturer/submissions
 feedback-research/    Tiered-feedback taxonomy + eval corpus, imported from the
@@ -135,18 +139,18 @@ manual test doesn't exercise).
   websockets yet) -- fine for a lecture-sized class, revisit if this needs
   to feel more instant.
 - Two verdict fields per submission, deliberately not merged: `verdict`/
-  `error_type` are the local model's own judgment (feeds lecturer
-  discussion points), while `exec_verdict`/`rejection_reason` are a
-  deterministic classification of the raw Judge0 result (lecture-wide
-  aggregation, e.g. "how many students hit a timeout"). A rejected
-  submission (empty/whitespace/too-long/bad encoding) still gets a 200
-  response and a stored row -- it's tagged `exec_verdict="rejected"` rather
-  than bounced with an HTTP error, so it shows up in the same aggregation
-  as everything else. Yet a *third*, independent classification
-  (`feedback-research/classify.py`, via `backend/hints.py`) drives the
-  hint tier shown to the student -- it's the one evaluated against the
-  hint taxonomy specifically, and deliberately not reconciled with the
-  other two; see `backend/hints.py`'s docstring.
+  `error_type` are the local model's own judgment (feeds lecturer discussion
+  points), while `exec_verdict`/`rejection_reason` are a deterministic
+  classification of the raw Judge0 result (lecture-wide aggregation, e.g.
+  "how many students hit a timeout") -- computed by `backend/hints.py`, the
+  same classifier that drives the hint tier shown to the student, so there's
+  one deterministic classification per submission, not two. (There used to
+  be a second, coarser deterministic classifier -- `backend/exec_verdict.py`
+  -- duplicating this job with less detail; retired once the hint-taxonomy
+  classifier could do both jobs.) A rejected submission (empty/whitespace/
+  too-long/bad encoding) still gets a 200 response and a stored row -- it's
+  tagged `exec_verdict="rejected"` rather than bounced with an HTTP error, so
+  it shows up in the same aggregation as everything else.
 - `attempt_number` increments per (student_name, question_id) pair by
   counting existing rows -- fine for a single student's sequential
   submissions, not race-safe against truly concurrent double-submits from

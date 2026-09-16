@@ -7,6 +7,11 @@ feedback-research/ (via backend/hints.py), not from the model -- see
 feedback-research/pedagogical-feedback-design-decision.md. Ollama is not asked to
 produce feedback text at all.
 
+exec_verdict (the deterministic Judge0-result classification, also used for
+lecturer aggregation) is computed here too via hints.classify_submission(), so
+main.py doesn't need its own separate classifier call -- one classification of
+test_results feeds both the hint text and the stored exec_verdict.
+
 Falls back to a deterministic mock (heuristic verdict from test pass/fail counts)
 whenever Ollama is unreachable, OLLAMA_MODEL isn't pulled, or two consecutive
 JSON-mode calls fail to produce schema-conforming output -- this must never 500
@@ -18,7 +23,7 @@ import os
 
 import requests
 
-from backend.hints import hint_for_submission
+from backend.hints import classify_submission, hint_for_verdict
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
@@ -151,7 +156,7 @@ def judge_and_feedback(
     expected_function_name: str = None,
 ) -> dict:
     """Returns a dict: verdict, error_type, feedback, discussion_point,
-    tests_passed, tests_total, hint_tier, hint_ceiling."""
+    tests_passed, tests_total, hint_tier, hint_ceiling, exec_verdict."""
     passed = sum(1 for r in test_results if r["passed"])
     total = len(test_results)
     baseline_feedback = (
@@ -194,12 +199,15 @@ Respond with the JSON object described in the system prompt."""
         )
 
     try:
-        hint = hint_for_submission(test_results, attempt_number, expected_function_name)
+        exec_verdict, taxonomy_error_type = classify_submission(test_results, expected_function_name)
+        hint = hint_for_verdict(exec_verdict, taxonomy_error_type, attempt_number)
     except Exception:
+        exec_verdict = "pass" if passed == total and total > 0 else "wrong_answer"
         hint = {"hint_text": None, "hint_tier": None, "hint_ceiling": None}
 
     if hint["hint_text"] is not None:
         result["feedback"] = hint["hint_text"]
     result["hint_tier"] = hint["hint_tier"]
     result["hint_ceiling"] = hint["hint_ceiling"]
+    result["exec_verdict"] = exec_verdict
     return result
