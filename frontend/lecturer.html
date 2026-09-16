@@ -81,15 +81,42 @@
     cursor: pointer;
   }
   .view-example-btn:hover { background: var(--bg); }
-  #inspector-meta { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.6rem; }
-  #inspector-diff { font-size: 0.85rem; margin-bottom: 0.9rem; }
-  #inspector-diff div { margin-bottom: 0.3rem; }
-  #inspector-diff code, #inspector-code {
+
+  .student-name-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--navy);
+    font: inherit;
+    text-decoration: underline dotted;
+    cursor: pointer;
+  }
+  .student-name-btn:hover { color: var(--bad); }
+  .detail-row td { padding: 0 0.4rem 0.75rem; border-bottom: 1px solid #eceef3; }
+  .detail-row pre {
+    display: block;
+    background: var(--bg);
+    border: 1px solid #d0d3dc;
+    border-radius: 6px;
+    padding: 0.6rem;
+    font-size: 0.8rem;
+    font-family: "Courier New", Consolas, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+  }
+
+  .inspector-example { padding-bottom: 0.9rem; margin-bottom: 0.9rem; border-bottom: 1px solid #eceef3; }
+  .inspector-example:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .inspector-meta { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.6rem; }
+  .inspector-diff { font-size: 0.85rem; margin-bottom: 0.9rem; }
+  .inspector-diff div { margin-bottom: 0.3rem; }
+  .inspector-diff code, .inspector-code {
     font-family: "Courier New", Consolas, monospace;
     white-space: pre-wrap;
     word-break: break-word;
   }
-  #inspector-code {
+  .inspector-code {
     display: block;
     background: var(--bg);
     border: 1px solid #d0d3dc;
@@ -132,10 +159,8 @@
       <div id="cluster-empty" style="color:#5a6072; font-size:0.9rem;">Nothing yet.</div>
     </div>
     <div class="card" id="inspector-card" style="display:none;">
-      <h2>Example submission</h2>
-      <div id="inspector-meta"></div>
-      <div id="inspector-diff"></div>
-      <code id="inspector-code"></code>
+      <h2 id="inspector-title">Example submission</h2>
+      <div id="inspector-body"></div>
     </div>
   </div>
 </main>
@@ -149,10 +174,46 @@
     return { correct: "Correct", partially_correct: "Partial", incorrect: "Incorrect", error: "Error" }[v] || v;
   }
 
+  // Rows from the last successful poll, kept around so toggling a student's code
+  // open/closed can re-render instantly without waiting on (or triggering) a
+  // fresh fetch, and submissions already carry source_code so no per-row
+  // fetch is needed either.
+  let lastSubRows = [];
+  // Submission ids currently expanded in the table -- survives across polls
+  // (which otherwise fully rebuild the tbody every 3s) so an open dropdown
+  // doesn't snap shut on the next refresh.
+  const expandedSubIds = new Set();
+
+  function renderSubTable(rows) {
+    const tbody = document.getElementById("sub-body");
+    tbody.innerHTML = "";
+
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      const time = (row.created_at || "").split(" ")[1] || row.created_at;
+      const isOpen = expandedSubIds.has(row.id);
+      tr.innerHTML = `
+        <td>${time || ""}</td>
+        <td><button class="student-name-btn" data-sub-id="${row.id}">${isOpen ? "▾" : "▸"} ${escapeHtml(row.student_name)}</button></td>
+        <td><span class="${verdictClass(row.verdict)}">${verdictLabel(row.verdict)}</span></td>
+        <td>${row.tests_passed}/${row.tests_total}</td>
+      `;
+      tbody.appendChild(tr);
+
+      if (isOpen) {
+        const detailTr = document.createElement("tr");
+        detailTr.className = "detail-row";
+        detailTr.innerHTML = `<td colspan="4"><pre>${escapeHtml(row.source_code)}</pre></td>`;
+        tbody.appendChild(detailTr);
+      }
+    }
+  }
+
   async function poll() {
     try {
       const res = await fetch(`${API_BASE}/api/lecturer/submissions`);
       const rows = await res.json();
+      lastSubRows = rows;
 
       document.getElementById("stats").textContent = `${rows.length} submission${rows.length === 1 ? "" : "s"}`;
 
@@ -164,20 +225,7 @@
       document.getElementById("empty-state").style.display = "none";
       document.getElementById("sub-table").style.display = "table";
 
-      const tbody = document.getElementById("sub-body");
-      tbody.innerHTML = "";
-
-      for (const row of rows) {
-        const tr = document.createElement("tr");
-        const time = (row.created_at || "").split(" ")[1] || row.created_at;
-        tr.innerHTML = `
-          <td>${time || ""}</td>
-          <td>${escapeHtml(row.student_name)}</td>
-          <td><span class="${verdictClass(row.verdict)}">${verdictLabel(row.verdict)}</span></td>
-          <td>${row.tests_passed}/${row.tests_total}</td>
-        `;
-        tbody.appendChild(tr);
-      }
+      renderSubTable(rows);
     } catch (e) {
       // Backend not reachable yet -- stay quiet and retry on the next poll.
     }
@@ -206,13 +254,17 @@
       }
       empty.style.display = "none";
       table.style.display = "table";
-      body.innerHTML = clusters.map(c => `
+      body.innerHTML = clusters.map(c => {
+        const ids = c.submission_ids && c.submission_ids.length ? c.submission_ids : [c.example_submission_id];
+        const label = ids.length > 1 ? `View all (${ids.length})` : "View code";
+        return `
         <tr>
           <td>${escapeHtml(clusterLabel(c))}</td>
           <td>${c.count}</td>
-          <td><button class="view-example-btn" data-sub-id="${c.example_submission_id}">View code</button></td>
+          <td><button class="view-example-btn" data-sub-ids="${ids.join(",")}">${label}</button></td>
         </tr>
-      `).join("");
+      `;
+      }).join("");
 
       // Talking points are one per cluster (see aggregation.py), not one per
       // submission -- a cluster only has one once enough distinct students hit it,
@@ -228,47 +280,64 @@
     }
   }
 
+  // Renders one submission's meta/diff/code as an HTML block -- used both for a
+  // single example and stacked when a cluster has several distinct students.
+  function renderExampleBlock(sub) {
+    const meta =
+      `${escapeHtml(sub.student_name)} -- attempt ${sub.attempt_number} -- ${sub.tests_passed}/${sub.tests_total} passed`;
+
+    let diff;
+    const results = JSON.parse(sub.raw_test_results || "[]");
+    const failing = results.find(r => !r.passed);
+    if (failing) {
+      const rows = [
+        ["Input", failing.stdin],
+        ["Expected output", failing.expected_stdout],
+        ["Actual output", (failing.stdout || "").trim() || "(none)"],
+      ];
+      if (failing.stderr) rows.push(["Error output", failing.stderr]);
+      diff = rows
+        .map(([label, val]) => `<div><strong>${label}:</strong> <code>${escapeHtml(val ?? "")}</code></div>`)
+        .join("");
+    } else {
+      diff = "<em>All test cases passed.</em>";
+    }
+
+    return `
+      <div class="inspector-example">
+        <div class="inspector-meta">${meta}</div>
+        <div class="inspector-diff">${diff}</div>
+        <code class="inspector-code">${escapeHtml(sub.source_code)}</code>
+      </div>
+    `;
+  }
+
   // The lecturer shouldn't have to guess what a cluster's talking point means --
-  // this fetches the actual example submission (real student code, real
-  // input/expected/actual output for the test case it failed) on demand, so the
+  // this fetches the actual example submissions (real student code, real
+  // input/expected/actual output for the test case each failed) on demand, so the
   // discussion point is a starting point to investigate, not the only evidence.
-  async function showExample(subId) {
+  // A cluster can span several distinct students, so this fetches and stacks all
+  // of them rather than picking just one.
+  async function showExamples(subIds) {
     const card = document.getElementById("inspector-card");
-    const meta = document.getElementById("inspector-meta");
-    const diff = document.getElementById("inspector-diff");
-    const code = document.getElementById("inspector-code");
+    const title = document.getElementById("inspector-title");
+    const body = document.getElementById("inspector-body");
 
     card.style.display = "block";
-    meta.textContent = "Loading...";
-    diff.innerHTML = "";
-    code.textContent = "";
+    title.textContent = subIds.length > 1 ? `Example submissions (${subIds.length})` : "Example submission";
+    body.innerHTML = "Loading...";
 
     try {
-      const res = await fetch(`${API_BASE}/api/lecturer/submissions/${subId}`);
-      if (!res.ok) throw new Error("not found");
-      const sub = await res.json();
-
-      meta.textContent =
-        `${sub.student_name} -- attempt ${sub.attempt_number} -- ${sub.tests_passed}/${sub.tests_total} passed`;
-      code.textContent = sub.source_code;
-
-      const results = JSON.parse(sub.raw_test_results || "[]");
-      const failing = results.find(r => !r.passed);
-      if (failing) {
-        const rows = [
-          ["Input", failing.stdin],
-          ["Expected output", failing.expected_stdout],
-          ["Actual output", (failing.stdout || "").trim() || "(none)"],
-        ];
-        if (failing.stderr) rows.push(["Error output", failing.stderr]);
-        diff.innerHTML = rows
-          .map(([label, val]) => `<div><strong>${label}:</strong> <code>${escapeHtml(val ?? "")}</code></div>`)
-          .join("");
-      } else {
-        diff.innerHTML = "<em>All test cases passed.</em>";
-      }
+      const subs = await Promise.all(
+        subIds.map(async (subId) => {
+          const res = await fetch(`${API_BASE}/api/lecturer/submissions/${subId}`);
+          if (!res.ok) throw new Error("not found");
+          return res.json();
+        })
+      );
+      body.innerHTML = subs.map(renderExampleBlock).join("");
     } catch (e) {
-      meta.textContent = "Could not load this submission.";
+      body.innerHTML = "Could not load one or more of these submissions.";
     }
   }
 
@@ -280,10 +349,25 @@
 
   // cluster-body itself is never replaced (only its innerHTML, every poll), so a
   // listener attached here keeps working across re-renders -- no need to
-  // re-attach one per "View code" button each time the table redraws.
+  // re-attach one per "View" button each time the table redraws.
   document.getElementById("cluster-body").addEventListener("click", (e) => {
     const btn = e.target.closest(".view-example-btn");
-    if (btn) showExample(btn.dataset.subId);
+    if (btn) showExamples(btn.dataset.subIds.split(",").map(Number));
+  });
+
+  // Same event-delegation pattern for the submissions table: clicking a
+  // student's name toggles their code open/closed in place, re-rendering from
+  // the last-fetched rows (no extra request needed).
+  document.getElementById("sub-body").addEventListener("click", (e) => {
+    const btn = e.target.closest(".student-name-btn");
+    if (!btn) return;
+    const subId = Number(btn.dataset.subId);
+    if (expandedSubIds.has(subId)) {
+      expandedSubIds.delete(subId);
+    } else {
+      expandedSubIds.add(subId);
+    }
+    renderSubTable(lastSubRows);
   });
 
   poll();
