@@ -158,7 +158,8 @@
     <textarea id="code" spellcheck="false" placeholder="# read space-separated ints from stdin, print their sum
 nums = input().split()
 print(sum(int(n) for n in nums))"></textarea>
-    <button id="submit-btn">Submit</button>
+    <button id="submit-btn"><span id="submit-spinner" class="spinner" hidden></span><span id="submit-btn-text">Submit</span></button>
+    <div id="submit-status"></div>
     <div id="error-box"></div>
   </div>
 
@@ -214,8 +215,18 @@ print(sum(int(n) for n in nums))"></textarea>
     if (!name) { errorBox.textContent = "Enter your name first."; errorBox.style.display = "block"; return; }
     if (!code.trim()) { errorBox.textContent = "Write some code first."; errorBox.style.display = "block"; return; }
 
+    const spinner = document.getElementById("submit-spinner");
+    const btnText = document.getElementById("submit-btn-text");
+    const status = document.getElementById("submit-status");
+
     btn.disabled = true;
-    btn.textContent = "Running...";
+    spinner.hidden = false;
+    btnText.textContent = "Running...";
+    status.textContent = "Running your code on Judge0...";
+    status.style.display = "block";
+    const slowNotice = setTimeout(() => {
+      status.textContent = "Still working -- AI grading can take up to a minute, especially on the first submission of a session.";
+    }, 4000);
 
     try {
       const res = await fetch(`${API_BASE}/api/submit`, {
@@ -250,8 +261,11 @@ print(sum(int(n) for n in nums))"></textarea>
       errorBox.textContent = e.message;
       errorBox.style.display = "block";
     } finally {
+      clearTimeout(slowNotice);
       btn.disabled = false;
-      btn.textContent = "Submit";
+      spinner.hidden = true;
+      btnText.textContent = "Submit";
+      status.style.display = "none";
     }
   }
 
