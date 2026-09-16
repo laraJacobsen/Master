@@ -10,9 +10,11 @@
     --ice: #cadcfc;
     --ok: #1c7293;
     --bad: #b85042;
+    --warn: #b8860b;
     --bg: #f7f8fb;
     --card: #ffffff;
     --muted: #5a6072;
+    --border: #e3e5ec;
   }
   * { box-sizing: border-box; }
   body {
@@ -27,10 +29,23 @@
     padding: 1.25rem 1.5rem;
   }
   header h1 { margin: 0; font-size: 1.3rem; }
+  header p {
+    margin: 0.25rem 0 0;
+    color: var(--ice);
+    font-size: 0.9rem;
+  }
   main {
-    max-width: 760px;
+    max-width: 1100px;
     margin: 1.5rem auto;
     padding: 0 1rem 3rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    align-items: start;
+  }
+  @media (min-width: 860px) {
+    main { grid-template-columns: 340px 1fr; }
+    .col-left { position: sticky; top: 1.5rem; }
   }
   .card {
     background: var(--card);
@@ -38,7 +53,9 @@
     padding: 1.25rem 1.5rem;
     box-shadow: 0 1px 4px rgba(0,0,0,0.08);
     margin-bottom: 1.25rem;
+    border-left: 4px solid transparent;
   }
+  .card.accent-navy { border-left-color: var(--navy); }
   label { display: block; font-weight: bold; margin-bottom: 0.3rem; font-size: 0.9rem; }
   input[type=text] {
     width: 100%;
@@ -60,7 +77,7 @@
   #example-box code { font-family: "Courier New", Consolas, monospace; white-space: pre-wrap; }
   textarea {
     width: 100%;
-    min-height: 220px;
+    min-height: 260px;
     font-family: "Courier New", Consolas, monospace;
     font-size: 0.95rem;
     padding: 0.75rem;
@@ -79,6 +96,52 @@
     margin-top: 1rem;
   }
   button:disabled { background: #9aa0b5; cursor: not-allowed; }
+  .spinner {
+    display: none;
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(255,255,255,0.45);
+    border-top-color: #fff;
+    border-radius: 50%;
+    margin-right: 0.5rem;
+    vertical-align: -2px;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #submit-status {
+    display: none;
+    margin-top: 0.6rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  /* Attempt history trail */
+  #history-card { display: none; }
+  #history-card h2 {
+    margin: 0 0 0.6rem;
+    font-size: 0.8rem;
+    font-weight: bold;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  #history-trail { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .history-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: bold;
+    color: white;
+  }
+  .history-dot.correct { background: #2c5f2d; }
+  .history-dot.partially_correct { background: var(--warn); }
+  .history-dot.incorrect, .history-dot.error { background: var(--bad); }
+  #history-summary { margin-top: 0.6rem; font-size: 0.82rem; color: var(--muted); }
+
   #result { margin-top: 1.25rem; display: none; }
   .verdict-badge {
     display: inline-block;
@@ -89,18 +152,33 @@
     color: white;
   }
   .verdict-correct { background: #2c5f2d; }
-  .verdict-partially_correct { background: #b8860b; }
+  .verdict-partially_correct { background: var(--warn); }
   .verdict-incorrect, .verdict-error { background: var(--bad); }
-  #feedback-text { margin-top: 0.75rem; line-height: 1.5; }
-  #tier-note {
-    display: none;
-    margin-top: 0.75rem;
-    font-size: 0.8rem;
+  #feedback-text {
+    margin-top: 0.9rem;
+    line-height: 1.5;
+    font-size: 1.02rem;
+  }
+
+  /* Hint tier progress bar */
+  #tier-note { display: none; margin-top: 0.9rem; }
+  #tier-note .tier-label {
+    font-size: 0.78rem;
     font-weight: bold;
     letter-spacing: 0.03em;
     text-transform: uppercase;
     color: var(--muted);
+    margin-bottom: 0.35rem;
   }
+  #tier-bar { display: flex; gap: 0.3rem; }
+  .tier-seg {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border);
+  }
+  .tier-seg.filled { background: var(--navy); }
+
   #error-box {
     display: none;
     background: #fdeceb;
@@ -110,34 +188,74 @@
     border-radius: 6px;
     margin-top: 1rem;
   }
+  #traceback-box {
+    display: none;
+    margin-top: 1.1rem;
+  }
+  #traceback-box summary {
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  #traceback-box pre {
+    margin-top: 0.5rem;
+    background: #1a1a2e;
+    color: #e6e6e6;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    font-family: "Courier New", Consolas, monospace;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 </style>
 </head>
 <body>
-<header><h1>Interactive Lecture -- Student</h1></header>
+<header>
+  <h1>Interactive Lecture -- Student</h1>
+  <p>Practice problems with instant feedback that gets more specific the more you try.</p>
+</header>
 <main>
-  <div class="card">
-    <label for="name">Your name</label>
-    <input type="text" id="name" placeholder="e.g. Lara Pinheiro">
+  <div class="col-left">
+    <div class="card accent-navy">
+      <label for="name">Your name</label>
+      <input type="text" id="name" placeholder="e.g. Lara Pinheiro">
 
-    <label>Question</label>
-    <div id="prompt-text">Loading question...</div>
-    <div id="example-box" style="display:none;"></div>
+      <label>Question</label>
+      <div id="prompt-text">Loading question...</div>
+      <div id="example-box" style="display:none;"></div>
+    </div>
+
+    <div class="card" id="history-card">
+      <h2>Your attempts on this question</h2>
+      <div id="history-trail"></div>
+      <div id="history-summary"></div>
+    </div>
   </div>
 
-  <div class="card">
-    <label for="code">Your code (Python)</label>
-    <textarea id="code" spellcheck="false" placeholder="# read space-separated ints from stdin, print their sum
-nums = input().split()
-print(sum(int(n) for n in nums))"></textarea>
-    <button id="submit-btn">Submit</button>
-    <div id="error-box"></div>
-  </div>
+  <div class="col-right">
+    <div class="card">
+      <label for="code">Your code (Python)</label>
+      <textarea id="code" spellcheck="false" placeholder="# Your code here."></textarea>
+      <button id="submit-btn"><span id="submit-spinner" class="spinner"></span><span id="submit-btn-text">Submit</span></button>
+      <div id="submit-status"></div>
+      <div id="error-box"></div>
+    </div>
 
-  <div class="card" id="result">
-    <span id="verdict-badge" class="verdict-badge"></span>
-    <span id="score-text" style="margin-left:0.6rem; color:var(--muted);"></span>
-    <div id="tier-note"></div>
-    <div id="feedback-text"></div>
+    <div class="card" id="result">
+      <span id="verdict-badge" class="verdict-badge"></span>
+      <span id="score-text" style="margin-left:0.6rem; color:var(--muted);"></span>
+      <div id="tier-note">
+        <div class="tier-label" id="tier-label"></div>
+        <div id="tier-bar"></div>
+      </div>
+      <div id="feedback-text"></div>
+      <details id="traceback-box">
+        <summary>Your program's error output</summary>
+        <pre id="traceback-text"></pre>
+      </details>
+    </div>
   </div>
 </main>
 
@@ -188,6 +306,50 @@ print(sum(int(n) for n in nums))"></textarea>
     badge.textContent = labels[verdict] || verdict;
   }
 
+  function renderTierBar(tier, ceiling) {
+    const bar = document.getElementById("tier-bar");
+    bar.innerHTML = "";
+    for (let i = 1; i <= ceiling; i++) {
+      const seg = document.createElement("div");
+      seg.className = "tier-seg" + (i <= tier ? " filled" : "");
+      bar.appendChild(seg);
+    }
+    document.getElementById("tier-label").textContent = `Hint ${tier} of ${ceiling}`;
+  }
+
+  // Re-uses the lecturer submissions endpoint (there's no per-student endpoint
+  // yet, and this prototype has no auth boundary between the two views anyway
+  // -- see README's "Known simplifications").
+  async function loadHistory(name) {
+    const card = document.getElementById("history-card");
+    if (!name) { card.style.display = "none"; return; }
+    try {
+      const res = await fetch(`${API_BASE}/api/lecturer/submissions?question_id=${encodeURIComponent(QUESTION_ID)}`);
+      const rows = await res.json();
+      const mine = rows
+        .filter(r => r.student_name === name)
+        .sort((a, b) => a.attempt_number - b.attempt_number);
+      if (mine.length === 0) { card.style.display = "none"; return; }
+
+      const trail = document.getElementById("history-trail");
+      trail.innerHTML = "";
+      for (const row of mine) {
+        const dot = document.createElement("div");
+        dot.className = "history-dot " + (row.verdict || "incorrect");
+        dot.textContent = row.attempt_number;
+        dot.title = `Attempt ${row.attempt_number}: ${row.verdict || "unknown"}`;
+        trail.appendChild(dot);
+      }
+      const passed = mine.filter(r => r.verdict === "correct").length;
+      document.getElementById("history-summary").textContent =
+        `${mine.length} attempt${mine.length === 1 ? "" : "s"} so far` +
+        (passed ? `, ${passed} correct` : "");
+      card.style.display = "block";
+    } catch (e) {
+      card.style.display = "none";
+    }
+  }
+
   async function submitCode() {
     const btn = document.getElementById("submit-btn");
     const errorBox = document.getElementById("error-box");
@@ -201,8 +363,18 @@ print(sum(int(n) for n in nums))"></textarea>
     if (!name) { errorBox.textContent = "Enter your name first."; errorBox.style.display = "block"; return; }
     if (!code.trim()) { errorBox.textContent = "Write some code first."; errorBox.style.display = "block"; return; }
 
+    const spinner = document.getElementById("submit-spinner");
+    const btnText = document.getElementById("submit-btn-text");
+    const status = document.getElementById("submit-status");
+
     btn.disabled = true;
-    btn.textContent = "Running...";
+    spinner.style.display = "inline-block";
+    btnText.textContent = "Running...";
+    status.textContent = "Running your code on Judge0...";
+    status.style.display = "block";
+    const slowNotice = setTimeout(() => {
+      status.textContent = "Still working -- AI grading can take up to a minute, especially on the first submission of a session.";
+    }, 4000);
 
     try {
       const res = await fetch(`${API_BASE}/api/submit`, {
@@ -219,23 +391,35 @@ print(sum(int(n) for n in nums))"></textarea>
         `${data.tests_passed}/${data.tests_total} tests passed`;
       const tierNote = document.getElementById("tier-note");
       if (data.hint_tier) {
-        tierNote.textContent = `Attempt ${data.attempt_number} · Hint ${data.hint_tier}/${data.hint_ceiling}`;
+        renderTierBar(data.hint_tier, data.hint_ceiling);
         tierNote.style.display = "block";
       } else {
         tierNote.style.display = "none";
       }
       document.getElementById("feedback-text").textContent = data.feedback;
+      const tracebackBox = document.getElementById("traceback-box");
+      if (data.traceback) {
+        document.getElementById("traceback-text").textContent = data.traceback;
+        tracebackBox.style.display = "block";
+      } else {
+        tracebackBox.style.display = "none";
+      }
       result.style.display = "block";
+      loadHistory(name);
     } catch (e) {
       errorBox.textContent = e.message;
       errorBox.style.display = "block";
     } finally {
+      clearTimeout(slowNotice);
       btn.disabled = false;
-      btn.textContent = "Submit";
+      spinner.style.display = "none";
+      btnText.textContent = "Submit";
+      status.style.display = "none";
     }
   }
 
   document.getElementById("submit-btn").addEventListener("click", submitCode);
+  document.getElementById("name").addEventListener("blur", (e) => loadHistory(e.target.value.trim()));
   loadQuestion();
 </script>
 </body>

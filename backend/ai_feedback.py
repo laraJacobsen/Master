@@ -38,6 +38,23 @@ def _coarse_verdict(exec_verdict: str, passed: int, total: int) -> str:
     return "incorrect" if exec_verdict in ("wrong_answer", "pass") else "error"
 
 
+_TRACEBACK_MAX_CHARS = 2000
+
+
+def _traceback_for(test_results: list) -> str:
+    """Raw stderr from the first failing test case, or None if it passed or
+    produced no stderr (e.g. a plain wrong-answer). Several hint tiers (see
+    feedback-research/feedback.py) explicitly tell the student to "read the
+    traceback" -- that only makes sense if the student can actually see one."""
+    failing = next((r for r in test_results if not r["passed"]), None)
+    if failing is None or not failing.get("stderr"):
+        return None
+    stderr = failing["stderr"]
+    if len(stderr) > _TRACEBACK_MAX_CHARS:
+        stderr = stderr[:_TRACEBACK_MAX_CHARS] + "\n... (truncated)"
+    return stderr
+
+
 def judge_and_feedback(
     question_prompt: str,
     source_code: str,
@@ -47,7 +64,7 @@ def judge_and_feedback(
     expected_function_name: str = None,
 ) -> dict:
     """Returns a dict: verdict, error_type, feedback, tests_passed, tests_total,
-    hint_tier, hint_ceiling, exec_verdict.
+    hint_tier, hint_ceiling, exec_verdict, traceback.
 
     question_prompt/source_code/language are unused now that grading has no model to
     give them to -- kept as parameters so main.py's call site doesn't need to change
@@ -82,4 +99,5 @@ def judge_and_feedback(
     result["hint_tier"] = hint["hint_tier"]
     result["hint_ceiling"] = hint["hint_ceiling"]
     result["exec_verdict"] = exec_verdict
+    result["traceback"] = _traceback_for(test_results)
     return result

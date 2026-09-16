@@ -148,6 +148,7 @@ def api_submit(req: SubmitRequest):
         "attempt_number": attempt_number,
         "hint_tier": feedback.get("hint_tier"),
         "hint_ceiling": feedback.get("hint_ceiling"),
+        "traceback": feedback.get("traceback"),
     }
 
 
