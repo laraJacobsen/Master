@@ -70,6 +70,24 @@
     margin-top: 1rem;
   }
   button:disabled { background: #9aa0b5; cursor: not-allowed; }
+  .spinner {
+    display: inline-block;
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(255,255,255,0.45);
+    border-top-color: #fff;
+    border-radius: 50%;
+    margin-right: 0.5rem;
+    vertical-align: -2px;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #submit-status {
+    display: none;
+    margin-top: 0.6rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
   #result { margin-top: 1.25rem; display: none; }
   .verdict-badge {
     display: inline-block;
@@ -101,6 +119,27 @@
     border-radius: 6px;
     margin-top: 1rem;
   }
+  #traceback-box {
+    display: none;
+    margin-top: 1rem;
+  }
+  #traceback-box summary {
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  #traceback-box pre {
+    margin-top: 0.5rem;
+    background: #1a1a2e;
+    color: #e6e6e6;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    font-family: "Courier New", Consolas, monospace;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 </style>
 </head>
 <body>
@@ -128,6 +167,10 @@ print(sum(int(n) for n in nums))"></textarea>
     <span id="score-text" style="margin-left:0.6rem; color:var(--muted);"></span>
     <div id="tier-note"></div>
     <div id="feedback-text"></div>
+    <details id="traceback-box">
+      <summary>Your program's error output</summary>
+      <pre id="traceback-text"></pre>
+    </details>
   </div>
 </main>
 
@@ -195,6 +238,13 @@ print(sum(int(n) for n in nums))"></textarea>
         tierNote.style.display = "none";
       }
       document.getElementById("feedback-text").textContent = data.feedback;
+      const tracebackBox = document.getElementById("traceback-box");
+      if (data.traceback) {
+        document.getElementById("traceback-text").textContent = data.traceback;
+        tracebackBox.style.display = "block";
+      } else {
+        tracebackBox.style.display = "none";
+      }
       result.style.display = "block";
     } catch (e) {
       errorBox.textContent = e.message;

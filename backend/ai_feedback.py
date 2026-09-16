@@ -67,6 +67,23 @@ def _format_cases(test_results: list) -> str:
     return "\n".join(lines)
 
 
+_TRACEBACK_MAX_CHARS = 2000
+
+
+def _traceback_for(test_results: list) -> str:
+    """Raw stderr from the first failing test case, or None if it passed or
+    produced no stderr (e.g. a plain wrong-answer). Several hint tiers (see
+    feedback-research/feedback.py) explicitly tell the student to "read the
+    traceback" -- that only makes sense if the student can actually see one."""
+    failing = next((r for r in test_results if not r["passed"]), None)
+    if failing is None or not failing.get("stderr"):
+        return None
+    stderr = failing["stderr"]
+    if len(stderr) > _TRACEBACK_MAX_CHARS:
+        stderr = stderr[:_TRACEBACK_MAX_CHARS] + "\n... (truncated)"
+    return stderr
+
+
 def _guess_error_type(test_results: list) -> str:
     for r in test_results:
         if r["passed"]:
@@ -156,7 +173,7 @@ def judge_and_feedback(
     expected_function_name: str = None,
 ) -> dict:
     """Returns a dict: verdict, error_type, feedback, discussion_point,
-    tests_passed, tests_total, hint_tier, hint_ceiling, exec_verdict."""
+    tests_passed, tests_total, hint_tier, hint_ceiling, exec_verdict, traceback."""
     passed = sum(1 for r in test_results if r["passed"])
     total = len(test_results)
     baseline_feedback = (
@@ -210,4 +227,5 @@ Respond with the JSON object described in the system prompt."""
     result["hint_tier"] = hint["hint_tier"]
     result["hint_ceiling"] = hint["hint_ceiling"]
     result["exec_verdict"] = exec_verdict
+    result["traceback"] = _traceback_for(test_results)
     return result
