@@ -5,6 +5,14 @@ feedback-research/ is a plain research snapshot, not a Python package (its
 directory name has a hyphen, and it deliberately mirrors classification-test's
 files byte-for-byte rather than being restructured for import). Loaded by file
 path via importlib instead of sys.path/package tricks.
+
+This is now the ONLY deterministic Judge0-result classifier in the backend --
+it replaced the old backend/exec_verdict.py, which duplicated this same job
+with a coarser taxonomy (no exception-name detail) purely because it predated
+this module and nobody merged them. classify_submission() feeds both the
+`exec_verdict` column (lecturer aggregation) and hint_for_verdict() (student
+hint text) from one classification, instead of classifying the same
+test_results twice with two different fixed taxonomies.
 """
 
 import importlib.util
@@ -24,29 +32,19 @@ _classify = _load("_research_classify", "classify.py")
 _feedback = _load("_research_feedback", "feedback.py")
 
 
-def hint_for_submission(test_results: list, attempt_number: int, expected_function_name: str = None) -> dict:
-    """Runs the research classify.py on the first failing test case and escalates
-    the result via hint_for_attempt().
+def classify_submission(test_results: list, expected_function_name: str = None) -> tuple:
+    """Single source of truth for a submission's deterministic (verdict, error_type),
+    from the research classify.py run against the first failing test case.
 
-    Returns hint_text=None (with hint_tier/hint_ceiling=None) when nothing failed.
-    Callers should wrap this in try/except: if the research taxonomy doesn't
-    recognize a (verdict, error_type) pair (e.g. the two taxonomies drift apart
-    later), ceiling_for()/hint_for_attempt() raise ValueError rather than
-    returning a sentinel -- that should degrade to "no hint available", not 500
-    the submission endpoint.
+    Returns ("pass", None) when every test case passed. error_type is only set
+    when verdict == "runtime_error" (it's the exception name, e.g. "NameError").
     """
     failing = next((r for r in test_results if not r["passed"]), None)
     if failing is None:
-        return {
-            "hint_text": None,
-            "hint_tier": None,
-            "hint_ceiling": None,
-            "taxonomy_verdict": "pass",
-            "taxonomy_error_type": None,
-        }
+        return "pass", None
 
     timed_out = "time limit" in (failing["status_description"] or "").lower()
-    verdict, error_type = _classify.classify(
+    return _classify.classify(
         stdout=failing["stdout"],
         stderr=failing["stderr"],
         exit_code=failing.get("exit_code"),
@@ -54,11 +52,25 @@ def hint_for_submission(test_results: list, attempt_number: int, expected_functi
         timed_out=timed_out,
         expected_function_name=expected_function_name,
     )
+
+
+def hint_for_verdict(verdict: str, error_type: str, attempt_number: int) -> dict:
+    """Escalates an already-classified (verdict, error_type) into hint text via
+    feedback.py's hint_for_attempt(). Returns hint_text=None (hint_tier/
+    hint_ceiling=None) for verdict == "pass" -- nothing to hint about.
+
+    Callers should wrap this in try/except: if the taxonomy doesn't recognize
+    the (verdict, error_type) pair (e.g. classify.py starts returning a verdict
+    feedback.py has no family for), ceiling_for()/hint_for_attempt() raise
+    ValueError rather than returning a sentinel -- that should degrade to "no
+    hint available", not 500 the submission endpoint.
+    """
+    if verdict == "pass":
+        return {"hint_text": None, "hint_tier": None, "hint_ceiling": None}
+
     shipped_ceiling = min(_feedback.ceiling_for(verdict, error_type), _feedback.SHIPPED_TIER_CAP)
     return {
         "hint_text": _feedback.hint_for_attempt(verdict, error_type, attempt_number, ship=True),
         "hint_tier": min(attempt_number, shipped_ceiling),
         "hint_ceiling": shipped_ceiling,
-        "taxonomy_verdict": verdict,
-        "taxonomy_error_type": error_type,
     }

@@ -4,14 +4,15 @@ FastAPI backend for the interactive-lecture prototype.
 Flow per submission:
   1. Student POSTs code to /api/submit
   2. Code runs against the question's test cases on Judge0 (SYNC calls)
-  3. Judge0 results + the question + the code go to Claude for one combined
-     judgment + student feedback + lecturer discussion point
+  3. ai_feedback.judge_and_feedback() classifies the result (exec_verdict +
+     hint text, deterministic) and asks a local Ollama model for a verdict +
+     lecturer discussion point
   4. Everything is saved to SQLite
-  5. The student gets pass/fail + feedback back immediately
+  5. The student gets pass/fail + a tiered hint back immediately
   6. The lecturer page polls /api/lecturer/submissions and sees it appear
 
 Run with:
-    ANTHROPIC_API_KEY=... JUDGE0_BASE_URL=http://localhost:2358 \
+    OLLAMA_MODEL=llama3.2:3b JUDGE0_BASE_URL=http://localhost:2358 \
         uvicorn backend.main:app --reload --port 8000
 from the /root/prototype directory (see README.md).
 """
@@ -27,7 +28,6 @@ from pydantic import BaseModel
 from backend import store
 from backend.aggregation import cluster_submissions
 from backend.ai_feedback import judge_and_feedback
-from backend.exec_verdict import classify as classify_exec_verdict
 from backend.judge0_client import Judge0Error, run_test_cases
 from backend.questions import get_question, list_questions
 from backend.validation import pre_execution_check
@@ -106,8 +106,6 @@ def api_submit(req: SubmitRequest):
         # code failing, which is a normal 200 response below.
         raise HTTPException(status_code=502, detail=str(e))
 
-    exec_verdict = classify_exec_verdict(test_results)
-
     try:
         feedback = judge_and_feedback(
             question["prompt"],
@@ -130,7 +128,7 @@ def api_submit(req: SubmitRequest):
             "tests_total": feedback["tests_total"],
             "verdict": feedback["verdict"],
             "error_type": feedback["error_type"],
-            "exec_verdict": exec_verdict,
+            "exec_verdict": feedback["exec_verdict"],
             "rejection_reason": None,
             "feedback": feedback["feedback"],
             "discussion_point": feedback["discussion_point"],

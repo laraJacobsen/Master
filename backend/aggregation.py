@@ -1,9 +1,9 @@
 """
 Cheap aggregation over stored submissions: group by (exec_verdict, error_type)
--- the deterministic Judge0-derived taxonomy plus Claude's own error_type --
-and rank clusters by submission count. This is the groupby fallback from the
-aggregation-pipeline sketch: cheap enough to run live during a lecture, not
-a semantic clustering/embedding pipeline.
+-- the deterministic Judge0-derived taxonomy from backend/hints.py plus the
+local model's own error_type -- and rank clusters by submission count. This is
+the groupby fallback from the aggregation-pipeline sketch: cheap enough to run
+live during a lecture, not a semantic clustering/embedding pipeline.
 """
 
 from collections import defaultdict
