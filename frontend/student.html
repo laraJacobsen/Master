@@ -66,6 +66,15 @@
     margin-bottom: 1rem;
   }
   #prompt-text { color: var(--muted); line-height: 1.5; }
+  #example-box {
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.8rem;
+    background: var(--bg);
+    border: 1px solid #d0d3dc;
+    border-radius: 6px;
+    font-size: 0.85rem;
+  }
+  #example-box code { font-family: "Courier New", Consolas, monospace; white-space: pre-wrap; }
   textarea {
     width: 100%;
     min-height: 260px;
@@ -215,6 +224,7 @@
 
       <label>Question</label>
       <div id="prompt-text">Loading question...</div>
+      <div id="example-box" style="display:none;"></div>
     </div>
 
     <div class="card" id="history-card">
@@ -254,13 +264,33 @@
   const QUESTION_ID = "sum-ints"; // MVP: single fixed question
 
   async function loadQuestion() {
+    const exampleBox = document.getElementById("example-box");
     try {
       const res = await fetch(`${API_BASE}/api/questions`);
       const questions = await res.json();
       const q = questions.find(q => q.id === QUESTION_ID) || questions[0];
       document.getElementById("prompt-text").textContent = q ? q.prompt : "No question available.";
+
+      // Always shown, not just after a failed submission -- this is one worked
+      // example confirming the input/output format, not a hint about the other
+      // (hidden) test cases used for grading.
+      exampleBox.innerHTML = "";
+      if (q && q.example) {
+        const label = document.createElement("div");
+        label.style.fontWeight = "bold";
+        label.style.marginBottom = "0.3rem";
+        label.textContent = "Example";
+        const io = document.createElement("code");
+        io.textContent = `Input:  ${q.example.stdin.trimEnd()}\nOutput: ${q.example.expected_stdout}`;
+        exampleBox.appendChild(label);
+        exampleBox.appendChild(io);
+        exampleBox.style.display = "block";
+      } else {
+        exampleBox.style.display = "none";
+      }
     } catch (e) {
       document.getElementById("prompt-text").textContent = "Could not load question (is the backend running?).";
+      exampleBox.style.display = "none";
     }
   }
 
