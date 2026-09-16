@@ -78,19 +78,11 @@ def hint_for_verdict(verdict: str, error_type: str, attempt_number: int) -> dict
 
 def discussion_point_for_cluster(verdict: str, error_type: str, student_count: int) -> str:
     """Deterministic lecturer talking-point text for a cluster of students who hit the
-    same (verdict, error_type) issue -- see feedback.py's discussion_point_for().
+    same (verdict, error_type) issue -- a short, curated, actionable line, see
+    feedback.py's discussion_point_for().
 
     Callers should wrap this in try/except, same as hint_for_verdict(): an
     unrecognized (verdict, error_type) pair should degrade to "no discussion point",
     not crash the lecturer aggregation endpoint.
     """
     return _feedback.discussion_point_for(verdict, error_type, student_count)
-
-
-def mechanism_for_cluster(verdict: str, error_type: str) -> str:
-    """Just the curated 'what this category means' sentence, no framing or count --
-    see feedback.py's mechanism_for(). Used to keep that factual content in the
-    discussion point even when a model-written lead-in is composed in front of it
-    (backend/aggregation.py) -- the lead-in must never replace it.
-    """
-    return _feedback.mechanism_for(verdict, error_type)

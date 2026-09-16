@@ -30,7 +30,17 @@ def get_question(question_id: str):
 
 
 def list_questions():
+    # test_cases[0] is exposed as a worked example so students can confirm the expected
+    # input/output format before submitting -- the other test_cases stay server-side
+    # only (via get_question), used purely for grading. That split is intentional: see
+    # README/frontend/student.html for how the example is shown.
     return [
-        {"id": q["id"], "title": q["title"], "prompt": q["prompt"], "language": q["language"]}
+        {
+            "id": q["id"],
+            "title": q["title"],
+            "prompt": q["prompt"],
+            "language": q["language"],
+            "example": dict(q["test_cases"][0]) if q["test_cases"] else None,
+        }
         for q in QUESTIONS.values()
     ]

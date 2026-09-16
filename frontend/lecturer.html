@@ -70,6 +70,34 @@
   #discussion-list li:last-child { border-bottom: none; }
 
   #empty-state { color: var(--muted); font-size: 0.9rem; }
+
+  .view-example-btn {
+    background: none;
+    border: 1px solid #d0d3dc;
+    color: var(--navy);
+    padding: 0.2rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+  .view-example-btn:hover { background: var(--bg); }
+  #inspector-meta { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.6rem; }
+  #inspector-diff { font-size: 0.85rem; margin-bottom: 0.9rem; }
+  #inspector-diff div { margin-bottom: 0.3rem; }
+  #inspector-diff code, #inspector-code {
+    font-family: "Courier New", Consolas, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #inspector-code {
+    display: block;
+    background: var(--bg);
+    border: 1px solid #d0d3dc;
+    border-radius: 6px;
+    padding: 0.75rem;
+    font-size: 0.85rem;
+    margin: 0;
+  }
 </style>
 </head>
 <body>
@@ -97,11 +125,17 @@
       <h2>Common issues (by count)</h2>
       <table id="cluster-table" style="display:none;">
         <thead>
-          <tr><th>Issue</th><th>Count</th></tr>
+          <tr><th>Issue</th><th>Count</th><th></th></tr>
         </thead>
         <tbody id="cluster-body"></tbody>
       </table>
       <div id="cluster-empty" style="color:#5a6072; font-size:0.9rem;">Nothing yet.</div>
+    </div>
+    <div class="card" id="inspector-card" style="display:none;">
+      <h2>Example submission</h2>
+      <div id="inspector-meta"></div>
+      <div id="inspector-diff"></div>
+      <code id="inspector-code"></code>
     </div>
   </div>
 </main>
@@ -173,7 +207,11 @@
       empty.style.display = "none";
       table.style.display = "table";
       body.innerHTML = clusters.map(c => `
-        <tr><td>${escapeHtml(clusterLabel(c))}</td><td>${c.count}</td></tr>
+        <tr>
+          <td>${escapeHtml(clusterLabel(c))}</td>
+          <td>${c.count}</td>
+          <td><button class="view-example-btn" data-sub-id="${c.example_submission_id}">View code</button></td>
+        </tr>
       `).join("");
 
       // Talking points are one per cluster (see aggregation.py), not one per
@@ -190,11 +228,63 @@
     }
   }
 
+  // The lecturer shouldn't have to guess what a cluster's talking point means --
+  // this fetches the actual example submission (real student code, real
+  // input/expected/actual output for the test case it failed) on demand, so the
+  // discussion point is a starting point to investigate, not the only evidence.
+  async function showExample(subId) {
+    const card = document.getElementById("inspector-card");
+    const meta = document.getElementById("inspector-meta");
+    const diff = document.getElementById("inspector-diff");
+    const code = document.getElementById("inspector-code");
+
+    card.style.display = "block";
+    meta.textContent = "Loading...";
+    diff.innerHTML = "";
+    code.textContent = "";
+
+    try {
+      const res = await fetch(`${API_BASE}/api/lecturer/submissions/${subId}`);
+      if (!res.ok) throw new Error("not found");
+      const sub = await res.json();
+
+      meta.textContent =
+        `${sub.student_name} -- attempt ${sub.attempt_number} -- ${sub.tests_passed}/${sub.tests_total} passed`;
+      code.textContent = sub.source_code;
+
+      const results = JSON.parse(sub.raw_test_results || "[]");
+      const failing = results.find(r => !r.passed);
+      if (failing) {
+        const rows = [
+          ["Input", failing.stdin],
+          ["Expected output", failing.expected_stdout],
+          ["Actual output", (failing.stdout || "").trim() || "(none)"],
+        ];
+        if (failing.stderr) rows.push(["Error output", failing.stderr]);
+        diff.innerHTML = rows
+          .map(([label, val]) => `<div><strong>${label}:</strong> <code>${escapeHtml(val ?? "")}</code></div>`)
+          .join("");
+      } else {
+        diff.innerHTML = "<em>All test cases passed.</em>";
+      }
+    } catch (e) {
+      meta.textContent = "Could not load this submission.";
+    }
+  }
+
   function escapeHtml(s) {
     const div = document.createElement("div");
     div.textContent = s == null ? "" : String(s);
     return div.innerHTML;
   }
+
+  // cluster-body itself is never replaced (only its innerHTML, every poll), so a
+  // listener attached here keeps working across re-renders -- no need to
+  // re-attach one per "View code" button each time the table redraws.
+  document.getElementById("cluster-body").addEventListener("click", (e) => {
+    const btn = e.target.closest(".view-example-btn");
+    if (btn) showExample(btn.dataset.subId);
+  });
 
   poll();
   pollClusters();

@@ -88,8 +88,8 @@ def run_test_cases(source_code: str, test_cases: list, language: str = "python")
 
     Each test case is {"stdin": "...", "expected_stdout": "..."}.
     Returns a list of per-case result dicts (the run_submission dict, plus
-    case_index / expected_stdout / passed). A single failing test case does
-    not stop the rest from running -- only a genuine Judge0 connectivity
+    case_index / stdin / expected_stdout / passed). A single failing test case
+    does not stop the rest from running -- only a genuine Judge0 connectivity
     failure raises (Judge0Error), which callers should let propagate as a
     502-style error rather than silently grading it wrong.
     """
@@ -99,6 +99,7 @@ def run_test_cases(source_code: str, test_cases: list, language: str = "python")
         actual = (result["stdout"] or "").strip()
         expected = case["expected_stdout"].strip()
         result["case_index"] = i
+        result["stdin"] = case["stdin"]
         result["expected_stdout"] = case["expected_stdout"]
         result["passed"] = (result["status_description"] == "Accepted" and actual == expected)
         results.append(result)

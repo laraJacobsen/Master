@@ -1,15 +1,23 @@
 """
 Structural smoke test for the prototype backend.
 
-Mocks the two external dependencies still in play: Judge0's HTTP API (always) and
-Ollama's HTTP API (only reached from backend/aggregation.py now, for phrasing a
-lecturer discussion point -- see its module docstring for why that's the one place
-a model was brought back). Proves the FastAPI app, SQLite store, and request/response
-plumbing are wired correctly end to end, and that the narrowed Ollama call really is
-narrow: fake_post below records every /api/chat request body so _run_checks can
-assert no student code or name ever reaches it. Does NOT prove Judge0 execution or
-real Ollama's actual output quality; those need a live Judge0 (see README.md) and a
-live Ollama.
+Mocks Judge0's HTTP API (always) and Ollama's HTTP API (only reached from
+backend/aggregation.py, for describing a shared code pattern inside a wrong_answer
+sub-cluster -- see that module's docstring for the pipeline and why this is a
+different, narrower risk than the lecturer discussion-point call this project
+removed twice before). Both Judge0 and Ollama are reached through the same
+`requests` module object regardless of which file imports it (patch() on either
+module's `requests.post` patches the single shared module in sys.modules), so
+fake_post below MUST dispatch on URL rather than assuming every call is a Judge0
+call -- an earlier version of this file didn't do that, and Ollama calls were
+silently swallowed by the Judge0 mock's `json["source_code"]` lookup raising and
+being caught by the retry loop, masking a real bug as a passing test.
+
+Proves the FastAPI app, SQLite store, and request/response plumbing are wired
+correctly end to end, including that the sub-clustering step actually separates
+differently-shaped bugs and that the narrowed Ollama call it uses stays anonymized.
+Does NOT prove Judge0 execution or real Ollama's actual output quality; those need
+a live Judge0 (see README.md) and a live Ollama.
 
 Run: python3 smoke_test.py   (from /root/prototype)
 """
@@ -27,11 +35,17 @@ if os.path.exists(os.environ["PROTOTYPE_DB_PATH"]):
     os.remove(os.environ["PROTOTYPE_DB_PATH"])
 
 NAME_ERROR_MARKER = "num = inpt().split()"
-WRONG_ANSWER_MARKER = "off_by_one_bug"
 
-# Mutable so _run_checks can flip Ollama between "available" (to exercise the live
-# phrasing call) and "unreachable" (to exercise the deterministic-template fallback)
-# without needing separate patch contexts.
+# Two structurally different wrong_answer bugs on the same exercise -- real code, not bare
+# marker strings, so _canonicalize()/TF-IDF has something genuine to tell apart. Each
+# marker is inside a comment, which _canonicalize() strips entirely, so it can't leak into
+# the clustering signal or make the two bugs look artificially similar/different.
+BUG_A_CODE = "nums = input().split()\nprint(sum(int(n) for n in nums) + 1)  # bug_a_add_one"
+# Deliberately "count instead of sum" -- guaranteed wrong on every test case (unlike an
+# earlier draft using product, which coincidentally equals the sum for a couple of the
+# real test cases, e.g. the single-number one, giving false partial credit).
+BUG_B_CODE = "nums = input().split()\nprint(len(nums))  # bug_b_count_instead_of_sum"
+
 _ollama_state = {"available": True}
 ollama_chat_calls = []  # request bodies sent to /api/chat, for the no-leakage assertion
 
@@ -47,15 +61,8 @@ def fake_get(url, timeout=None):
 
 
 def fake_post(url, params=None, json=None, timeout=None):
-    """Stands in for requests.post to either Judge0's /submissions endpoint or
-    Ollama's /api/chat endpoint -- judge0_client.py and aggregation.py both call
-    through the same requests.post, so one fake dispatches on URL.
-
-    Judge0 branch actually evaluates 'sum of space-separated ints' so a genuinely
-    correct submission looks correct and a broken one looks broken. Source code
-    containing NAME_ERROR_MARKER/WRONG_ANSWER_MARKER short-circuits to a canned
-    crash/wrong-output result, to exercise those cluster paths without needing a
-    real interpreter."""
+    """Stands in for requests.post to either Judge0's /submissions endpoint or Ollama's
+    /api/chat endpoint -- see module docstring for why one fake must dispatch on URL."""
     resp = MagicMock()
     resp.raise_for_status = lambda: None
 
@@ -64,7 +71,7 @@ def fake_post(url, params=None, json=None, timeout=None):
         resp.json.return_value = {
             "message": {
                 "content": json_lib.dumps(
-                    {"discussion_point": "Great moment to talk through this one together."}
+                    {"discussion_point": "All snippets share the same overall structure."}
                 )
             }
         }
@@ -89,28 +96,17 @@ def fake_post(url, params=None, json=None, timeout=None):
         return resp
 
     stdin = base64.b64decode(json["stdin"]).decode()
-    if WRONG_ANSWER_MARKER in source:
-        stdout_val = str(sum(int(x) for x in stdin.split()) + 1)  # deliberately off by one
-        status = {"id": 3, "description": "Accepted"}
-        resp.json.return_value = {
-            "status": status,
-            "stdout": base64.b64encode((stdout_val + "\n").encode()).decode(),
-            "stderr": None,
-            "compile_output": None,
-            "message": None,
-            "time": "0.01",
-            "memory": 1234,
-            "exit_code": 0,
-        }
-        return resp
+    nums = [int(x) for x in stdin.split()]
+    if "bug_a_add_one" in source:
+        stdout_val = str(sum(nums) + 1)  # deliberately off by one
+    elif "bug_b_count_instead_of_sum" in source:
+        stdout_val = str(len(nums))  # deliberately the wrong operation entirely
+    elif "bug_c_subtract_one" in source:
+        stdout_val = str(sum(nums) - 1)  # deliberately off by one, the other direction
+    else:
+        stdout_val = str(sum(nums))
 
-    try:
-        total = sum(int(x) for x in stdin.split())
-        stdout_val = str(total)
-        status = {"id": 3, "description": "Accepted"}
-    except Exception:
-        stdout_val = ""
-        status = {"id": 6, "description": "Compilation Error"}
+    status = {"id": 3, "description": "Accepted"}
     resp.json.return_value = {
         "status": status,
         "stdout": base64.b64encode((stdout_val + "\n").encode()).decode(),
@@ -217,10 +213,10 @@ def _run_checks(client):
 
         # Same NameError-causing code from two different students, plus one of them
         # resubmitting it a second time unchanged. The cluster's distinct-student
-        # count must stay at 2 (not 3), and it should now clear the discussion
-        # threshold with one stable talking point -- not three differently-worded
-        # ones, one per submission. Ollama is "available" for this one, so the
-        # cluster's discussion point should come from the mocked live call.
+        # count must stay at 2 (not 3), and its discussion point must be exactly the
+        # curated feedback.py text -- no count prefix, no model-written lead-in, just
+        # the one deterministic, actionable line. NameError isn't sub-clustered (that's
+        # wrong_answer-only), so this exercises the plain deterministic path.
         for student in ("Alice", "Bob", "Alice"):
             r = client.post(
                 "/api/submit",
@@ -238,50 +234,68 @@ def _run_checks(client):
             c for c in clusters if c["exec_verdict"] == "runtime_error" and c["error_type"] == "NameError"
         )
         assert name_error_cluster["count"] == 2, clusters
-        # Composed: mocked Ollama lead-in + the curated factual mechanism sentence --
-        # the lead-in must never replace the factual content, only precede it.
-        assert name_error_cluster["discussion_point"] == (
-            "Great moment to talk through this one together. A NameError means Python "
-            "doesn't recognize a name that was used -- almost always a typo, or a "
-            "variable/function referenced before it was ever defined."
-        ), clusters
-        print("Cluster dedup by student, Ollama phrasing       OK ->", name_error_cluster)
+        from backend import hints
+        expected = hints.discussion_point_for_cluster("runtime_error", "NameError", 2)
+        assert name_error_cluster["discussion_point"] == expected, clusters
+        assert "students hit this" not in expected, "count prefix should be gone"
+        print("Cluster dedup by student, curated text          OK ->", name_error_cluster)
 
-        # The narrowed Ollama call must never see student code, names, or the specific
-        # exception text -- only the category label and count. This is exactly the
-        # information leak that mattered: the earlier, wider call was handed the real
-        # traceback and still fabricated an unrelated cause, so the fix is to never let
-        # it see case-specific detail as well as never let it explain the cause.
-        assert len(ollama_chat_calls) == 1, ollama_chat_calls
-        sent_prompt = json_lib.dumps(ollama_chat_calls[0])
-        for leaked in ("inpt", "Alice", "Bob", NAME_ERROR_MARKER, "Traceback"):
-            assert leaked not in sent_prompt, (leaked, sent_prompt)
-        assert "NameError" in sent_prompt and "2" in sent_prompt, sent_prompt
-        print("Ollama call carries no student code/names       OK")
-
-        # Now the fallback path: Ollama goes unreachable, and a *different* cluster
-        # (wrong_answer, from two more distinct students) must fall back to the
-        # curated deterministic template rather than erroring or going silent.
-        _ollama_state["available"] = False
+        # Two structurally different wrong_answer bugs, two students each. This is the
+        # actual point of sub-clustering: they must NOT be merged into one generic
+        # wrong_answer bucket -- each shape gets its own cluster entry, each independently
+        # clearing the discussion threshold and getting the mocked Ollama pattern
+        # description (cached per sub-cluster, not per submission).
         for student in ("Carol", "Dave"):
             r = client.post(
                 "/api/submit",
-                json={
-                    "student_name": student,
-                    "question_id": "sum-ints",
-                    "source_code": WRONG_ANSWER_MARKER,
-                },
+                json={"student_name": student, "question_id": "sum-ints", "source_code": BUG_A_CODE},
             )
-            assert r.status_code == 200, r.text
-            assert r.json()["verdict"] == "incorrect", r.json()
+            assert r.status_code == 200 and r.json()["verdict"] == "incorrect", r.json()
+        for student in ("Kasper", "Vilde"):
+            r = client.post(
+                "/api/submit",
+                json={"student_name": student, "question_id": "sum-ints", "source_code": BUG_B_CODE},
+            )
+            assert r.status_code == 200 and r.json()["verdict"] == "incorrect", r.json()
 
         clusters = client.get("/api/lecturer/clusters").json()
-        wrong_answer_cluster = next(c for c in clusters if c["exec_verdict"] == "wrong_answer")
-        assert wrong_answer_cluster["count"] == 2, clusters
-        assert wrong_answer_cluster["discussion_point"] is not None, clusters
-        assert wrong_answer_cluster["discussion_point"].startswith("2 students hit this:"), clusters
-        assert len(ollama_chat_calls) == 1, "Ollama should not have been called while unreachable"
-        print("Ollama-unreachable falls back to template       OK ->", wrong_answer_cluster)
+        wrong_answer_clusters = [c for c in clusters if c["exec_verdict"] == "wrong_answer"]
+        assert len(wrong_answer_clusters) == 2, (
+            f"expected the two different bugs to land in separate sub-clusters, got {wrong_answer_clusters}"
+        )
+        for c in wrong_answer_clusters:
+            assert c["count"] == 2, clusters
+            assert c["discussion_point"] == "All snippets share the same overall structure.", clusters
+        print("wrong_answer sub-clustering separates two bug shapes  OK ->", wrong_answer_clusters)
+
+        # The sub-cluster Ollama call must only ever see canonicalized snippets -- never
+        # student names, never the real identifiers, never the marker comments (which
+        # _canonicalize() strips as comments). Exactly one call per sub-cluster (cached).
+        assert len(ollama_chat_calls) == 2, ollama_chat_calls
+        sent = json_lib.dumps(ollama_chat_calls)
+        for leaked in ("Carol", "Dave", "Kasper", "Vilde", "bug_a_add_one", "bug_b_count_instead_of_sum", "nums"):
+            assert leaked not in sent, (leaked, sent)
+        assert "VAR1" in sent, sent
+        print("Sub-cluster Ollama call carries no names/code    OK")
+
+        # Fallback path, tested directly against _subcluster_discussion_point() rather
+        # than through another full HTTP round trip: whether a third real submission
+        # would land in its own sub-cluster or get folded into an existing one depends
+        # on the clustering algorithm's behavior on that specific corpus (a known rough
+        # edge of this MVP -- see module docstring), which isn't what this check is
+        # about. This isolates the one thing that matters here: when Ollama is
+        # unreachable, a sub-cluster must fall back to the generic curated line, not
+        # error or go silent.
+        from backend import aggregation
+        _ollama_state["available"] = False
+        synthetic_group = [
+            {"id": 9001, "student_name": "Erik", "source_code": "print(1)"},
+            {"id": 9002, "student_name": "Frida", "source_code": "print(2)"},
+        ]
+        fallback_point = aggregation._subcluster_discussion_point(synthetic_group, student_count=2)
+        assert fallback_point == hints.discussion_point_for_cluster("wrong_answer", None, 2), fallback_point
+        assert len(ollama_chat_calls) == 2, "Ollama should not have been called while unreachable"
+        print("wrong_answer sub-cluster falls back when Ollama down  OK ->", fallback_point)
 
         r = client.post(
             "/api/submit",
