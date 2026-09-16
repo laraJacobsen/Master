@@ -71,7 +71,7 @@
   }
   button:disabled { background: #9aa0b5; cursor: not-allowed; }
   .spinner {
-    display: inline-block;
+    display: none;
     width: 13px;
     height: 13px;
     border: 2px solid rgba(255,255,255,0.45);
@@ -158,7 +158,7 @@
     <textarea id="code" spellcheck="false" placeholder="# read space-separated ints from stdin, print their sum
 nums = input().split()
 print(sum(int(n) for n in nums))"></textarea>
-    <button id="submit-btn"><span id="submit-spinner" class="spinner" hidden></span><span id="submit-btn-text">Submit</span></button>
+    <button id="submit-btn"><span id="submit-spinner" class="spinner"></span><span id="submit-btn-text">Submit</span></button>
     <div id="submit-status"></div>
     <div id="error-box"></div>
   </div>
@@ -220,7 +220,7 @@ print(sum(int(n) for n in nums))"></textarea>
     const status = document.getElementById("submit-status");
 
     btn.disabled = true;
-    spinner.hidden = false;
+    spinner.style.display = "inline-block";
     btnText.textContent = "Running...";
     status.textContent = "Running your code on Judge0...";
     status.style.display = "block";
@@ -263,7 +263,7 @@ print(sum(int(n) for n in nums))"></textarea>
     } finally {
       clearTimeout(slowNotice);
       btn.disabled = false;
-      spinner.hidden = true;
+      spinner.style.display = "none";
       btnText.textContent = "Submit";
       status.style.display = "none";
     }
