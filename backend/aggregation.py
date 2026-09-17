@@ -424,3 +424,103 @@ def cluster_submissions(question_id: str = None) -> list:
 
     result.sort(key=lambda c: c["count"], reverse=True)
     return result
+
+
+def _latest_submission_per_student(question_id: str) -> dict:
+    """One row per distinct student for this question -- their most recent
+    submission, since store.all_submissions() is already newest-first. Used
+    by session_summary()/student_recap() below, which care about a
+    student's *current* standing on a task, not every resubmission."""
+    latest = {}
+    for row in store.all_submissions(question_id):
+        latest.setdefault(row["student_name"], row)
+    return latest
+
+
+def session_summary(lecture_seq: int) -> list:
+    """Per-task submission rate + verdict tally for every question in this
+    lecture, in the order they were run -- the STATE 2 lecturer summary's
+    "how did the class do across ALL tasks" view (distinct from
+    cluster_submissions(), which groups by exec_verdict/error_type for
+    talking points on the live per-task dashboard; this groups by the
+    AI-judged `verdict`, one row per task instead of one row per issue)."""
+    tasks = []
+    for question in store.questions_for_lecture(lecture_seq):
+        latest_by_student = _latest_submission_per_student(question["id"])
+        verdict_counts = defaultdict(int)
+        for row in latest_by_student.values():
+            verdict_counts[row.get("verdict") or "error"] += 1
+        tasks.append(
+            {
+                "question_id": question["id"],
+                "title": question["title"],
+                "submitted": len(latest_by_student),
+                "expected": question["expected_students"],
+                "verdict_counts": dict(verdict_counts),
+            }
+        )
+    return tasks
+
+
+def carry_forward_discussion_points(lecture_seq: int) -> list:
+    """Issues that cleared the discussion threshold on 2+ distinct tasks in
+    this lecture -- worth raising again next time rather than treated as
+    resolved. Coarse (exec_verdict, error_type) grouping only, same as
+    cluster_submissions() uses for every category except wrong_answer:
+    wrong_answer's code-similarity sub-clustering is inherently per-question
+    (comparing code across different exercises is meaningless -- see this
+    module's docstring), so it wouldn't make sense to carry a specific bug
+    *shape* forward across tasks. This only asks "did wrong_answer itself
+    recur," not "did the same bug recur.\""""
+    occurrences_by_signature = defaultdict(list)  # (exec_verdict, error_type) -> [(question, student_count), ...]
+    for question in store.questions_for_lecture(lecture_seq):
+        students_by_signature = defaultdict(set)
+        for row in store.all_submissions(question["id"]):
+            key = (row.get("exec_verdict"), row.get("error_type"))
+            students_by_signature[key].add(row["student_name"])
+        for key, students in students_by_signature.items():
+            if len(students) >= MIN_STUDENTS_FOR_DISCUSSION:
+                occurrences_by_signature[key].append((question, len(students)))
+
+    result = []
+    for (exec_verdict, error_type), occurrences in occurrences_by_signature.items():
+        if len(occurrences) < 2:
+            continue  # only on one task this lecture -- not a carry-forward pattern
+        total_students = sum(count for _, count in occurrences)
+        point = _generate_discussion_point(exec_verdict, error_type, total_students)
+        if not point:
+            continue  # unrecognized family -- nothing safe to say, same rule as the live dashboard
+        result.append(
+            {
+                "exec_verdict": exec_verdict,
+                "error_type": error_type,
+                "task_titles": [q["title"] for q, _ in occurrences],
+                "discussion_point": point,
+            }
+        )
+
+    result.sort(key=lambda c: len(c["task_titles"]), reverse=True)
+    return result
+
+
+def student_recap(lecture_seq: int, student_name: str) -> dict:
+    """"Attempted N of M tasks" + this student's own most-recent verdict per
+    task -- the STATE 2 student recap. Personal only: no comparison to
+    classmates or the class average anywhere in this return value (see the
+    product decision against any ranking/leaderboard UI)."""
+    results = []
+    for question in store.questions_for_lecture(lecture_seq):
+        latest = _latest_submission_per_student(question["id"]).get(student_name)
+        results.append(
+            {
+                "question_id": question["id"],
+                "title": question["title"],
+                "attempted": latest is not None,
+                "verdict": latest["verdict"] if latest else None,
+            }
+        )
+    return {
+        "attempted": sum(1 for r in results if r["attempted"]),
+        "total": len(results),
+        "results": results,
+    }

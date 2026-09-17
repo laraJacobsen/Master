@@ -16,7 +16,23 @@ export interface PublicQuestion {
   example: TestCase | null;
 }
 
-export type QuestionStatus = "draft" | "live";
+// GET /api/lecture/status's `question` -- same shape as PublicQuestion plus
+// the timer fields the student page needs to run its countdown.
+export interface LiveQuestion extends PublicQuestion {
+  duration_seconds: number;
+  started_at: string | null;
+  seconds_remaining: number;
+}
+
+// GET /api/lecture/status -- polled by the student page so it can
+// auto-switch tasks and show the waiting/finished screens (see
+// src/student/App.tsx).
+export interface LectureStatus {
+  finished: boolean;
+  question: LiveQuestion | null;
+}
+
+export type QuestionStatus = "draft" | "live" | "closed";
 
 // GET/POST/PUT /api/lecturer/questions* -- full question row (setup page +
 // lecturer page title lookup).
@@ -35,6 +51,8 @@ export interface QuestionRow {
   status: QuestionStatus;
   validated: boolean;
   expected_students: number | null;
+  duration_seconds: number;
+  started_at: string | null;
 }
 
 export interface QuestionPayload {
@@ -48,6 +66,17 @@ export interface QuestionPayload {
   extra_packages: string[];
   line_limit: number;
   expected_students: number | null;
+  duration_seconds: number;
+}
+
+// POST /api/lecturer/lecture/next
+export interface LectureNextResponse {
+  started: QuestionRow | null;
+}
+
+// POST /api/lecturer/lecture/finish
+export interface LectureFinishResponse {
+  finished: boolean;
 }
 
 export interface ValidationTestResult {
@@ -117,4 +146,44 @@ export interface SubmitResponse {
 
 export interface ApiErrorBody {
   detail?: string;
+}
+
+// GET /api/lecturer/lecture/summary -- one entry per task in the lecture.
+export interface SessionTaskSummary {
+  question_id: string;
+  title: string;
+  submitted: number;
+  expected: number | null;
+  verdict_counts: Partial<Record<Verdict, number>>;
+}
+
+// GET /api/lecturer/lecture/summary -- an issue that recurred across 2+ tasks.
+export interface CarryForwardPoint {
+  exec_verdict: string;
+  error_type: string | null;
+  task_titles: string[];
+  discussion_point: string;
+}
+
+// GET /api/lecturer/lecture/summary -- the STATE 2 lecturer post-lecture view.
+export interface LectureSummary {
+  lecture_seq: number;
+  tasks: SessionTaskSummary[];
+  carry_forward_discussion_points: CarryForwardPoint[];
+}
+
+// GET /api/lecture/recap's `results` -- this student's standing on one task.
+export interface StudentRecapItem {
+  question_id: string;
+  title: string;
+  attempted: boolean;
+  verdict: Verdict | null;
+}
+
+// GET /api/lecture/recap -- the STATE 2 student personal recap (no
+// class-wide comparison anywhere in this shape, by design).
+export interface StudentRecap {
+  attempted: number;
+  total: number;
+  results: StudentRecapItem[];
 }

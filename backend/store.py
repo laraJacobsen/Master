@@ -19,6 +19,7 @@ import os
 import re
 import sqlite3
 import threading
+from datetime import datetime
 
 DB_PATH = os.environ.get(
     "PROTOTYPE_DB_PATH",
@@ -87,16 +88,74 @@ def init_db():
                 line_limit INTEGER NOT NULL DEFAULT 200,
                 status TEXT NOT NULL DEFAULT 'draft',
                 validated INTEGER NOT NULL DEFAULT 0,
-                expected_students INTEGER
+                expected_students INTEGER,
+                duration_seconds INTEGER NOT NULL DEFAULT 600,
+                started_at TEXT,
+                lecture_seq INTEGER
             )
             """
         )
-        # Migration for DBs created before expected_students existed (see
-        # live-submission-progress-scoping-decision.md) -- CREATE TABLE IF NOT
-        # EXISTS above doesn't touch columns on an already-existing table.
+        # Migration for DBs created before expected_students/duration_seconds/
+        # started_at existed (see live-submission-progress-scoping-decision.md
+        # and the task-timer feature) -- CREATE TABLE IF NOT EXISTS above
+        # doesn't touch columns on an already-existing table.
         existing_q_columns = {row["name"] for row in conn.execute("PRAGMA table_info(questions)")}
         if "expected_students" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN expected_students INTEGER")
+        if "duration_seconds" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN duration_seconds INTEGER NOT NULL DEFAULT 600")
+        if "started_at" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN started_at TEXT")
+        if "lecture_seq" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN lecture_seq INTEGER")
+        # A question that was already `live` before started_at existed (e.g.
+        # an existing checkout's seeded sum-ints) would otherwise have no
+        # timer zero-point -- backfill it to "now" so its countdown starts
+        # fresh from a full duration rather than never counting down at all.
+        conn.execute("UPDATE questions SET started_at = datetime('now') WHERE status = 'live' AND started_at IS NULL")
+        # Same idea for lecture_seq: any question that was already started
+        # before this column existed belongs to "lecture 1" as far as
+        # session-summary/carry-forward-discussion-point aggregation is
+        # concerned (see backend/aggregation.py) -- there's no way to
+        # recover finer-grained history than that, and 1 is always a valid
+        # sequence number (current_seq starts there too, below). Draft
+        # questions stay NULL; they get stamped properly whenever they're
+        # eventually started.
+        conn.execute(
+            "UPDATE questions SET lecture_seq = 1 WHERE lecture_seq IS NULL AND status IN ('live', 'closed')"
+        )
+
+        # One-row table tracking the current lecture: `finished` is whether
+        # the lecturer has explicitly ended the whole lecture (distinct from
+        # "between tasks" -- see the "Next task"/"End session" flow in
+        # main.py), and `current_seq` is which lecture run is "current" --
+        # every question is stamped with the current_seq value at the moment
+        # it's started (see start_question() below), which is what scopes
+        # "this lecture's tasks" for session_summary()/
+        # carry_forward_discussion_points()/student_recap() in
+        # aggregation.py without needing a separate lectures table: nothing
+        # here needs to browse *past* lectures, only identify the one that
+        # just ended, and lecture_seq on questions is already enough for
+        # that. current_seq is bumped only when a question is started while
+        # the previous lecture was finished=1 (see start_question()) -- so
+        # it intentionally does NOT change just because "End session" was
+        # clicked, which is what lets the summary/recap endpoints keep
+        # reading the lecture that just ended until a new one actually
+        # starts.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lecture_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                finished INTEGER NOT NULL DEFAULT 0,
+                current_seq INTEGER NOT NULL DEFAULT 1
+            )
+            """
+        )
+        existing_lecture_state_columns = {row["name"] for row in conn.execute("PRAGMA table_info(lecture_state)")}
+        if "current_seq" not in existing_lecture_state_columns:
+            conn.execute("ALTER TABLE lecture_state ADD COLUMN current_seq INTEGER NOT NULL DEFAULT 1")
+        if not conn.execute("SELECT 1 FROM lecture_state WHERE id = 1").fetchone():
+            conn.execute("INSERT INTO lecture_state (id, finished, current_seq) VALUES (1, 0, 1)")
 
         # Seed the original MVP question directly as `live`/validated so a fresh
         # checkout keeps working exactly as before without anyone having to walk
@@ -108,8 +167,8 @@ def init_db():
                 INSERT INTO questions
                     (id, title, prompt, language, test_cases, reference_solution,
                      cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
-                     status, validated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', 1)
+                     status, validated, duration_seconds, started_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', 1, ?, datetime('now'))
                 """,
                 (
                     "sum-ints",
@@ -131,6 +190,7 @@ def init_db():
                     128000,
                     "[]",
                     200,
+                    600,
                 ),
             )
 
@@ -180,8 +240,8 @@ def create_question(fields: dict) -> str:
             INSERT INTO questions
                 (id, title, prompt, language, test_cases, reference_solution,
                  cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
-                 expected_students)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 expected_students, duration_seconds)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 question_id,
@@ -195,6 +255,7 @@ def create_question(fields: dict) -> str:
                 row.get("extra_packages", "[]"),
                 row.get("line_limit", 200),
                 row.get("expected_students"),
+                row.get("duration_seconds", 600),
             ),
         )
         conn.commit()
@@ -227,6 +288,115 @@ def set_validated(question_id: str, value: bool) -> None:
 
 def set_status(question_id: str, status: str) -> None:
     update_question(question_id, {"status": status})
+
+
+def start_question(question_id: str) -> None:
+    """Flips a question live, stamps `started_at` as the timer's zero point,
+    and tags it with the current lecture_seq -- see
+    api_lecturer_start_question/api_lecturer_lecture_next in main.py, both
+    of which call this. If the previous lecture had been marked finished,
+    this is the start of a NEW lecture: bump current_seq (so it gets its own
+    scope for session_summary()/carry_forward_discussion_points()/
+    student_recap() in aggregation.py) and clear the finished flag. Done as
+    one transaction (rather than composing update_question()/
+    set_lecture_finished(), which each take their own lock) so the
+    read-then-write of current_seq can't race another call."""
+    with _lock:
+        conn = _connect()
+        row = conn.execute("SELECT finished, current_seq FROM lecture_state WHERE id = 1").fetchone()
+        current_seq = row["current_seq"] if row else 1
+        if row and row["finished"]:
+            current_seq += 1
+        conn.execute(
+            "UPDATE lecture_state SET finished = 0, current_seq = ? WHERE id = 1", (current_seq,)
+        )
+        conn.execute(
+            "UPDATE questions SET status = 'live', started_at = ?, lecture_seq = ? WHERE id = ?",
+            (datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), current_seq, question_id),
+        )
+        conn.commit()
+        conn.close()
+
+
+def close_question(question_id: str) -> None:
+    """Ends a question's live window (timer expired and/or the lecturer moved
+    on) without deleting it -- closed questions no longer accept submissions
+    (see api_submit's status == "live" check) but stay around for the
+    lecturer to review."""
+    update_question(question_id, {"status": "closed"})
+
+
+def next_draft_question():
+    """The earliest-created, validated draft question -- what "Next task"
+    (see api_lecturer_lecture_next in main.py) starts next. Lecture order is
+    simply question creation order."""
+    with _lock:
+        conn = _connect()
+        cur = conn.execute(
+            "SELECT * FROM questions WHERE status = 'draft' AND validated = 1 "
+            "ORDER BY created_at ASC, rowid ASC LIMIT 1"
+        )
+        row = cur.fetchone()
+        conn.close()
+        return _deserialize_question(dict(row)) if row else None
+
+
+def get_lecture_finished() -> bool:
+    with _lock:
+        conn = _connect()
+        row = conn.execute("SELECT finished FROM lecture_state WHERE id = 1").fetchone()
+        conn.close()
+        return bool(row["finished"]) if row else False
+
+
+def set_lecture_finished(value: bool) -> None:
+    with _lock:
+        conn = _connect()
+        conn.execute("UPDATE lecture_state SET finished = ? WHERE id = 1", (1 if value else 0,))
+        conn.commit()
+        conn.close()
+
+
+def current_lecture_seq() -> int:
+    """Which lecture run is "current" -- the scope session_summary()/
+    carry_forward_discussion_points()/student_recap() in aggregation.py use
+    when the caller doesn't pin a specific lecture_seq. Stays pointed at the
+    lecture that just ended until a new question is actually started (see
+    start_question()'s docstring), which is what lets the post-"End
+    session" summary/recap views keep working right after the lecturer
+    clicks it."""
+    with _lock:
+        conn = _connect()
+        row = conn.execute("SELECT current_seq FROM lecture_state WHERE id = 1").fetchone()
+        conn.close()
+        return row["current_seq"] if row else 1
+
+
+def questions_for_lecture(lecture_seq: int) -> list:
+    """Every question stamped with this lecture_seq, in the order they were
+    run -- the per-task rows for the STATE 2 lecturer summary and the
+    student recap (see aggregation.py)."""
+    with _lock:
+        conn = _connect()
+        cur = conn.execute(
+            "SELECT * FROM questions WHERE lecture_seq = ? ORDER BY created_at ASC, rowid ASC",
+            (lecture_seq,),
+        )
+        rows = [_deserialize_question(dict(r)) for r in cur.fetchall()]
+        conn.close()
+        return rows
+
+
+def live_question_row():
+    """The single question currently live, if any -- this prototype runs one
+    lecture at a time, so at most one question is live at once (see
+    api_lecture_status in main.py, the student page's poll target)."""
+    with _lock:
+        conn = _connect()
+        cur = conn.execute("SELECT * FROM questions WHERE status = 'live' ORDER BY started_at DESC LIMIT 1")
+        row = cur.fetchone()
+        conn.close()
+        return _deserialize_question(dict(row)) if row else None
 
 
 def get_question_row(question_id: str):

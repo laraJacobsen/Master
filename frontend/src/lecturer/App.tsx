@@ -1,14 +1,38 @@
 import { Fragment, useEffect, useState } from "react";
-import type { ClusterRow, ProgressResponse, SubmissionRow, ValidationTestResult } from "../shared/types";
+import type {
+  ClusterRow,
+  LectureSummary,
+  ProgressResponse,
+  QuestionRow,
+  SubmissionRow,
+  ValidationTestResult,
+} from "../shared/types";
 import {
   fetchClusters,
+  fetchLectureSummary,
   fetchProgress,
   fetchQuestionDetail,
   fetchSubmissionDetail,
   fetchSubmissions,
+  finishLecture,
+  nextTask,
 } from "../shared/api";
 
 const POLL_MS = 3000;
+
+// How long after a task's timer hits zero to keep showing the "live" pulse
+// on the submissions/discussion cards -- gives the auto-submit backstop and
+// any still-resolving gradings time to land before the dashboard settles.
+// Background polling itself never stops (see the always-on intervals below);
+// this only controls the "still updating" visual affordance.
+const SETTLE_GRACE_MS = 8000;
+
+function formatMMSS(totalSeconds: number): string {
+  const s = Math.max(0, Math.round(totalSeconds));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${m}:${rem.toString().padStart(2, "0")}`;
+}
 
 // Which question this dashboard is watching -- set via ?question_id= (the
 // link the setup page's "Start"/"Live dashboard" actions send a lecturer
@@ -94,10 +118,33 @@ export default function App() {
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [inspector, setInspector] = useState<InspectorState | null>(null);
 
+  // Powers the "Time remaining" banner and gates the Next task/Finish
+  // lecture controls -- see api_lecture_next/finish in backend/main.py.
+  const [question, setQuestion] = useState<QuestionRow | null>(null);
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  // False while the task is active, and for SETTLE_GRACE_MS after its timer
+  // hits zero -- drives the "live" pulse on the submissions/discussion
+  // cards below. Data itself keeps polling regardless (see the always-on
+  // intervals below); this only controls that visual affordance.
+  const [settled, setSettled] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
+  const [advanceMessage, setAdvanceMessage] = useState<string | null>(null);
+  const [lectureFinished, setLectureFinished] = useState(false);
+
+  // The STATE 2 post-lecture view -- fetched once, right when "End session"
+  // succeeds (see handleFinishLecture below), not polled: the lecture is
+  // over, so unlike the live dashboard there's nothing new to arrive.
+  const [summary, setSummary] = useState<LectureSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
   useEffect(() => {
     if (QUESTION_ID) {
       fetchQuestionDetail(QUESTION_ID)
-        .then((q) => setPageTitle(`Lecturer View -- ${q.title}`))
+        .then((q) => {
+          setPageTitle(`Lecturer View -- ${q.title}`);
+          setQuestion(q);
+        })
         .catch(() => {
           // Leave the generic title in place.
         });
@@ -128,19 +175,95 @@ export default function App() {
           // Backend not reachable yet -- stay quiet and retry on the next poll.
         });
     };
+    // Re-fetched (not just loaded once) so the "Time remaining" banner and
+    // status pill stay accurate if the question gets closed out from under
+    // this tab (e.g. a second lecturer tab, or a manual API call).
+    const pollQuestion = () => {
+      if (!QUESTION_ID) return;
+      fetchQuestionDetail(QUESTION_ID)
+        .then((q) => setQuestion(q))
+        .catch(() => {
+          // Backend not reachable yet -- stay quiet and retry on the next poll.
+        });
+    };
 
     poll();
     pollClusters();
     pollProgress();
+    pollQuestion();
     const t1 = window.setInterval(poll, POLL_MS);
     const t2 = window.setInterval(pollClusters, POLL_MS);
     const t3 = window.setInterval(pollProgress, POLL_MS);
+    const t4 = window.setInterval(pollQuestion, POLL_MS);
     return () => {
       window.clearInterval(t1);
       window.clearInterval(t2);
       window.clearInterval(t3);
+      window.clearInterval(t4);
     };
   }, []);
+
+  // Ticks the "Time remaining" banner once a second, anchored to the
+  // question's server-side started_at/duration_seconds (re-synced whenever
+  // pollQuestion above refreshes `question`) rather than counting down from
+  // page-load, so it can't drift from what the student page shows.
+  useEffect(() => {
+    if (!question || question.status !== "live" || !question.started_at) {
+      setSecondsRemaining(null);
+      setSettled(false);
+      return;
+    }
+    const startedMs = new Date(question.started_at.replace(" ", "T") + "Z").getTime();
+    const endMs = startedMs + question.duration_seconds * 1000;
+    const settleAtMs = endMs + SETTLE_GRACE_MS;
+    const tick = () => {
+      const now = Date.now();
+      setSecondsRemaining(Math.max(0, Math.round((endMs - now) / 1000)));
+      setSettled(now >= settleAtMs);
+    };
+    tick();
+    const t = window.setInterval(tick, 1000);
+    return () => window.clearInterval(t);
+  }, [question]);
+
+  async function handleNextTask() {
+    setAdvancing(true);
+    setAdvanceMessage(null);
+    try {
+      const res = await nextTask(QUESTION_ID);
+      if (res.started) {
+        window.location.href = `lecturer.html?question_id=${encodeURIComponent(res.started.id)}`;
+      } else {
+        setAdvanceMessage("No more tasks left to start -- click \"Finish lecture\" to end.");
+        setAdvancing(false);
+      }
+    } catch (e) {
+      setAdvanceMessage(e instanceof Error ? e.message : "Could not advance to the next task.");
+      setAdvancing(false);
+    }
+  }
+
+  async function handleFinishLecture() {
+    setAdvancing(true);
+    setAdvanceMessage(null);
+    try {
+      await finishLecture(QUESTION_ID);
+      setLectureFinished(true);
+      setSummaryLoading(true);
+      setSummaryError(null);
+      try {
+        setSummary(await fetchLectureSummary());
+      } catch (e) {
+        setSummaryError(e instanceof Error ? e.message : "Could not load the session summary.");
+      } finally {
+        setSummaryLoading(false);
+      }
+    } catch (e) {
+      setAdvanceMessage(e instanceof Error ? e.message : "Could not finish the lecture.");
+    } finally {
+      setAdvancing(false);
+    }
+  }
 
   function toggleExpanded(subId: number) {
     setExpandedSubIds((prev) => {
@@ -200,6 +323,60 @@ export default function App() {
         </div>
       </header>
       <main>
+        {QUESTION_ID && (
+          <div className="card" id="task-control-card">
+            {lectureFinished ? (
+              <div id="lecture-finished-banner">
+                <h2>Lecture finished</h2>
+                <p>Students now see an end-of-lecture screen. The session summary is below.</p>
+              </div>
+            ) : (
+              <>
+                <h2>Task control</h2>
+                <div className="task-control-row">
+                  <div>
+                    {secondsRemaining === 0 ? (
+                      <>
+                        <div className="timer-label">Pacing</div>
+                        <div className="timer-value time-up">
+                          Time's up --{" "}
+                          {progress
+                            ? progress.expected != null
+                              ? `${progress.submitted}/${progress.expected} submitted`
+                              : `${progress.submitted} submitted`
+                            : "-- submitted"}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="timer-label">Time remaining</div>
+                        <div className="timer-value">
+                          {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div>
+                    <button className="secondary" onClick={handleNextTask} disabled={advancing}>
+                      Next task
+                    </button>
+                    <button
+                      className="danger"
+                      onClick={handleFinishLecture}
+                      disabled={advancing}
+                      style={{ marginLeft: "0.6rem" }}
+                    >
+                      End session
+                    </button>
+                  </div>
+                </div>
+                {advanceMessage && <div className="advance-message">{advanceMessage}</div>}
+              </>
+            )}
+          </div>
+        )}
+        {!lectureFinished && (
+        <>
         <div className="card" id="progress-card" style={{ display: progress ? "block" : "none" }}>
           <h2>Submission progress</h2>
           <div id="progress-text" style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
@@ -234,7 +411,10 @@ export default function App() {
         </div>
         <div className="grid">
           <div className="card">
-            <h2>Submissions (live)</h2>
+            <h2>
+              {QUESTION_ID && settled ? "Submissions" : "Submissions (live)"}
+              {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
+            </h2>
             <div id="empty-state" style={{ display: subRows.length === 0 ? "block" : "none" }}>
               No submissions yet.
             </div>
@@ -283,7 +463,10 @@ export default function App() {
             </table>
           </div>
           <div className="card">
-            <h2>Discussion points for the class</h2>
+            <h2>
+              Discussion points for the class
+              {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
+            </h2>
             <ul id="discussion-list">
               {discussionPoints.length === 0 ? (
                 <li style={{ color: "#5a6072" }}>Nothing yet.</li>
@@ -337,6 +520,76 @@ export default function App() {
             </div>
           </div>
         </div>
+        </>
+        )}
+        {lectureFinished && (
+          <div className="grid" id="session-summary">
+            <div className="card" id="summary-tasks-card">
+              <h2>Session summary</h2>
+              {summaryLoading && <div className="summary-status">Loading...</div>}
+              {summaryError && <div className="summary-status summary-error">{summaryError}</div>}
+              {summary && summary.tasks.length === 0 && (
+                <div className="summary-status">No tasks were run this lecture.</div>
+              )}
+              {summary && summary.tasks.length > 0 && (
+                <table id="summary-table">
+                  <thead>
+                    <tr>
+                      <th>Task</th>
+                      <th>Submitted</th>
+                      <th>Verdict breakdown</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.tasks.map((t) => (
+                      <tr key={t.question_id}>
+                        <td>{t.title}</td>
+                        <td>{t.expected != null ? `${t.submitted}/${t.expected}` : `${t.submitted}`}</td>
+                        <td>
+                          <div className="verdict-breakdown">
+                            {Object.entries(t.verdict_counts).map(([verdict, count]) => (
+                              <span key={verdict} className={verdictClass(verdict)}>
+                                {verdictLabel(verdict)} {count}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td>
+                          <a
+                            className="drilldown-link"
+                            href={`lecturer.html?question_id=${encodeURIComponent(t.question_id)}`}
+                          >
+                            View task &rarr;
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="card" id="carry-forward-card">
+              <h2>Carry-forward discussion points</h2>
+              <div className="hint" style={{ marginBottom: "0.75rem" }}>
+                Issues that came up on more than one task this lecture -- worth revisiting next time.
+              </div>
+              {summary && summary.carry_forward_discussion_points.length === 0 && (
+                <div className="summary-status">Nothing recurred across tasks.</div>
+              )}
+              {summary && summary.carry_forward_discussion_points.length > 0 && (
+                <ul id="carry-forward-list">
+                  {summary.carry_forward_discussion_points.map((c, i) => (
+                    <li key={i}>
+                      <div>{c.discussion_point}</div>
+                      <div className="carry-forward-tasks">Recurred on: {c.task_titles.join(", ")}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
       </main>
     </>
   );

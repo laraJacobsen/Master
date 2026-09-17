@@ -58,6 +58,71 @@ input[type=text] {
   font-size: 1rem;
   margin-bottom: 1rem;
 }
+/* Countdown timer */
+#timer-box { margin-bottom: 1rem; }
+.timer-label {
+  font-size: 0.78rem;
+  font-weight: bold;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+.timer-value { font-size: 1.8rem; font-weight: bold; color: var(--navy); }
+.timer-value.time-up { color: var(--bad); }
+#timer-bar-track {
+  background: #eceef3;
+  border-radius: 999px;
+  height: 8px;
+  margin-top: 0.4rem;
+  overflow: hidden;
+}
+#timer-bar-fill { background: var(--navy); height: 100%; transition: width 1s linear; }
+
+/* Between-task waiting status (STATE 1: timer hit zero) */
+#waiting-status { margin-bottom: 1rem; }
+.pulse-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: bold;
+  color: var(--navy);
+}
+.pulse-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--navy);
+  animation: pulse-fade 1.6s ease-in-out infinite;
+}
+@keyframes pulse-fade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.waiting-attention-note { margin-top: 0.4rem; color: var(--muted); font-size: 0.85rem; }
+
+textarea[readonly] { background: var(--bg); color: var(--muted); cursor: default; }
+
+#waiting-submit-status .neutral-note {
+  margin-top: 1rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+#waiting-submit-status #submit-status {
+  display: block;
+  margin-top: 1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+#waiting-submit-status .spinner {
+  display: inline-block;
+  border-color: rgba(30, 39, 97, 0.25);
+  border-top-color: var(--navy);
+}
+#waiting-submit-status #error-box { display: block; }
+
 #prompt-text { color: var(--muted); line-height: 1.5; }
 #example-box {
   margin-top: 0.75rem;
@@ -197,6 +262,43 @@ button:disabled { background: #9aa0b5; cursor: not-allowed; }
   color: #e6e6e6;
   padding: 0.75rem 1rem;
   border-radius: 6px;
+  font-family: "Courier New", Consolas, monospace;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Waiting/finished screens (timer ran out, or the lecture has ended) */
+.waiting-main {
+  display: block;
+  max-width: 640px;
+  margin: 2.5rem auto;
+  padding: 0 1rem 3rem;
+}
+.waiting-card { text-align: center; }
+.waiting-card h2 { margin-top: 0; }
+.waiting-message { font-size: 1.05rem; line-height: 1.5; color: var(--muted); margin-bottom: 0; }
+
+/* STATE 2: student personal recap */
+#recap-summary-line { font-size: 1rem; font-weight: bold; color: var(--navy); margin-bottom: 0.9rem; }
+#recap-list { list-style: none; margin: 0; padding: 0; }
+#recap-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid #eceef3;
+  font-size: 0.92rem;
+}
+#recap-list li:last-child { border-bottom: none; }
+.recap-not-attempted { color: var(--muted); font-size: 0.82rem; }
+#result-waiting .submitted-code {
+  display: block;
+  margin-top: 0.9rem;
+  background: var(--bg);
+  border: 1px solid #d0d3dc;
+  border-radius: 6px;
+  padding: 0.75rem;
   font-family: "Courier New", Consolas, monospace;
   font-size: 0.85rem;
   white-space: pre-wrap;

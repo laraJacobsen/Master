@@ -1,10 +1,15 @@
 import type {
   ApiErrorBody,
   ClusterRow,
+  LectureFinishResponse,
+  LectureNextResponse,
+  LectureStatus,
+  LectureSummary,
   ProgressResponse,
   PublicQuestion,
   QuestionPayload,
   QuestionRow,
+  StudentRecap,
   SubmissionRow,
   SubmitResponse,
   ValidationResponse,
@@ -96,4 +101,34 @@ export function fetchProgress(questionId: string): Promise<ProgressResponse> {
 export function fetchClusters(questionId?: string | null): Promise<ClusterRow[]> {
   const qs = questionId ? `?question_id=${encodeURIComponent(questionId)}` : "";
   return fetch(`${API_BASE}/api/lecturer/clusters${qs}`).then((res) => asJson(res));
+}
+
+export function fetchLectureStatus(): Promise<LectureStatus> {
+  return fetch(`${API_BASE}/api/lecture/status`).then((res) => asJson(res));
+}
+
+export function nextTask(currentQuestionId: string | null): Promise<LectureNextResponse> {
+  return fetch(`${API_BASE}/api/lecturer/lecture/next`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_question_id: currentQuestionId }),
+  }).then((res) => asJson(res));
+}
+
+export function finishLecture(currentQuestionId: string | null): Promise<LectureFinishResponse> {
+  return fetch(`${API_BASE}/api/lecturer/lecture/finish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_question_id: currentQuestionId }),
+  }).then((res) => asJson(res));
+}
+
+export function fetchLectureSummary(): Promise<LectureSummary> {
+  return fetch(`${API_BASE}/api/lecturer/lecture/summary`).then((res) => asJson(res));
+}
+
+export function fetchStudentRecap(studentName: string): Promise<StudentRecap> {
+  return fetch(`${API_BASE}/api/lecture/recap?student_name=${encodeURIComponent(studentName)}`).then((res) =>
+    asJson(res)
+  );
 }

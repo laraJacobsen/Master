@@ -4,6 +4,7 @@
   --card: #ffffff;
   --muted: #5a6072;
   --bad: #b85042;
+  --ok: #2c5f2d;
 }
 * { box-sizing: border-box; }
 body {
@@ -35,6 +36,20 @@ main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem 3rem; }
   margin-bottom: 1.25rem;
 }
 .card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+.card h2 .pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  margin-left: 0.5rem;
+  vertical-align: middle;
+  animation: pulse-fade 1.6s ease-in-out infinite;
+}
+@keyframes pulse-fade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
 
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { text-align: left; padding: 0.5rem 0.4rem; border-bottom: 1px solid #eceef3; vertical-align: top; }
@@ -118,3 +133,51 @@ th { color: var(--muted); font-weight: bold; font-size: 0.8rem; text-transform: 
   font-size: 0.85rem;
   margin: 0;
 }
+
+button {
+  background: var(--navy);
+  color: white;
+  border: none;
+  padding: 0.55rem 1.1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+button.secondary { background: #eceef3; color: var(--navy); }
+button.danger { background: var(--bad); }
+button:disabled { background: #b6bacb; cursor: not-allowed; }
+
+#task-control-card .timer-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+#task-control-card .timer-value { font-size: 1.8rem; font-weight: bold; }
+#task-control-card .timer-value.time-up { color: var(--bad); }
+#task-control-card .task-control-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+#task-control-card .advance-message { margin-top: 0.6rem; color: var(--muted); font-size: 0.85rem; }
+#lecture-finished-banner h2 { color: var(--ok); }
+
+/* STATE 2: post-lecture session summary */
+.hint { font-weight: normal; color: var(--muted); font-size: 0.78rem; }
+.summary-status { color: var(--muted); font-size: 0.9rem; }
+.summary-status.summary-error { color: var(--bad); }
+.verdict-breakdown { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.drilldown-link { color: var(--navy); font-size: 0.85rem; text-decoration: none; white-space: nowrap; }
+.drilldown-link:hover { text-decoration: underline; }
+#carry-forward-list { list-style: none; margin: 0; padding: 0; }
+#carry-forward-list li {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid #eceef3;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+#carry-forward-list li:last-child { border-bottom: none; }
+.carry-forward-tasks { margin-top: 0.25rem; color: var(--muted); font-size: 0.8rem; }
