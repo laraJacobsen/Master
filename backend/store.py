@@ -86,10 +86,17 @@ def init_db():
                 extra_packages TEXT NOT NULL DEFAULT '[]',
                 line_limit INTEGER NOT NULL DEFAULT 200,
                 status TEXT NOT NULL DEFAULT 'draft',
-                validated INTEGER NOT NULL DEFAULT 0
+                validated INTEGER NOT NULL DEFAULT 0,
+                expected_students INTEGER
             )
             """
         )
+        # Migration for DBs created before expected_students existed (see
+        # live-submission-progress-scoping-decision.md) -- CREATE TABLE IF NOT
+        # EXISTS above doesn't touch columns on an already-existing table.
+        existing_q_columns = {row["name"] for row in conn.execute("PRAGMA table_info(questions)")}
+        if "expected_students" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN expected_students INTEGER")
 
         # Seed the original MVP question directly as `live`/validated so a fresh
         # checkout keeps working exactly as before without anyone having to walk
@@ -172,8 +179,9 @@ def create_question(fields: dict) -> str:
             """
             INSERT INTO questions
                 (id, title, prompt, language, test_cases, reference_solution,
-                 cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
+                 expected_students)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 question_id,
@@ -186,6 +194,7 @@ def create_question(fields: dict) -> str:
                 row.get("memory_limit_kb", 128000),
                 row.get("extra_packages", "[]"),
                 row.get("line_limit", 200),
+                row.get("expected_students"),
             ),
         )
         conn.commit()
@@ -313,3 +322,20 @@ def get_submission(sub_id: int):
         row = cur.fetchone()
         conn.close()
         return dict(row) if row else None
+
+
+def distinct_student_count(question_id: str) -> int:
+    """Distinct students who've submitted anything (including a rejected
+    submission) for this question -- the numerator for the live "X/N
+    submitted" counter (see live-submission-progress-scoping-decision.md).
+    A student resubmitting doesn't inflate this, same reasoning as cluster
+    counts in aggregation.py."""
+    with _lock:
+        conn = _connect()
+        cur = conn.execute(
+            "SELECT COUNT(DISTINCT student_name) AS c FROM submissions WHERE question_id = ?",
+            (question_id,),
+        )
+        count = cur.fetchone()["c"]
+        conn.close()
+        return count

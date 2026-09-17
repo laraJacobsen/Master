@@ -347,6 +347,7 @@ def _run_question_setup_checks(client):
             ],
             "line_limit": 3,
             "extra_packages": [],
+            "expected_students": 3,
         },
     )
     assert r.status_code == 200, r.text
@@ -423,6 +424,29 @@ def _run_question_setup_checks(client):
     pkg_row = client.get(f"/api/lecturer/submissions?question_id={qid}").json()[0]
     assert pkg_row["rejection_reason"] == "disallowed_package", pkg_row
     print("Package allow-list enforced   OK")
+
+    # Live submission-progress counter (live-submission-progress-scoping-decision.md):
+    # Grace's three submissions above (correct + two rejections) count as one
+    # distinct student, not three.
+    r = client.get(f"/api/lecturer/questions/{qid}/progress")
+    assert r.status_code == 200, r.text
+    progress = r.json()
+    assert progress == {"submitted": 1, "expected": 3, "not_submitted": 2}, progress
+    print("Progress counter dedups by student   OK ->", progress)
+
+    r = client.post(
+        "/api/submit", json={"student_name": "Henry", "question_id": qid, "source_code": DOUBLE_MARKER_CODE}
+    )
+    assert r.status_code == 200, r.text
+    progress = client.get(f"/api/lecturer/questions/{qid}/progress").json()
+    assert progress == {"submitted": 2, "expected": 3, "not_submitted": 1}, progress
+    print("Progress counter updates on a new student   OK ->", progress)
+
+    # sum-ints was seeded with no expected_students -- expected/not_submitted
+    # must be None (not 0, which would misleadingly read as "everyone's in").
+    progress = client.get("/api/lecturer/questions/sum-ints/progress").json()
+    assert progress["expected"] is None and progress["not_submitted"] is None, progress
+    print("Progress counter with no expected_students set   OK ->", progress)
 
 
 if __name__ == "__main__":

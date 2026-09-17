@@ -68,6 +68,7 @@ class QuestionCreateRequest(BaseModel):
     memory_limit_kb: int = 128000
     extra_packages: list[str] = []
     line_limit: int = DEFAULT_LINE_LIMIT
+    expected_students: int | None = None
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -82,6 +83,7 @@ class QuestionUpdateRequest(BaseModel):
     memory_limit_kb: int | None = None
     extra_packages: list[str] | None = None
     line_limit: int | None = None
+    expected_students: int | None = None
 
 
 @app.get("/api/questions")
@@ -292,6 +294,24 @@ def api_lecturer_submission_detail(sub_id: int):
     if not row:
         raise HTTPException(status_code=404, detail="Not found")
     return row
+
+
+@app.get("/api/lecturer/questions/{question_id}/progress")
+def api_lecturer_question_progress(question_id: str):
+    """Live "X/N submitted" counter (see live-submission-progress-scoping-
+    decision.md). `expected` is whatever class size the lecturer typed in at
+    setup time -- None if they left it blank, in which case `not_submitted`
+    is also None rather than a misleading number."""
+    question = store.get_question_row(question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail="Not found")
+    submitted = store.distinct_student_count(question_id)
+    expected = question["expected_students"]
+    return {
+        "submitted": submitted,
+        "expected": expected,
+        "not_submitted": (expected - submitted) if expected is not None else None,
+    }
 
 
 @app.get("/api/lecturer/clusters")
