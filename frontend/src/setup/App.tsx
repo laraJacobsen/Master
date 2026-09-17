@@ -84,7 +84,10 @@ export default function App() {
     setPrompt(q.prompt);
     setLanguage(q.language);
     setTimeLimit(String(q.cpu_time_limit_s));
-    setMemoryLimit(String(Math.round(q.memory_limit_kb / 1000)));
+    // 1024, not 1000 -- the backend's own default/cap (128000 KB "~125MB",
+    // 256000 KB max) are 1024-based, so 1000 would drift the displayed MB
+    // value away from what's actually stored (128000/1024 = 125 exactly).
+    setMemoryLimit(String(Math.round(q.memory_limit_kb / 1024)));
     setLineLimit(String(q.line_limit));
     setPackages(q.extra_packages.join(", "));
     setExpectedStudents(q.expected_students != null ? String(q.expected_students) : "");
@@ -121,7 +124,7 @@ export default function App() {
       test_cases: testCases.map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected })),
       reference_solution: referenceSolution || null,
       cpu_time_limit_s: parseFloat(timeLimit),
-      memory_limit_kb: Math.round(parseFloat(memoryLimit) * 1000),
+      memory_limit_kb: Math.round(parseFloat(memoryLimit) * 1024),
       extra_packages: packageList,
       line_limit: parseInt(lineLimit, 10),
       expected_students: expectedStudents ? parseInt(expectedStudents, 10) : null,
