@@ -105,6 +105,11 @@ def init_db():
             conn.execute("ALTER TABLE questions ADD COLUMN duration_seconds INTEGER NOT NULL DEFAULT 600")
         if "started_at" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN started_at TEXT")
+        # A question that was already `live` before started_at existed (e.g.
+        # an existing checkout's seeded sum-ints) would otherwise have no
+        # timer zero-point -- backfill it to "now" so its countdown starts
+        # fresh from a full duration rather than never counting down at all.
+        conn.execute("UPDATE questions SET started_at = datetime('now') WHERE status = 'live' AND started_at IS NULL")
 
         # One-row table tracking whether the lecturer has explicitly ended the
         # whole lecture (distinct from "between tasks" -- see the "Next

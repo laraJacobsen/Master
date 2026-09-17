@@ -12,6 +12,13 @@ import {
 
 const POLL_MS = 3000;
 
+// How long after a task's timer hits zero to keep showing the "live" pulse
+// on the submissions/discussion cards -- gives the auto-submit backstop and
+// any still-resolving gradings time to land before the dashboard settles.
+// Background polling itself never stops (see the always-on intervals below);
+// this only controls the "still updating" visual affordance.
+const SETTLE_GRACE_MS = 8000;
+
 function formatMMSS(totalSeconds: number): string {
   const s = Math.max(0, Math.round(totalSeconds));
   const m = Math.floor(s / 60);
@@ -107,6 +114,11 @@ export default function App() {
   // lecture controls -- see api_lecture_next/finish in backend/main.py.
   const [question, setQuestion] = useState<QuestionRow | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  // False while the task is active, and for SETTLE_GRACE_MS after its timer
+  // hits zero -- drives the "live" pulse on the submissions/discussion
+  // cards below. Data itself keeps polling regardless (see the always-on
+  // intervals below); this only controls that visual affordance.
+  const [settled, setSettled] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [advanceMessage, setAdvanceMessage] = useState<string | null>(null);
   const [lectureFinished, setLectureFinished] = useState(false);
@@ -183,11 +195,17 @@ export default function App() {
   useEffect(() => {
     if (!question || question.status !== "live" || !question.started_at) {
       setSecondsRemaining(null);
+      setSettled(false);
       return;
     }
     const startedMs = new Date(question.started_at.replace(" ", "T") + "Z").getTime();
     const endMs = startedMs + question.duration_seconds * 1000;
-    const tick = () => setSecondsRemaining(Math.max(0, Math.round((endMs - Date.now()) / 1000)));
+    const settleAtMs = endMs + SETTLE_GRACE_MS;
+    const tick = () => {
+      const now = Date.now();
+      setSecondsRemaining(Math.max(0, Math.round((endMs - now) / 1000)));
+      setSettled(now >= settleAtMs);
+    };
     tick();
     const t = window.setInterval(tick, 1000);
     return () => window.clearInterval(t);
@@ -296,14 +314,25 @@ export default function App() {
                 <h2>Task control</h2>
                 <div className="task-control-row">
                   <div>
-                    <div className="timer-label">Time remaining</div>
-                    <div className={"timer-value" + (secondsRemaining === 0 ? " time-up" : "")}>
-                      {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
-                    </div>
-                    {secondsRemaining === 0 && (
-                      <div style={{ color: "var(--bad)", fontSize: "0.85rem" }}>
-                        Time's up -- students' code has been auto-submitted.
-                      </div>
+                    {secondsRemaining === 0 ? (
+                      <>
+                        <div className="timer-label">Pacing</div>
+                        <div className="timer-value time-up">
+                          Time's up --{" "}
+                          {progress
+                            ? progress.expected != null
+                              ? `${progress.submitted}/${progress.expected} submitted`
+                              : `${progress.submitted} submitted`
+                            : "-- submitted"}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="timer-label">Time remaining</div>
+                        <div className="timer-value">
+                          {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
+                        </div>
+                      </>
                     )}
                   </div>
                   <div>
@@ -316,7 +345,7 @@ export default function App() {
                       disabled={advancing}
                       style={{ marginLeft: "0.6rem" }}
                     >
-                      Finish lecture
+                      End session
                     </button>
                   </div>
                 </div>
@@ -359,7 +388,10 @@ export default function App() {
         </div>
         <div className="grid">
           <div className="card">
-            <h2>Submissions (live)</h2>
+            <h2>
+              {QUESTION_ID && settled ? "Submissions" : "Submissions (live)"}
+              {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
+            </h2>
             <div id="empty-state" style={{ display: subRows.length === 0 ? "block" : "none" }}>
               No submissions yet.
             </div>
@@ -408,7 +440,10 @@ export default function App() {
             </table>
           </div>
           <div className="card">
-            <h2>Discussion points for the class</h2>
+            <h2>
+              Discussion points for the class
+              {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
+            </h2>
             <ul id="discussion-list">
               {discussionPoints.length === 0 ? (
                 <li style={{ color: "#5a6072" }}>Nothing yet.</li>
