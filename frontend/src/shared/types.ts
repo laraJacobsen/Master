@@ -147,3 +147,43 @@ export interface SubmitResponse {
 export interface ApiErrorBody {
   detail?: string;
 }
+
+// GET /api/lecturer/lecture/summary -- one entry per task in the lecture.
+export interface SessionTaskSummary {
+  question_id: string;
+  title: string;
+  submitted: number;
+  expected: number | null;
+  verdict_counts: Partial<Record<Verdict, number>>;
+}
+
+// GET /api/lecturer/lecture/summary -- an issue that recurred across 2+ tasks.
+export interface CarryForwardPoint {
+  exec_verdict: string;
+  error_type: string | null;
+  task_titles: string[];
+  discussion_point: string;
+}
+
+// GET /api/lecturer/lecture/summary -- the STATE 2 lecturer post-lecture view.
+export interface LectureSummary {
+  lecture_seq: number;
+  tasks: SessionTaskSummary[];
+  carry_forward_discussion_points: CarryForwardPoint[];
+}
+
+// GET /api/lecture/recap's `results` -- this student's standing on one task.
+export interface StudentRecapItem {
+  question_id: string;
+  title: string;
+  attempted: boolean;
+  verdict: Verdict | null;
+}
+
+// GET /api/lecture/recap -- the STATE 2 student personal recap (no
+// class-wide comparison anywhere in this shape, by design).
+export interface StudentRecap {
+  attempted: number;
+  total: number;
+  results: StudentRecapItem[];
+}

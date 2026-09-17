@@ -27,7 +27,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from backend import store
-from backend.aggregation import cluster_submissions
+from backend.aggregation import (
+    carry_forward_discussion_points,
+    cluster_submissions,
+    session_summary,
+    student_recap,
+)
 from backend.ai_feedback import judge_and_feedback
 from backend.judge0_client import Judge0Error, run_test_cases
 from backend.questions import get_question, list_questions
@@ -237,6 +242,31 @@ def api_lecturer_lecture_finish(req: LectureAdvanceRequest):
 
     store.set_lecture_finished(True)
     return {"finished": True}
+
+
+@app.get("/api/lecturer/lecture/summary")
+def api_lecturer_lecture_summary(lecture_seq: int | None = None):
+    """The STATE 2 post-lecture view: per-task submission rate + verdict
+    trend across every task in the lecture, plus carry-forward discussion
+    points (issues that recurred across 2+ tasks). Defaults to the lecture
+    that just ended -- see store.current_lecture_seq()'s docstring for why
+    that stays correct right after "End session" without the caller having
+    to pass anything."""
+    seq = lecture_seq if lecture_seq is not None else store.current_lecture_seq()
+    return {
+        "lecture_seq": seq,
+        "tasks": session_summary(seq),
+        "carry_forward_discussion_points": carry_forward_discussion_points(seq),
+    }
+
+
+@app.get("/api/lecture/recap")
+def api_lecture_recap(student_name: str):
+    """The STATE 2 student recap: this student's own attempted-vs-total and
+    per-task verdicts for the lecture that just ended. No class-wide
+    comparison -- see student_recap()'s docstring."""
+    seq = store.current_lecture_seq()
+    return student_recap(seq, student_name)
 
 
 def _seconds_remaining(question: dict) -> int:

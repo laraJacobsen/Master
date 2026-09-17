@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { LectureStatus, SubmissionRow, SubmitResponse, TestCase, Verdict } from "../shared/types";
-import { fetchLectureStatus, fetchSubmissions, submitCode as submitCodeApi } from "../shared/api";
+import type { LectureStatus, StudentRecap, SubmissionRow, SubmitResponse, TestCase, Verdict } from "../shared/types";
+import { fetchLectureStatus, fetchStudentRecap, fetchSubmissions, submitCode as submitCodeApi } from "../shared/api";
 
 const VERDICT_LABELS: Record<string, string> = {
   correct: "Correct",
@@ -64,6 +64,13 @@ export default function App() {
   // depending on stale state from when the poll/interval closure was set up.
   const submittingRef = useRef(false);
   const resultRef = useRef<SubmitResponse | null>(null);
+
+  // STATE 2: this student's personal recap, fetched once when the lecture
+  // ends (see applyStatus below) -- not polled, since a finished lecture's
+  // recap doesn't change. Guarded by recapFetchedRef so repeated poll ticks
+  // while phase stays "finished" don't keep re-fetching it.
+  const [recap, setRecap] = useState<StudentRecap | null>(null);
+  const recapFetchedRef = useRef(false);
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -157,6 +164,17 @@ export default function App() {
       setQuestionId(null);
       setSecondsRemaining(null);
       setPhase("finished");
+      if (!recapFetchedRef.current) {
+        recapFetchedRef.current = true;
+        const studentName = nameRef.current.trim();
+        if (studentName) {
+          fetchStudentRecap(studentName)
+            .then(setRecap)
+            .catch(() => {
+              // No recap to show -- the headline/closing message still stand on their own.
+            });
+        }
+      }
       return;
     }
 
@@ -185,6 +203,8 @@ export default function App() {
       // a submit under a name/code that were never actually entered for it.
       autoSubmittedRef.current = q.seconds_remaining <= 0;
       setWasAutoSubmitted(false);
+      recapFetchedRef.current = false;
+      setRecap(null);
       setQuestionId(q.id);
       setPromptText(q.prompt);
       setExample(q.example);
@@ -287,6 +307,7 @@ export default function App() {
   }
 
   if (phase === "finished") {
+    const correctCount = recap ? recap.results.filter((r) => r.verdict === "correct").length : 0;
     return (
       <>
         <header>
@@ -297,6 +318,26 @@ export default function App() {
             <h2>That's the lecture -- thanks for working through it.</h2>
             <p className="waiting-message">Nothing else needed from you here -- it's safe to close this tab.</p>
           </div>
+          {recap && (
+            <div className="card" id="recap-card">
+              <h2>Your recap</h2>
+              <div id="recap-summary-line">
+                {recap.attempted} of {recap.total} tasks attempted -- {correctCount} of {recap.total} correct
+              </div>
+              <ul id="recap-list">
+                {recap.results.map((r) => (
+                  <li key={r.question_id}>
+                    <span>{r.title}</span>
+                    {r.attempted && r.verdict ? (
+                      <span className={verdictClass(r.verdict)}>{verdictLabel(r.verdict)}</span>
+                    ) : (
+                      <span className="recap-not-attempted">Not attempted</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </main>
       </>
     );

@@ -1,7 +1,15 @@
 import { Fragment, useEffect, useState } from "react";
-import type { ClusterRow, ProgressResponse, QuestionRow, SubmissionRow, ValidationTestResult } from "../shared/types";
+import type {
+  ClusterRow,
+  LectureSummary,
+  ProgressResponse,
+  QuestionRow,
+  SubmissionRow,
+  ValidationTestResult,
+} from "../shared/types";
 import {
   fetchClusters,
+  fetchLectureSummary,
   fetchProgress,
   fetchQuestionDetail,
   fetchSubmissionDetail,
@@ -123,6 +131,13 @@ export default function App() {
   const [advanceMessage, setAdvanceMessage] = useState<string | null>(null);
   const [lectureFinished, setLectureFinished] = useState(false);
 
+  // The STATE 2 post-lecture view -- fetched once, right when "End session"
+  // succeeds (see handleFinishLecture below), not polled: the lecture is
+  // over, so unlike the live dashboard there's nothing new to arrive.
+  const [summary, setSummary] = useState<LectureSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
   useEffect(() => {
     if (QUESTION_ID) {
       fetchQuestionDetail(QUESTION_ID)
@@ -234,6 +249,15 @@ export default function App() {
     try {
       await finishLecture(QUESTION_ID);
       setLectureFinished(true);
+      setSummaryLoading(true);
+      setSummaryError(null);
+      try {
+        setSummary(await fetchLectureSummary());
+      } catch (e) {
+        setSummaryError(e instanceof Error ? e.message : "Could not load the session summary.");
+      } finally {
+        setSummaryLoading(false);
+      }
     } catch (e) {
       setAdvanceMessage(e instanceof Error ? e.message : "Could not finish the lecture.");
     } finally {
@@ -304,10 +328,7 @@ export default function App() {
             {lectureFinished ? (
               <div id="lecture-finished-banner">
                 <h2>Lecture finished</h2>
-                <p>
-                  Students now see an end-of-lecture screen. This dashboard stays available for you to keep
-                  reviewing submissions and discussion points.
-                </p>
+                <p>Students now see an end-of-lecture screen. The session summary is below.</p>
               </div>
             ) : (
               <>
@@ -354,6 +375,8 @@ export default function App() {
             )}
           </div>
         )}
+        {!lectureFinished && (
+        <>
         <div className="card" id="progress-card" style={{ display: progress ? "block" : "none" }}>
           <h2>Submission progress</h2>
           <div id="progress-text" style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
@@ -497,6 +520,76 @@ export default function App() {
             </div>
           </div>
         </div>
+        </>
+        )}
+        {lectureFinished && (
+          <div className="grid" id="session-summary">
+            <div className="card" id="summary-tasks-card">
+              <h2>Session summary</h2>
+              {summaryLoading && <div className="summary-status">Loading...</div>}
+              {summaryError && <div className="summary-status summary-error">{summaryError}</div>}
+              {summary && summary.tasks.length === 0 && (
+                <div className="summary-status">No tasks were run this lecture.</div>
+              )}
+              {summary && summary.tasks.length > 0 && (
+                <table id="summary-table">
+                  <thead>
+                    <tr>
+                      <th>Task</th>
+                      <th>Submitted</th>
+                      <th>Verdict breakdown</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.tasks.map((t) => (
+                      <tr key={t.question_id}>
+                        <td>{t.title}</td>
+                        <td>{t.expected != null ? `${t.submitted}/${t.expected}` : `${t.submitted}`}</td>
+                        <td>
+                          <div className="verdict-breakdown">
+                            {Object.entries(t.verdict_counts).map(([verdict, count]) => (
+                              <span key={verdict} className={verdictClass(verdict)}>
+                                {verdictLabel(verdict)} {count}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td>
+                          <a
+                            className="drilldown-link"
+                            href={`lecturer.html?question_id=${encodeURIComponent(t.question_id)}`}
+                          >
+                            View task &rarr;
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="card" id="carry-forward-card">
+              <h2>Carry-forward discussion points</h2>
+              <div className="hint" style={{ marginBottom: "0.75rem" }}>
+                Issues that came up on more than one task this lecture -- worth revisiting next time.
+              </div>
+              {summary && summary.carry_forward_discussion_points.length === 0 && (
+                <div className="summary-status">Nothing recurred across tasks.</div>
+              )}
+              {summary && summary.carry_forward_discussion_points.length > 0 && (
+                <ul id="carry-forward-list">
+                  {summary.carry_forward_discussion_points.map((c, i) => (
+                    <li key={i}>
+                      <div>{c.discussion_point}</div>
+                      <div className="carry-forward-tasks">Recurred on: {c.task_titles.join(", ")}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
       </main>
     </>
   );

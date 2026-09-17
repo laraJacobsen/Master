@@ -164,3 +164,20 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
 }
 #task-control-card .advance-message { margin-top: 0.6rem; color: var(--muted); font-size: 0.85rem; }
 #lecture-finished-banner h2 { color: var(--ok); }
+
+/* STATE 2: post-lecture session summary */
+.hint { font-weight: normal; color: var(--muted); font-size: 0.78rem; }
+.summary-status { color: var(--muted); font-size: 0.9rem; }
+.summary-status.summary-error { color: var(--bad); }
+.verdict-breakdown { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.drilldown-link { color: var(--navy); font-size: 0.85rem; text-decoration: none; white-space: nowrap; }
+.drilldown-link:hover { text-decoration: underline; }
+#carry-forward-list { list-style: none; margin: 0; padding: 0; }
+#carry-forward-list li {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid #eceef3;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+#carry-forward-list li:last-child { border-bottom: none; }
+.carry-forward-tasks { margin-top: 0.25rem; color: var(--muted); font-size: 0.8rem; }

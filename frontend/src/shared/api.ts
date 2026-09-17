@@ -4,10 +4,12 @@ import type {
   LectureFinishResponse,
   LectureNextResponse,
   LectureStatus,
+  LectureSummary,
   ProgressResponse,
   PublicQuestion,
   QuestionPayload,
   QuestionRow,
+  StudentRecap,
   SubmissionRow,
   SubmitResponse,
   ValidationResponse,
@@ -119,4 +121,14 @@ export function finishLecture(currentQuestionId: string | null): Promise<Lecture
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ current_question_id: currentQuestionId }),
   }).then((res) => asJson(res));
+}
+
+export function fetchLectureSummary(): Promise<LectureSummary> {
+  return fetch(`${API_BASE}/api/lecturer/lecture/summary`).then((res) => asJson(res));
+}
+
+export function fetchStudentRecap(studentName: string): Promise<StudentRecap> {
+  return fetch(`${API_BASE}/api/lecture/recap?student_name=${encodeURIComponent(studentName)}`).then((res) =>
+    asJson(res)
+  );
 }
