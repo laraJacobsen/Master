@@ -35,6 +35,8 @@ if os.path.exists(os.environ["PROTOTYPE_DB_PATH"]):
     os.remove(os.environ["PROTOTYPE_DB_PATH"])
 
 NAME_ERROR_MARKER = "num = inpt().split()"
+DOUBLE_MARKER = "int(input()) * 2"  # substring fake_post dispatches on
+DOUBLE_MARKER_CODE = f"print({DOUBLE_MARKER})"  # reference solution for the question-setup flow test below
 
 # Two structurally different wrong_answer bugs on the same exercise -- real code, not bare
 # marker strings, so _canonicalize()/TF-IDF has something genuine to tell apart. Each
@@ -96,6 +98,20 @@ def fake_post(url, params=None, json=None, timeout=None):
         return resp
 
     stdin = base64.b64decode(json["stdin"]).decode()
+    if DOUBLE_MARKER in source:
+        status = {"id": 3, "description": "Accepted"}
+        resp.json.return_value = {
+            "status": status,
+            "stdout": base64.b64encode((str(int(stdin.strip()) * 2) + "\n").encode()).decode(),
+            "stderr": None,
+            "compile_output": None,
+            "message": None,
+            "time": "0.01",
+            "memory": 1234,
+            "exit_code": 0,
+        }
+        return resp
+
     nums = [int(x) for x in stdin.split()]
     if "bug_a_add_one" in source:
         stdout_val = str(sum(nums) + 1)  # deliberately off by one
@@ -311,6 +327,102 @@ def _run_checks(client):
         r = client.get("/lecturer.html")
         assert r.status_code == 200 and "Discussion" in r.text, r.status_code
         print("Static frontend (lecturer.html)OK")
+
+        _run_question_setup_checks(client)
+
+
+def _run_question_setup_checks(client):
+    """Landing-page (question setup) flow: draft -> validate -> start -> live,
+    plus the per-question config knobs (line_limit, extra_packages) and the
+    lock-on-start rule -- see landing-page-scoping-decision.md."""
+    r = client.post(
+        "/api/lecturer/questions",
+        json={
+            "title": "Double It",
+            "prompt": "Read one integer and print double it.",
+            "language": "python",
+            "test_cases": [
+                {"stdin": "3\n", "expected_stdout": "6"},
+                {"stdin": "10\n", "expected_stdout": "20"},
+            ],
+            "line_limit": 3,
+            "extra_packages": [],
+        },
+    )
+    assert r.status_code == 200, r.text
+    question = r.json()
+    qid = question["id"]
+    assert question["status"] == "draft" and question["validated"] is False, question
+    print("POST /api/lecturer/questions   OK ->", qid)
+
+    # Not yet live -- must not show up in the student-facing list, and a draft
+    # question must reject submissions rather than silently grading them.
+    assert qid not in [q["id"] for q in client.get("/api/questions").json()]
+    r = client.post("/api/submit", json={"student_name": "X", "question_id": qid, "source_code": "pass"})
+    assert r.status_code == 409, r.text
+    print("Draft question hidden + rejects submissions   OK")
+
+    # Validating without a reference solution is refused outright.
+    r = client.post(f"/api/lecturer/questions/{qid}/validate")
+    assert r.status_code == 400, r.text
+    # Starting before validation is refused too.
+    r = client.post(f"/api/lecturer/questions/{qid}/start")
+    assert r.status_code == 400, r.text
+    print("Validate/start blocked before a reference solution exists   OK")
+
+    r = client.put(f"/api/lecturer/questions/{qid}", json={"reference_solution": DOUBLE_MARKER_CODE})
+    assert r.status_code == 200, r.text
+    assert r.json()["validated"] is False, r.json()  # editing config resets validation
+
+    r = client.post(f"/api/lecturer/questions/{qid}/validate")
+    assert r.status_code == 200, r.text
+    assert r.json()["validated"] is True, r.json()
+    print("Validation preview against reference solution   OK ->", r.json()["validated"])
+
+    r = client.post(f"/api/lecturer/questions/{qid}/start")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "live", r.json()
+    print("POST .../start -> live   OK")
+
+    # A live question is locked: no further config edits.
+    r = client.put(f"/api/lecturer/questions/{qid}", json={"title": "Renamed"})
+    assert r.status_code == 409, r.text
+    print("Live question rejects further edits   OK")
+
+    assert qid in [q["id"] for q in client.get("/api/questions").json()]
+
+    r = client.post(
+        "/api/submit", json={"student_name": "Grace", "question_id": qid, "source_code": DOUBLE_MARKER_CODE}
+    )
+    assert r.status_code == 200 and r.json()["verdict"] == "correct", r.text
+    print("Submit against a newly-started question   OK")
+
+    # line_limit=3 above: a 4-line submission is rejected before Judge0 ever
+    # sees it, tagged with the specific reason so it's distinguishable from a
+    # genuine wrong answer.
+    r = client.post(
+        "/api/submit",
+        json={
+            "student_name": "Grace",
+            "question_id": qid,
+            "source_code": "a = 1\nb = 2\nc = 3\nprint(a + b + c)",
+        },
+    )
+    assert r.status_code == 200, r.text
+    too_long_row = client.get(f"/api/lecturer/submissions?question_id={qid}").json()[0]
+    assert too_long_row["rejection_reason"] == "too_long", too_long_row
+    print("Per-question line_limit enforced   OK")
+
+    # Default config is stdlib-only -- an import outside it is rejected the
+    # same defensive-before-Judge0 way, distinct from a runtime ImportError.
+    r = client.post(
+        "/api/submit",
+        json={"student_name": "Grace", "question_id": qid, "source_code": "import numpy\nprint(1)"},
+    )
+    assert r.status_code == 200, r.text
+    pkg_row = client.get(f"/api/lecturer/submissions?question_id={qid}").json()[0]
+    assert pkg_row["rejection_reason"] == "disallowed_package", pkg_row
+    print("Package allow-list enforced   OK")
 
 
 if __name__ == "__main__":

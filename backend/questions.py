@@ -1,32 +1,22 @@
 """
-MVP question bank. One question to start: reads space-separated integers
-from stdin, prints their sum. Kept deliberately trivial so the vertical
-slice proves the pipeline (submit -> Judge0 -> AI feedback -> lecturer view),
-not the question-authoring tooling. Add more entries here to expand later.
+Question bank -- backed by SQLite (backend/store.py's `questions` table) rather
+than a hardcoded dict, so a lecturer can author a question through the setup/
+landing page (see the /api/lecturer/questions* endpoints in main.py) instead of
+editing this file directly. store.init_db() seeds the original MVP question
+(id "sum-ints") as already `live`/validated, so an existing checkout keeps
+working unchanged even before anyone touches the setup page.
+
+`get_question()` returns a question regardless of status (draft/live) -- callers
+that care about status (e.g. /api/submit) check `question["status"]` themselves.
+`list_questions()` is the student-facing view: only `live` questions, and only
+the fields a student should see (no reference_solution, no resource limits).
 """
 
-QUESTIONS = {
-    "sum-ints": {
-        "id": "sum-ints",
-        "title": "Sum of Integers",
-        "prompt": (
-            "Read a single line of space-separated integers from standard input "
-            "and print their sum on one line."
-        ),
-        "language": "python",
-        "test_cases": [
-            {"stdin": "1 2 3\n", "expected_stdout": "6"},
-            {"stdin": "10 20 30 40\n", "expected_stdout": "100"},
-            {"stdin": "-5 5\n", "expected_stdout": "0"},
-            {"stdin": "7\n", "expected_stdout": "7"},
-            {"stdin": "1000000 2000000\n", "expected_stdout": "3000000"},
-        ],
-    }
-}
+from backend import store
 
 
 def get_question(question_id: str):
-    return QUESTIONS.get(question_id)
+    return store.get_question_row(question_id)
 
 
 def list_questions():
@@ -42,5 +32,5 @@ def list_questions():
             "language": q["language"],
             "example": dict(q["test_cases"][0]) if q["test_cases"] else None,
         }
-        for q in QUESTIONS.values()
+        for q in store.list_question_rows(status="live")
     ]

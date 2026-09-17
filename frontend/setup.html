@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lecturer -- Question Setup</title>
+<style>
+  :root {
+    --navy: #1e2761;
+    --bg: #f7f8fb;
+    --card: #ffffff;
+    --muted: #5a6072;
+    --bad: #b85042;
+    --ok: #2c5f2d;
+    --warn: #b8860b;
+    --border: #e3e5ec;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Calibri, Arial, sans-serif;
+    background: var(--bg);
+    color: #1a1a2e;
+  }
+  header {
+    background: var(--navy);
+    color: white;
+    padding: 1.25rem 1.5rem;
+  }
+  header h1 { margin: 0; font-size: 1.3rem; }
+  header p { margin: 0.25rem 0 0; color: #cadcfc; font-size: 0.9rem; }
+  main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem 3rem; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 1.25rem; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card);
+    border-radius: 10px;
+    padding: 1.1rem 1.3rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    margin-bottom: 1.25rem;
+  }
+  .card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+  .card h3 { margin: 1.1rem 0 0.5rem; font-size: 0.9rem; color: var(--muted); }
+
+  label { display: block; font-weight: bold; margin-bottom: 0.3rem; font-size: 0.85rem; }
+  .hint { font-weight: normal; color: var(--muted); font-size: 0.78rem; }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid #d0d3dc;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    margin-bottom: 0.9rem;
+    font-family: inherit;
+  }
+  textarea { min-height: 90px; font-family: "Courier New", Consolas, monospace; font-size: 0.85rem; resize: vertical; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+
+  button {
+    background: var(--navy);
+    color: white;
+    border: none;
+    padding: 0.55rem 1.1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    margin-right: 0.5rem;
+  }
+  button.secondary { background: #eceef3; color: var(--navy); }
+  button.danger { background: var(--bad); }
+  button:disabled { background: #b6bacb; cursor: not-allowed; }
+
+  .test-case-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 0.5rem;
+    align-items: start;
+    margin-bottom: 0.5rem;
+  }
+  .test-case-row textarea { min-height: 44px; margin-bottom: 0; font-size: 0.8rem; }
+  .test-case-row button { padding: 0.3rem 0.5rem; margin: 0; }
+
+  .status-pill {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: white;
+  }
+  .status-draft { background: var(--warn); }
+  .status-live { background: var(--ok); }
+
+  #question-list { list-style: none; margin: 0; padding: 0; }
+  #question-list li {
+    padding: 0.65rem 0.4rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+  }
+  #question-list li:hover { background: var(--bg); }
+  #question-list li:last-child { border-bottom: none; }
+  #question-list .q-title { font-weight: bold; font-size: 0.92rem; }
+  #question-list .q-meta { font-size: 0.78rem; color: var(--muted); }
+  #question-list a { color: var(--navy); font-size: 0.8rem; text-decoration: none; }
+  #question-list a:hover { text-decoration: underline; }
+
+  #empty-list { color: var(--muted); font-size: 0.88rem; }
+
+  #validation-result { margin-top: 0.9rem; padding: 0.75rem 0.9rem; border-radius: 6px; font-size: 0.85rem; display: none; }
+  #validation-result.pass { background: #e8f3e8; border: 1px solid var(--ok); color: #234f24; }
+  #validation-result.fail { background: #fdeceb; border: 1px solid var(--bad); color: #7a2e24; }
+  #validation-result ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+
+  #form-status { font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem; min-height: 1.2em; }
+  #locked-banner {
+    display: none;
+    background: #eef1fb;
+    border: 1px solid var(--navy);
+    color: var(--navy);
+    padding: 0.6rem 0.9rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Lecturer -- Question Setup</h1>
+  <p>Author a question, set its grading config, validate it against a known-correct solution, then start it.</p>
+</header>
+<main>
+  <div class="grid">
+    <div class="card">
+      <h2>Questions</h2>
+      <div id="empty-list">No questions yet -- create one on the right.</div>
+      <ul id="question-list"></ul>
+      <button class="secondary" id="new-question-btn" style="margin-top:0.9rem;">+ New question</button>
+    </div>
+
+    <div class="card">
+      <h2 id="form-heading">New question</h2>
+      <div id="locked-banner">This question is live -- its config is locked. Create a new question to change anything.</div>
+
+      <label for="f-title">Title</label>
+      <input type="text" id="f-title" placeholder="e.g. Sum of Integers">
+
+      <label for="f-prompt">Prompt <span class="hint">-- shown to students</span></label>
+      <textarea id="f-prompt" placeholder="Read a single line of space-separated integers..."></textarea>
+
+      <label for="f-language">Language</label>
+      <select id="f-language">
+        <option value="python">Python</option>
+        <option value="c">C</option>
+        <option value="java">Java</option>
+      </select>
+
+      <h3>Test cases <span class="hint">-- first one is shown to students as a worked example</span></h3>
+      <div id="test-cases"></div>
+      <button type="button" class="secondary" id="add-testcase-btn">+ Add test case</button>
+
+      <h3>Grading config</h3>
+      <div class="row2">
+        <div>
+          <label for="f-time">Time limit (seconds) <span class="hint">default 5, capped by the server</span></label>
+          <input type="number" id="f-time" min="0.5" step="0.5" value="5">
+        </div>
+        <div>
+          <label for="f-memory">Memory limit (MB) <span class="hint">default 125, capped by the server</span></label>
+          <input type="number" id="f-memory" min="16" step="1" value="125">
+        </div>
+      </div>
+      <div class="row2">
+        <div>
+          <label for="f-lines">Submission line limit</label>
+          <input type="number" id="f-lines" min="10" step="10" value="200">
+        </div>
+        <div>
+          <label for="f-packages">Extra allowed packages <span class="hint">comma-separated, beyond stdlib</span></label>
+          <input type="text" id="f-packages" placeholder="e.g. numpy, requests">
+        </div>
+      </div>
+
+      <h3>Reference solution <span class="hint">-- a known-correct solution, used only for the validation preview below</span></h3>
+      <textarea id="f-reference" placeholder="print(sum(int(x) for x in input().split()))"></textarea>
+
+      <div id="form-status"></div>
+
+      <div style="margin-top:1rem;">
+        <button id="save-btn">Save draft</button>
+        <button class="secondary" id="validate-btn">Run validation preview</button>
+        <button class="secondary" id="start-btn" disabled>Start (go live)</button>
+      </div>
+
+      <div id="validation-result"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const API_BASE = "";
+  let currentId = null;   // null while creating a new question
+  let currentStatus = "draft";
+
+  function escapeHtml(s) {
+    const div = document.createElement("div");
+    div.textContent = s == null ? "" : String(s);
+    return div.innerHTML;
+  }
+
+  function testCaseRow(stdin = "", expected = "") {
+    const row = document.createElement("div");
+    row.className = "test-case-row";
+    row.innerHTML = `
+      <textarea class="tc-stdin" placeholder="stdin">${escapeHtml(stdin)}</textarea>
+      <textarea class="tc-expected" placeholder="expected stdout">${escapeHtml(expected)}</textarea>
+      <button type="button" class="danger remove-tc">Remove</button>
+    `;
+    row.querySelector(".remove-tc").addEventListener("click", () => row.remove());
+    return row;
+  }
+
+  function addTestCaseRow(stdin = "", expected = "") {
+    document.getElementById("test-cases").appendChild(testCaseRow(stdin, expected));
+  }
+
+  function collectTestCases() {
+    return [...document.querySelectorAll(".test-case-row")].map(row => ({
+      stdin: row.querySelector(".tc-stdin").value,
+      expected_stdout: row.querySelector(".tc-expected").value,
+    }));
+  }
+
+  function setFormLocked(locked) {
+    const fields = ["f-title", "f-prompt", "f-language", "f-time", "f-memory", "f-lines", "f-packages", "f-reference"];
+    fields.forEach(id => document.getElementById(id).disabled = locked);
+    document.querySelectorAll(".tc-stdin, .tc-expected, .remove-tc").forEach(el => el.disabled = locked);
+    document.getElementById("add-testcase-btn").disabled = locked;
+    document.getElementById("save-btn").style.display = locked ? "none" : "inline-block";
+    document.getElementById("locked-banner").style.display = locked ? "block" : "none";
+  }
+
+  function resetForm() {
+    currentId = null;
+    currentStatus = "draft";
+    document.getElementById("form-heading").textContent = "New question";
+    document.getElementById("f-title").value = "";
+    document.getElementById("f-prompt").value = "";
+    document.getElementById("f-language").value = "python";
+    document.getElementById("f-time").value = 5;
+    document.getElementById("f-memory").value = 125;
+    document.getElementById("f-lines").value = 200;
+    document.getElementById("f-packages").value = "";
+    document.getElementById("f-reference").value = "";
+    document.getElementById("test-cases").innerHTML = "";
+    addTestCaseRow();
+    document.getElementById("form-status").textContent = "";
+    document.getElementById("validation-result").style.display = "none";
+    document.getElementById("start-btn").disabled = true;
+    setFormLocked(false);
+  }
+
+  function loadQuestionIntoForm(q) {
+    currentId = q.id;
+    currentStatus = q.status;
+    document.getElementById("form-heading").textContent = q.title;
+    document.getElementById("f-title").value = q.title;
+    document.getElementById("f-prompt").value = q.prompt;
+    document.getElementById("f-language").value = q.language;
+    document.getElementById("f-time").value = q.cpu_time_limit_s;
+    document.getElementById("f-memory").value = Math.round(q.memory_limit_kb / 1000);
+    document.getElementById("f-lines").value = q.line_limit;
+    document.getElementById("f-packages").value = q.extra_packages.join(", ");
+    document.getElementById("f-reference").value = q.reference_solution || "";
+    document.getElementById("test-cases").innerHTML = "";
+    q.test_cases.forEach(tc => addTestCaseRow(tc.stdin, tc.expected_stdout));
+    document.getElementById("form-status").textContent = "";
+    document.getElementById("validation-result").style.display = "none";
+    document.getElementById("start-btn").disabled = !q.validated;
+    setFormLocked(q.status === "live");
+  }
+
+  function formPayload() {
+    const packages = document.getElementById("f-packages").value
+      .split(",").map(s => s.trim()).filter(Boolean);
+    return {
+      title: document.getElementById("f-title").value.trim(),
+      prompt: document.getElementById("f-prompt").value.trim(),
+      language: document.getElementById("f-language").value,
+      test_cases: collectTestCases(),
+      reference_solution: document.getElementById("f-reference").value || null,
+      cpu_time_limit_s: parseFloat(document.getElementById("f-time").value),
+      memory_limit_kb: Math.round(parseFloat(document.getElementById("f-memory").value) * 1000),
+      extra_packages: packages,
+      line_limit: parseInt(document.getElementById("f-lines").value, 10),
+    };
+  }
+
+  async function loadQuestionList() {
+    const res = await fetch(`${API_BASE}/api/lecturer/questions`);
+    const questions = await res.json();
+    const list = document.getElementById("question-list");
+    const empty = document.getElementById("empty-list");
+
+    if (questions.length === 0) {
+      empty.style.display = "block";
+      list.innerHTML = "";
+      return;
+    }
+    empty.style.display = "none";
+    list.innerHTML = "";
+    for (const q of questions) {
+      const li = document.createElement("li");
+      const pillClass = q.status === "live" ? "status-live" : "status-draft";
+      li.innerHTML = `
+        <div>
+          <div class="q-title">${escapeHtml(q.title)}</div>
+          <div class="q-meta"><span class="status-pill ${pillClass}">${q.status}</span> ${escapeHtml(q.id)}</div>
+        </div>
+        ${q.status === "live" ? `<a href="lecturer.html?question_id=${encodeURIComponent(q.id)}">Live dashboard &rarr;</a>` : ""}
+      `;
+      li.addEventListener("click", (e) => {
+        if (e.target.tagName === "A") return;
+        loadQuestionIntoForm(q);
+      });
+      list.appendChild(li);
+    }
+  }
+
+  async function saveDraft() {
+    const status = document.getElementById("form-status");
+    const payload = formPayload();
+    if (!payload.title || !payload.prompt || payload.test_cases.length === 0) {
+      status.textContent = "Title, prompt, and at least one test case are required.";
+      status.style.color = "var(--bad)";
+      return;
+    }
+    status.textContent = "Saving...";
+    status.style.color = "var(--muted)";
+    try {
+      const res = await fetch(
+        currentId ? `${API_BASE}/api/lecturer/questions/${currentId}` : `${API_BASE}/api/lecturer/questions`,
+        {
+          method: currentId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Save failed.");
+      loadQuestionIntoForm(data);
+      status.textContent = "Saved.";
+      status.style.color = "var(--ok)";
+      loadQuestionList();
+    } catch (e) {
+      status.textContent = e.message;
+      status.style.color = "var(--bad)";
+    }
+  }
+
+  async function runValidation() {
+    const status = document.getElementById("form-status");
+    const result = document.getElementById("validation-result");
+    if (!currentId) {
+      status.textContent = "Save the question as a draft first.";
+      status.style.color = "var(--bad)";
+      return;
+    }
+    status.textContent = "Running the reference solution against the rubric on Judge0...";
+    status.style.color = "var(--muted)";
+    result.style.display = "none";
+    try {
+      const res = await fetch(`${API_BASE}/api/lecturer/questions/${currentId}/validate`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Validation failed.");
+      status.textContent = "";
+      result.className = data.validated ? "pass" : "fail";
+      const failing = (data.results || []).filter(r => !r.passed);
+      result.innerHTML = data.validated
+        ? "All test cases passed against the reference solution. Ready to start."
+        : "The reference solution did not pass every test case -- fix the rubric or the solution before starting:" +
+          "<ul>" + failing.map(r => `<li>stdin <code>${escapeHtml(r.stdin)}</code> -- expected <code>${escapeHtml(r.expected_stdout)}</code>, got <code>${escapeHtml((r.stdout || "").trim())}</code></li>`).join("") + "</ul>";
+      result.style.display = "block";
+      document.getElementById("start-btn").disabled = !data.validated;
+    } catch (e) {
+      status.textContent = e.message;
+      status.style.color = "var(--bad)";
+    }
+  }
+
+  async function startQuestion() {
+    const status = document.getElementById("form-status");
+    if (!currentId) return;
+    status.textContent = "Starting...";
+    status.style.color = "var(--muted)";
+    try {
+      const res = await fetch(`${API_BASE}/api/lecturer/questions/${currentId}/start`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Could not start this question.");
+      status.textContent = "Live. Redirecting to the dashboard...";
+      status.style.color = "var(--ok)";
+      loadQuestionList();
+      setTimeout(() => {
+        window.location.href = `lecturer.html?question_id=${encodeURIComponent(currentId)}`;
+      }, 700);
+    } catch (e) {
+      status.textContent = e.message;
+      status.style.color = "var(--bad)";
+    }
+  }
+
+  document.getElementById("new-question-btn").addEventListener("click", resetForm);
+  document.getElementById("add-testcase-btn").addEventListener("click", () => addTestCaseRow());
+  document.getElementById("save-btn").addEventListener("click", saveDraft);
+  document.getElementById("validate-btn").addEventListener("click", runValidation);
+  document.getElementById("start-btn").addEventListener("click", startQuestion);
+
+  resetForm();
+  loadQuestionList();
+</script>
+</body>
+</html>

@@ -101,9 +101,14 @@
 </style>
 </head>
 <body>
-<header>
-  <h1>Interactive Lecture -- Lecturer View</h1>
-  <div id="stats"></div>
+<header style="display:flex; justify-content:space-between; align-items:center;">
+  <div>
+    <h1 id="page-title">Interactive Lecture -- Lecturer View</h1>
+  </div>
+  <div style="text-align:right;">
+    <div id="stats"></div>
+    <a href="setup.html" style="color:#cadcfc; font-size:0.85rem;">&larr; Question setup</a>
+  </div>
 </header>
 <main>
   <div class="grid">
@@ -143,6 +148,23 @@
 <script>
   const API_BASE = "";
   const POLL_MS = 3000;
+  // Which question this dashboard is watching -- set via ?question_id= (the
+  // link the setup page's "Start"/"Live dashboard" actions send a lecturer
+  // to). With no param, falls back to the old behavior of showing everything.
+  const QUESTION_ID = new URLSearchParams(window.location.search).get("question_id");
+  const qsSuffix = QUESTION_ID ? `?question_id=${encodeURIComponent(QUESTION_ID)}` : "";
+
+  async function loadQuestionTitle() {
+    if (!QUESTION_ID) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(QUESTION_ID)}`);
+      if (!res.ok) return;
+      const q = await res.json();
+      document.getElementById("page-title").textContent = `Lecturer View -- ${q.title}`;
+    } catch (e) {
+      // Leave the generic title in place.
+    }
+  }
 
   function verdictClass(v) { return "verdict-pill verdict-" + v; }
   function verdictLabel(v) {
@@ -151,7 +173,7 @@
 
   async function poll() {
     try {
-      const res = await fetch(`${API_BASE}/api/lecturer/submissions`);
+      const res = await fetch(`${API_BASE}/api/lecturer/submissions${qsSuffix}`);
       const rows = await res.json();
 
       document.getElementById("stats").textContent = `${rows.length} submission${rows.length === 1 ? "" : "s"}`;
@@ -192,7 +214,7 @@
 
   async function pollClusters() {
     try {
-      const res = await fetch(`${API_BASE}/api/lecturer/clusters`);
+      const res = await fetch(`${API_BASE}/api/lecturer/clusters${qsSuffix}`);
       const clusters = await res.json();
 
       const table = document.getElementById("cluster-table");
@@ -286,6 +308,7 @@
     if (btn) showExample(btn.dataset.subId);
   });
 
+  loadQuestionTitle();
   poll();
   pollClusters();
   setInterval(poll, POLL_MS);

@@ -6,6 +6,12 @@ and scaling benchmarks (judge0_latency_bench.py / judge0_scaling_bench.py):
 POST /submissions?base64_encoded=true&wait=true with base64-encoded
 source_code/stdin, then read back status.description, stdout, stderr,
 compile_output, and timing.
+
+Per-question CPU time / memory limits (see landing-page-scoping-decision.md)
+are teacher-facing knobs, but capped server-side at MAX_CPU_TIME_LIMIT /
+MAX_MEMORY_LIMIT_KB so a question's config can't starve the shared Judge0
+instance -- those ceilings are an operator-level setting (env var), not
+something a question's setup page exposes.
 """
 
 import base64
@@ -14,6 +20,12 @@ import os
 import requests
 
 JUDGE0_BASE_URL = os.environ.get("JUDGE0_BASE_URL", "http://localhost:2358")
+
+DEFAULT_CPU_TIME_LIMIT = 5  # seconds
+DEFAULT_MEMORY_LIMIT_KB = 128000  # ~125MB
+
+MAX_CPU_TIME_LIMIT = float(os.environ.get("MAX_CPU_TIME_LIMIT", "15"))
+MAX_MEMORY_LIMIT_KB = int(os.environ.get("MAX_MEMORY_LIMIT_KB", "256000"))
 
 LANGUAGE_IDS = {
     "python": 71,
@@ -40,8 +52,18 @@ class Judge0Error(RuntimeError):
     """
 
 
-def run_submission(source_code: str, stdin: str, language: str = "python", timeout: int = 15) -> dict:
+def run_submission(
+    source_code: str,
+    stdin: str,
+    language: str = "python",
+    timeout: int = 15,
+    cpu_time_limit: float = None,
+    memory_limit_kb: int = None,
+) -> dict:
     """Submit one piece of code + stdin to Judge0 synchronously.
+
+    cpu_time_limit (seconds) and memory_limit_kb are clamped to
+    MAX_CPU_TIME_LIMIT/MAX_MEMORY_LIMIT_KB regardless of what's passed in.
 
     Returns a normalized result dict:
       status_id, status_description, stdout, stderr, compile_output, message,
@@ -50,10 +72,18 @@ def run_submission(source_code: str, stdin: str, language: str = "python", timeo
     if language not in LANGUAGE_IDS:
         raise ValueError(f"Unsupported language: {language!r}. Supported: {list(LANGUAGE_IDS)}")
 
+    cpu_time_limit = min(cpu_time_limit or DEFAULT_CPU_TIME_LIMIT, MAX_CPU_TIME_LIMIT)
+    memory_limit_kb = min(memory_limit_kb or DEFAULT_MEMORY_LIMIT_KB, MAX_MEMORY_LIMIT_KB)
+    # The HTTP call itself must outlast Judge0's own cpu_time_limit (wait=true
+    # blocks until Judge0 finishes), plus headroom for compilation/queueing.
+    timeout = max(timeout, cpu_time_limit + 10)
+
     payload = {
         "language_id": LANGUAGE_IDS[language],
         "source_code": _b64(source_code),
         "stdin": _b64(stdin),
+        "cpu_time_limit": cpu_time_limit,
+        "memory_limit": memory_limit_kb,
     }
 
     try:
@@ -83,7 +113,13 @@ def run_submission(source_code: str, stdin: str, language: str = "python", timeo
     }
 
 
-def run_test_cases(source_code: str, test_cases: list, language: str = "python") -> list:
+def run_test_cases(
+    source_code: str,
+    test_cases: list,
+    language: str = "python",
+    cpu_time_limit: float = None,
+    memory_limit_kb: int = None,
+) -> list:
     """Run one submission's code against a list of test cases.
 
     Each test case is {"stdin": "...", "expected_stdout": "..."}.
@@ -95,7 +131,13 @@ def run_test_cases(source_code: str, test_cases: list, language: str = "python")
     """
     results = []
     for i, case in enumerate(test_cases):
-        result = run_submission(source_code, case["stdin"], language=language)
+        result = run_submission(
+            source_code,
+            case["stdin"],
+            language=language,
+            cpu_time_limit=cpu_time_limit,
+            memory_limit_kb=memory_limit_kb,
+        )
         actual = (result["stdout"] or "").strip()
         expected = case["expected_stdout"].strip()
         result["case_index"] = i
