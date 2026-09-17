@@ -7,20 +7,27 @@ point, a deterministic tiered-hint taxonomy produces the student-facing
 feedback text (escalating across resubmissions), and the lecturer sees
 submissions and discussion points appear live.
 
-One question is wired up for now: "read space-separated integers from
-stdin, print their sum" (Python). The point of this slice is to prove the
-pipeline works end to end, not to have a full question bank yet -- add more
-entries to `backend/questions.py` once this is confirmed working.
+One question ships pre-seeded (already `live`): "read space-separated
+integers from stdin, print their sum" (Python). Beyond that, a lecturer
+authors questions through the setup/landing page (`frontend/setup.html`)
+rather than editing `backend/questions.py` directly -- see
+`feedback-research/landing-page-scoping-decision.md` for the scoping
+decision behind that flow (prompt/rubric/language, per-question Judge0
+resource limits, a validation preview against a reference solution before
+a question can go live, and the "start" action that flips it live).
 
 ## What's included
 
 ```
 backend/
   judge0_client.py   Judge0 SYNC submission wrapper (reuses the pattern from
-                      the earlier latency/scaling benchmark scripts)
-  validation.py        Pre-execution checks (empty/whitespace/too-long/encoding) run
-                        before code ever reaches Judge0
-  questions.py        The question bank (one MVP question)
+                      the earlier latency/scaling benchmark scripts); per-question
+                      cpu_time_limit/memory_limit are passed through here and capped
+                      server-side (MAX_CPU_TIME_LIMIT/MAX_MEMORY_LIMIT_KB env vars)
+  validation.py        Pre-execution checks (empty/whitespace/too-long/encoding/
+                        disallowed-package) run before code ever reaches Judge0 --
+                        line limit and package allow-list are per-question knobs
+  questions.py        Question lookup, backed by store.py's `questions` table
   ai_feedback.py       Local Ollama call -> verdict + discussion point; also calls
                         hints.py for exec_verdict + the student-facing hint text
   hints.py             THE deterministic Judge0-result classifier (via
@@ -32,16 +39,26 @@ backend/
                         coarser classifier here (exec_verdict.py) duplicating
                         this job with less detail -- retired in favor of this
                         one, single source of truth.
-  store.py             SQLite session store (backend/prototype.db, created on first run)
-  main.py               FastAPI app: /api/submit, /api/questions, /api/lecturer/submissions
+  store.py             SQLite store (backend/prototype.db, created on first run):
+                        submissions, and the `questions` table (draft -> validated
+                        -> live), with the MVP question seeded live on first run
+  main.py               FastAPI app: /api/submit, /api/questions (live questions
+                        only), /api/lecturer/submissions, /api/lecturer/clusters,
+                        /api/lecturer/questions* (setup: create/list/detail/update/
+                        validate/start)
 feedback-research/    Tiered-feedback taxonomy + eval corpus, imported from the
                         classification-test work (see its own docs in this folder)
 frontend/
+  setup.html            Lecturer question-setup/landing page: author a question,
+                        set its grading config, run the validation preview, start it
   student.html          Student page: name, code box, submit, see feedback + hint tier
-  lecturer.html         Lecturer page: live table of submissions + discussion points (polls every 3s)
+  lecturer.html         Lecturer page: live table of submissions + discussion points
+                        (polls every 3s) for one question, picked via ?question_id=
 smoke_test.py           Structural test with Judge0 + Ollama mocked out -- proves the
-                          plumbing works without needing either service running. Already run;
-                          see "What's been verified" below.
+                          plumbing works without needing either service running, including
+                          the full question-setup flow (draft -> validate -> start -> live,
+                          plus per-question line_limit/package-allowlist enforcement).
+                          Already run; see "What's been verified" below.
 requirements.txt
 ```
 
@@ -76,15 +93,25 @@ uvicorn backend.main:app --reload --port 8000
 
 Then open in a browser:
 
-- Student page: `http://localhost:8000/student.html`
-- Lecturer page: `http://localhost:8000/lecturer.html`
+- Question setup (lecturer): `http://localhost:8000/setup.html` -- author a
+  question, set its grading config, run the validation preview against a
+  reference solution, then start it. The pre-seeded `sum-ints` question is
+  already live, so this step is only needed to add more questions.
+- Student page: `http://localhost:8000/student.html?question_id=sum-ints`
+  (or whatever question id you started; with no `question_id`, it falls back
+  to the first live question)
+- Lecturer page: `http://localhost:8000/lecturer.html?question_id=sum-ints`
+  (the setup page's "Start"/"Live dashboard" links go here directly; with no
+  `question_id` it shows submissions across every question, the old behavior)
 
-Open both side by side (or on two machines on the same network, using your
-laptop's IP instead of `localhost`) to see a submission on the student page
-show up on the lecturer page a few seconds later.
+Open the student and lecturer pages side by side (or on two machines on the
+same network, using your laptop's IP instead of `localhost`) to see a
+submission on the student page show up on the lecturer page a few seconds
+later.
 
-Submissions are stored in `backend/prototype.db` (SQLite) -- delete that
-file to start a clean session.
+Submissions and questions are stored in `backend/prototype.db` (SQLite) --
+delete that file to start a clean session (this also clears any questions
+authored through the setup page, back down to just the pre-seeded one).
 
 ## What's been verified
 
@@ -132,9 +159,17 @@ manual test doesn't exercise).
 
 ## Known simplifications (MVP, not final)
 
-- One question, Python only. No question-authoring UI -- edit
-  `backend/questions.py` directly to add more.
-- No auth -- anyone who can reach the URL can submit as any name.
+- Question authoring now goes through `frontend/setup.html`, but the student
+  page has no question *picker* -- it takes `?question_id=` (or falls back to
+  the first live question), so more than one live question at a time isn't
+  really usable from the student side yet.
+- Package allow-list enforcement (`backend/validation.py`) is a static check
+  of `import`/`from` statements against stdlib + the question's configured
+  extras -- it doesn't stop a workaround like `__import__("os")`, and isn't
+  meant to (this is a lecture-hall classroom tool, not a hostile sandbox
+  boundary; Judge0 itself is the actual execution sandbox).
+- No auth -- anyone who can reach the URL can submit as any name, and anyone
+  who can reach `/setup.html` can author/start questions.
 - Lecturer page polls every 3 seconds rather than pushing updates (no
   websockets yet) -- fine for a lecture-sized class, revisit if this needs
   to feel more instant.

@@ -261,7 +261,11 @@
 
 <script>
   const API_BASE = ""; // same origin as this page when served by the FastAPI backend
-  const QUESTION_ID = "sum-ints"; // MVP: single fixed question
+  // Picks the question via ?question_id= (the link a lecturer would share once
+  // a question is live); with no param, falls back to whichever live question
+  // comes first -- there's no question picker UI yet, so this only really
+  // works cleanly with one live question at a time.
+  let QUESTION_ID = new URLSearchParams(window.location.search).get("question_id");
 
   async function loadQuestion() {
     const exampleBox = document.getElementById("example-box");
@@ -269,7 +273,8 @@
       const res = await fetch(`${API_BASE}/api/questions`);
       const questions = await res.json();
       const q = questions.find(q => q.id === QUESTION_ID) || questions[0];
-      document.getElementById("prompt-text").textContent = q ? q.prompt : "No question available.";
+      QUESTION_ID = q ? q.id : QUESTION_ID;
+      document.getElementById("prompt-text").textContent = q ? q.prompt : "No question is live yet.";
 
       // Always shown, not just after a failed submission -- this is one worked
       // example confirming the input/output format, not a hint about the other

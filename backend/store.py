@@ -3,9 +3,20 @@ SQLite-backed session store. Every submission (student's code, Judge0
 results, AI verdict/feedback/discussion point) gets one row. Simple by
 design -- this is a lecture-hall MVP (dozens of students, one session at
 a time), not a multi-tenant production store.
+
+Also holds the `questions` table (see landing-page-scoping-decision.md):
+a question starts life as a `draft` a lecturer is configuring on the
+setup/landing page, must pass a validation preview (run its rubric
+against a reference solution) before it can `start`, and becomes `live`
+only then -- students can only see/submit against `live` questions
+(backend/questions.py enforces the student-facing filter). Once live, a
+question's config is locked (see `update_question`) so submissions already
+graded against it stay comparable to later ones.
 """
 
+import json
 import os
+import re
 import sqlite3
 import threading
 
@@ -59,8 +70,186 @@ def init_db():
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE submissions ADD COLUMN {column} {sqltype}")
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS questions (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                title TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                language TEXT NOT NULL,
+                test_cases TEXT NOT NULL,
+                reference_solution TEXT,
+                cpu_time_limit_s REAL NOT NULL DEFAULT 5,
+                memory_limit_kb INTEGER NOT NULL DEFAULT 128000,
+                extra_packages TEXT NOT NULL DEFAULT '[]',
+                line_limit INTEGER NOT NULL DEFAULT 200,
+                status TEXT NOT NULL DEFAULT 'draft',
+                validated INTEGER NOT NULL DEFAULT 0,
+                expected_students INTEGER
+            )
+            """
+        )
+        # Migration for DBs created before expected_students existed (see
+        # live-submission-progress-scoping-decision.md) -- CREATE TABLE IF NOT
+        # EXISTS above doesn't touch columns on an already-existing table.
+        existing_q_columns = {row["name"] for row in conn.execute("PRAGMA table_info(questions)")}
+        if "expected_students" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN expected_students INTEGER")
+
+        # Seed the original MVP question directly as `live`/validated so a fresh
+        # checkout keeps working exactly as before without anyone having to walk
+        # it through the setup page first (see smoke_test.py, README.md).
+        seeded = conn.execute("SELECT 1 FROM questions WHERE id = 'sum-ints'").fetchone()
+        if not seeded:
+            conn.execute(
+                """
+                INSERT INTO questions
+                    (id, title, prompt, language, test_cases, reference_solution,
+                     cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
+                     status, validated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', 1)
+                """,
+                (
+                    "sum-ints",
+                    "Sum of Integers",
+                    "Read a single line of space-separated integers from standard input "
+                    "and print their sum on one line.",
+                    "python",
+                    json.dumps(
+                        [
+                            {"stdin": "1 2 3\n", "expected_stdout": "6"},
+                            {"stdin": "10 20 30 40\n", "expected_stdout": "100"},
+                            {"stdin": "-5 5\n", "expected_stdout": "0"},
+                            {"stdin": "7\n", "expected_stdout": "7"},
+                            {"stdin": "1000000 2000000\n", "expected_stdout": "3000000"},
+                        ]
+                    ),
+                    "print(sum(int(x) for x in input().split()))",
+                    5,
+                    128000,
+                    "[]",
+                    200,
+                ),
+            )
+
         conn.commit()
         conn.close()
+
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(title: str) -> str:
+    slug = _SLUG_RE.sub("-", title.strip().lower()).strip("-")
+    return slug or "question"
+
+
+def _serialize_question(fields: dict) -> dict:
+    row = dict(fields)
+    if "test_cases" in row and not isinstance(row["test_cases"], str):
+        row["test_cases"] = json.dumps(row["test_cases"])
+    if "extra_packages" in row and not isinstance(row["extra_packages"], str):
+        row["extra_packages"] = json.dumps(row["extra_packages"])
+    return row
+
+
+def _deserialize_question(row: dict) -> dict:
+    q = dict(row)
+    q["test_cases"] = json.loads(q["test_cases"])
+    q["extra_packages"] = json.loads(q["extra_packages"])
+    q["validated"] = bool(q["validated"])
+    return q
+
+
+def create_question(fields: dict) -> str:
+    """Inserts a new draft question, generating a unique id from its title.
+    Returns the new question's id."""
+    row = _serialize_question(fields)
+    with _lock:
+        conn = _connect()
+        base_slug = _slugify(row["title"])
+        question_id = base_slug
+        suffix = 2
+        while conn.execute("SELECT 1 FROM questions WHERE id = ?", (question_id,)).fetchone():
+            question_id = f"{base_slug}-{suffix}"
+            suffix += 1
+        conn.execute(
+            """
+            INSERT INTO questions
+                (id, title, prompt, language, test_cases, reference_solution,
+                 cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
+                 expected_students)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                question_id,
+                row["title"],
+                row["prompt"],
+                row["language"],
+                row["test_cases"],
+                row.get("reference_solution"),
+                row.get("cpu_time_limit_s", 5),
+                row.get("memory_limit_kb", 128000),
+                row.get("extra_packages", "[]"),
+                row.get("line_limit", 200),
+                row.get("expected_students"),
+            ),
+        )
+        conn.commit()
+        conn.close()
+        return question_id
+
+
+def update_question(question_id: str, fields: dict) -> None:
+    """Updates only the given fields on a still-draft question. Callers (see
+    main.py) are responsible for rejecting edits to a question that's already
+    live -- this function itself doesn't check status, so it can also be used
+    internally by set_validated/set_status below."""
+    if not fields:
+        return
+    row = _serialize_question(fields)
+    columns = ", ".join(f"{k} = ?" for k in row)
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            f"UPDATE questions SET {columns} WHERE id = ?",
+            (*row.values(), question_id),
+        )
+        conn.commit()
+        conn.close()
+
+
+def set_validated(question_id: str, value: bool) -> None:
+    update_question(question_id, {"validated": 1 if value else 0})
+
+
+def set_status(question_id: str, status: str) -> None:
+    update_question(question_id, {"status": status})
+
+
+def get_question_row(question_id: str):
+    with _lock:
+        conn = _connect()
+        cur = conn.execute("SELECT * FROM questions WHERE id = ?", (question_id,))
+        row = cur.fetchone()
+        conn.close()
+        return _deserialize_question(dict(row)) if row else None
+
+
+def list_question_rows(status: str = None) -> list:
+    with _lock:
+        conn = _connect()
+        if status:
+            cur = conn.execute(
+                "SELECT * FROM questions WHERE status = ? ORDER BY created_at DESC", (status,)
+            )
+        else:
+            cur = conn.execute("SELECT * FROM questions ORDER BY created_at DESC")
+        rows = [_deserialize_question(dict(r)) for r in cur.fetchall()]
+        conn.close()
+        return rows
 
 
 def next_attempt_number(student_name: str, question_id: str) -> int:
@@ -133,3 +322,20 @@ def get_submission(sub_id: int):
         row = cur.fetchone()
         conn.close()
         return dict(row) if row else None
+
+
+def distinct_student_count(question_id: str) -> int:
+    """Distinct students who've submitted anything (including a rejected
+    submission) for this question -- the numerator for the live "X/N
+    submitted" counter (see live-submission-progress-scoping-decision.md).
+    A student resubmitting doesn't inflate this, same reasoning as cluster
+    counts in aggregation.py."""
+    with _lock:
+        conn = _connect()
+        cur = conn.execute(
+            "SELECT COUNT(DISTINCT student_name) AS c FROM submissions WHERE question_id = ?",
+            (question_id,),
+        )
+        count = cur.fetchone()["c"]
+        conn.close()
+        return count
