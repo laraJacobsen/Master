@@ -319,8 +319,10 @@ def api_lecturer_clusters(question_id: str = None):
     return cluster_submissions(question_id)
 
 
-# Serve the plain HTML/JS frontend (student.html, lecturer.html) as static
-# files, mounted last so it never shadows the /api/* routes above.
-_frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
+# Serve the built React/TS frontend (setup.html, student.html, lecturer.html
+# -- see frontend/README) as static files, mounted last so it never shadows
+# the /api/* routes above. Built with `npm run build` from frontend/, which
+# outputs to frontend/dist.
+_frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.isdir(_frontend_dir):
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")

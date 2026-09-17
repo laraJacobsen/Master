@@ -320,12 +320,16 @@ def _run_checks(client):
         assert r.status_code == 404, r.text
         print("Unknown question -> 404        OK")
 
+        # These now serve the built React/TS bundle's HTML shell (see
+        # frontend/README.md) -- content like "Submit" is rendered client-side,
+        # not present in the served HTML, so this only checks the right shell
+        # (via its <title>) and a bundled JS entrypoint come back.
         r = client.get("/student.html")
-        assert r.status_code == 200 and "Submit" in r.text, r.status_code
+        assert r.status_code == 200 and "Student" in r.text and 'id="root"' in r.text, r.status_code
         print("Static frontend (student.html) OK")
 
         r = client.get("/lecturer.html")
-        assert r.status_code == 200 and "Discussion" in r.text, r.status_code
+        assert r.status_code == 200 and "Lecturer" in r.text and 'id="root"' in r.text, r.status_code
         print("Static frontend (lecturer.html)OK")
 
         _run_question_setup_checks(client)

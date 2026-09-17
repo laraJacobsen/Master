@@ -48,12 +48,17 @@ backend/
                         validate/start)
 feedback-research/    Tiered-feedback taxonomy + eval corpus, imported from the
                         classification-test work (see its own docs in this folder)
-frontend/
-  setup.html            Lecturer question-setup/landing page: author a question,
+frontend/              React + TypeScript (Vite), one entry point per page -- same
+                        URLs/behavior as before, just a different tech stack. Built
+                        to frontend/dist/, which backend/main.py serves as static
+                        files. See frontend/README.md.
+  src/setup/            Lecturer question-setup/landing page: author a question,
                         set its grading config, run the validation preview, start it
-  student.html          Student page: name, code box, submit, see feedback + hint tier
-  lecturer.html         Lecturer page: live table of submissions + discussion points
+  src/student/          Student page: name, code box, submit, see feedback + hint tier
+  src/lecturer/         Lecturer page: live table of submissions + discussion points
                         (polls every 3s) for one question, picked via ?question_id=
+  src/shared/           TypeScript types + fetch wrappers for the API, shared by
+                        all three pages
 smoke_test.py           Structural test with Judge0 + Ollama mocked out -- proves the
                           plumbing works without needing either service running, including
                           the full question-setup flow (draft -> validate -> start -> live,
@@ -77,6 +82,7 @@ requirements.txt
    (the tiered hint text still works either way -- it doesn't depend on
    Ollama at all).
 3. Python 3.9+.
+4. Node 18+ (to build the frontend).
 
 ## Running it
 
@@ -84,12 +90,17 @@ requirements.txt
 cd prototype
 pip install -r requirements.txt
 
+cd frontend && npm install && npm run build && cd ..   # builds frontend/dist
+
 ollama pull llama3.2:3b                         # once, if not already pulled
 export OLLAMA_MODEL=llama3.2:3b                  # only if you want a different model
 export JUDGE0_BASE_URL=http://localhost:2358     # only if not the default
 
 uvicorn backend.main:app --reload --port 8000
 ```
+
+(For frontend development with hot reload instead of a static build, run
+`npm run dev` in `frontend/` alongside the backend -- see `frontend/README.md`.)
 
 Then open in a browser:
 

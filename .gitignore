@@ -2,3 +2,7 @@ __pycache__/
 *.py[cod]
 backend/*.db
 .pytest_cache/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.d.ts

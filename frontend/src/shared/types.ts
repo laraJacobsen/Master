@@ -1,0 +1,120 @@
+// Mirrors the JSON shapes returned by backend/main.py, backend/store.py, and
+// backend/aggregation.py. Kept as one shared file since all three pages talk
+// to the same API.
+
+export interface TestCase {
+  stdin: string;
+  expected_stdout: string;
+}
+
+// GET /api/questions -- student-facing, live questions only.
+export interface PublicQuestion {
+  id: string;
+  title: string;
+  prompt: string;
+  language: string;
+  example: TestCase | null;
+}
+
+export type QuestionStatus = "draft" | "live";
+
+// GET/POST/PUT /api/lecturer/questions* -- full question row (setup page +
+// lecturer page title lookup).
+export interface QuestionRow {
+  id: string;
+  created_at: string;
+  title: string;
+  prompt: string;
+  language: string;
+  test_cases: TestCase[];
+  reference_solution: string | null;
+  cpu_time_limit_s: number;
+  memory_limit_kb: number;
+  extra_packages: string[];
+  line_limit: number;
+  status: QuestionStatus;
+  validated: boolean;
+  expected_students: number | null;
+}
+
+export interface QuestionPayload {
+  title: string;
+  prompt: string;
+  language: string;
+  test_cases: TestCase[];
+  reference_solution: string | null;
+  cpu_time_limit_s: number;
+  memory_limit_kb: number;
+  extra_packages: string[];
+  line_limit: number;
+  expected_students: number | null;
+}
+
+export interface ValidationTestResult {
+  stdin: string;
+  expected_stdout: string;
+  passed: boolean;
+  stdout?: string;
+  stderr?: string;
+}
+
+export interface ValidationResponse {
+  validated: boolean;
+  results: ValidationTestResult[];
+}
+
+export type Verdict = "correct" | "partially_correct" | "incorrect" | "error";
+
+// GET /api/lecturer/submissions, /api/lecturer/submissions/{id}
+export interface SubmissionRow {
+  id: number;
+  created_at: string;
+  student_name: string;
+  question_id: string;
+  language: string;
+  source_code: string;
+  attempt_number: number;
+  tests_passed: number;
+  tests_total: number;
+  verdict: Verdict | null;
+  error_type: string | null;
+  exec_verdict: string | null;
+  rejection_reason: string | null;
+  feedback: string | null;
+  discussion_point: string | null;
+  raw_test_results: string; // JSON-encoded ValidationTestResult[]
+}
+
+// GET /api/lecturer/clusters
+export interface ClusterRow {
+  exec_verdict: string;
+  error_type: string | null;
+  count: number;
+  example_submission_id: number;
+  submission_ids: number[];
+  discussion_point: string | null;
+}
+
+// GET /api/lecturer/questions/{id}/progress
+export interface ProgressResponse {
+  submitted: number;
+  expected: number | null;
+  not_submitted: number | null;
+}
+
+// POST /api/submit
+export interface SubmitResponse {
+  submission_id: number;
+  tests_passed: number;
+  tests_total: number;
+  verdict: Verdict;
+  feedback: string;
+  attempt_number?: number;
+  hint_tier?: number | null;
+  hint_ceiling?: number | null;
+  traceback?: string | null;
+}
+
+export interface ApiErrorBody {
+  detail?: string;
+}
