@@ -64,6 +64,48 @@ review step exists to catch, recurring despite the tighter grounding here. Whoev
 the threshold next should start well below 0.326, probably per-exercise rather than one
 global constant, and should not assume evidence-grounding alone fixed the over-generalization
 risk.
+
+2026-09-16, follow-up after the finding above: two problems fixed, one new one found and
+mitigated, still unvalidated overall.
+
+- Root cause of the over-permissive merging: TfidfVectorizer's default token_pattern
+  (\\b\\w\\w+\\b) drops every operator, bracket, and single-digit literal -- exactly the
+  tokens a short exercise's bug usually lives in. Checked against 4 deliberately-distinct
+  sum-ints bugs (wrong operator, an off-by-one slice, wrong index, a stray +1): under the
+  default pattern their vectors were close enough to fully merge regardless of threshold.
+  Switching to token_pattern=r"\\S+" (keep every canonicalized token -- _canonicalize()
+  already space-joins them) separated the same 4 bugs to pairwise cosine distances of
+  0.098-0.240, while two submissions of genuinely identical code stayed at 0.000 -- an
+  actual gap to threshold on. The token pattern was the real blind spot; the threshold
+  alone was never going to fix this.
+- WRONG_ANSWER_SUBCLUSTER_DISTANCE retuned from 0.4 to 0.05, and linkage from "average" to
+  "complete". 0.15 with "average" linkage (the first retune) still chained 3 of the 4
+  distinct bugs into one cluster: average linkage merges based on the mean distance across
+  a growing cluster, so two points that are each individually close to a third (here, two
+  distinct bugs both moderately close to the identical-code pair) get pulled together even
+  though their own direct distance is the largest in the group. "complete" linkage merges
+  on the *maximum* pairwise distance instead, which doesn't chain that way, and separated
+  all 3 distinct bugs into their own clusters at threshold 0.05-0.09 while still correctly
+  merging the one genuinely-identical-code pair (distance 0.000). Chose the safer end of
+  that range (0.05): a false split just shows one bug as two rows, each still individually
+  correct; a false merge produces an actively wrong claim to a lecturer, so under
+  uncertainty this errs toward splitting. Still one (question, sample) data point, not
+  tuned against labeled data -- treat as a better first guess, not a validated constant,
+  and prefer per-exercise tuning eventually.
+- New failure mode, worse than over-generalization: given a degenerate real submission
+  (two students' actual "int" typed into the textarea, unrelated to any real exercise
+  attempt -- canonicalizes to the single token VAR1), the model fabricated a detailed,
+  entirely fictitious pattern ("all snippets show an identical addition of 1 to the result
+  of VAR2*VAR2") with no VAR2, no multiplication, and no addition anywhere in the actual
+  input -- a direct violation of its own "say so if there's no pattern" instruction.
+  Mitigated with _MIN_TOKENS_FOR_PATTERN_CALL: below that many canonicalized tokens, skip
+  the model call entirely and use the generic fallback line, rather than trust the model to
+  self-police on degenerate input. This guards the specific case observed; it is not a
+  general fix for the model asserting ungrounded claims on richer input, which the
+  over-generalization finding above shows can still happen even with real evidence shown.
+
+None of this replaces the human/expert checkpoint -- it removes two concrete, reproduced
+failure modes, not the general risk the checkpoint exists to catch.
 """
 
 import io
@@ -90,8 +132,17 @@ logger = logging.getLogger(__name__)
 
 MIN_STUDENTS_FOR_DISCUSSION = 2
 
-# First guess, not yet tuned against labeled data -- see module docstring.
-WRONG_ANSWER_SUBCLUSTER_DISTANCE = 0.4
+# Keeps operators/brackets/literals as features instead of dropping them -- see
+# the 2026-09-16 follow-up in the module docstring.
+_TOKEN_PATTERN = r"\S+"
+
+# Retuned 2026-09-16 -- see module docstring for the measured distance gap this
+# sits in. Still an unvalidated first guess, not a tuned constant.
+WRONG_ANSWER_SUBCLUSTER_DISTANCE = 0.05
+
+# Below this many canonicalized tokens there's nothing real to describe a pattern
+# from -- see the 2026-09-16 fabrication finding in the module docstring.
+_MIN_TOKENS_FOR_PATTERN_CALL = 4
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
@@ -161,7 +212,7 @@ def _cluster_by_similarity(rows: list) -> list:
 
     canon = [_canonicalize(r["source_code"]) for r in rows]
     try:
-        matrix = TfidfVectorizer().fit_transform(canon)
+        matrix = TfidfVectorizer(token_pattern=_TOKEN_PATTERN).fit_transform(canon)
     except ValueError:
         return [[r] for r in rows]  # empty vocabulary -- nothing to compare on
     if matrix.shape[1] == 0:
@@ -171,7 +222,7 @@ def _cluster_by_similarity(rows: list) -> list:
         n_clusters=None,
         distance_threshold=WRONG_ANSWER_SUBCLUSTER_DISTANCE,
         metric="cosine",
-        linkage="average",
+        linkage="complete",
     ).fit_predict(matrix.toarray())
 
     groups = defaultdict(list)
@@ -251,7 +302,8 @@ def _subcluster_discussion_point(group: list, student_count: int):
     fallback = hints.discussion_point_for_cluster("wrong_answer", None, student_count)
     result = fallback
     snippets = _representative_snippets(group)
-    if len(snippets) >= 2 and _ollama_available():
+    trivial = any(len(s.split()) < _MIN_TOKENS_FOR_PATTERN_CALL for s in snippets)
+    if len(snippets) >= 2 and not trivial and _ollama_available():
         t0 = time.monotonic()
         for _attempt in (1, 2):
             try:
@@ -266,6 +318,21 @@ def _subcluster_discussion_point(group: list, student_count: int):
 
     _subcluster_discussion_cache[cache_key] = result
     return result
+
+
+def _distinct_student_submission_ids(rows: list) -> list:
+    """One submission id per distinct student -- their most recent attempt in this
+    group, since rows is already newest-first (from store.all_submissions()). Lets
+    the lecturer view every distinct student's example for a cluster, not just one,
+    without also dumping every resubmission of the same bug."""
+    seen_students = set()
+    ids = []
+    for row in rows:
+        if row["student_name"] in seen_students:
+            continue
+        seen_students.add(row["student_name"])
+        ids.append(row["id"])
+    return ids
 
 
 def _wrong_answer_subclusters(members: list) -> list:
@@ -294,6 +361,7 @@ def _wrong_answer_subclusters(members: list) -> list:
                     "error_type": None,
                     "count": student_count,
                     "example_submission_id": example["id"],
+                    "submission_ids": _distinct_student_submission_ids(group),
                     "discussion_point": _subcluster_discussion_point(group, student_count),
                 }
             )
@@ -321,6 +389,7 @@ def _cached_discussion_point(question_id, exec_verdict, error_type, student_coun
 def cluster_submissions(question_id: str = None) -> list:
     """Returns clusters ranked by distinct-student count (largest first), each:
       exec_verdict, error_type, count (distinct students), example_submission_id,
+      submission_ids (one per distinct student, for "view all"),
       discussion_point (None unless enough distinct students hit this cluster)
 
     wrong_answer is expanded into one or more similarity sub-clusters instead of a
@@ -346,6 +415,7 @@ def cluster_submissions(question_id: str = None) -> list:
                 "error_type": error_type,
                 "count": student_count,
                 "example_submission_id": example["id"],
+                "submission_ids": _distinct_student_submission_ids(members),
                 "discussion_point": _cached_discussion_point(
                     example["question_id"], exec_verdict, error_type, student_count
                 ),

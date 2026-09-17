@@ -1,0 +1,76 @@
+id,category,student_count,generation_method,source_snippets,discussion_point,grounded_y_n,informative_y_n_partial
+1,wrong_answer,7,live_ollama,"[SpotCheck-E_minus_one-2] nums = input().split()
+print(sum(int(n) for n in nums) - 1) || [SpotCheck-E_minus_one-1] nums = input().split()
+print(sum(int(n) for n in nums) - 1) || [SpotCheck-A_plus_one-4] nums = input().split()
+print(sum(int(n) for n in nums) + 1) || [SpotCheck-A_plus_one-3] nums = input().split()
+print(sum(int(n) for n in nums) + 1) || [SpotCheck-A_plus_one-2] nums = input().split()
+print(sum(int(n) for n in nums) + 1) || [SpotCheck-A_plus_one-1] nums = input().split()
+print(sum(int(n) for n in nums) + 1) || [Mock Tester - Wrong Answer] nums = input().split()
+print(sum(int(n) for n in nums) + 1)",All snippets share the pattern of an iteration over VAR1 followed by an addition or subtraction of 1.,,
+2,wrong_answer,4,live_ollama,"[SpotCheck-F_drop_first-1] nums = input().split()
+print(sum(int(n) for n in nums[1:])) || [SpotCheck-B_drop_last-3] nums = input().split()
+print(sum(int(n) for n in nums[:-1])) || [SpotCheck-B_drop_last-2] nums = input().split()
+print(sum(int(n) for n in nums[:-1])) || [SpotCheck-B_drop_last-1] nums = input().split()
+print(sum(int(n) for n in nums[:-1]))",All snippets use the slice operation with a negative step size.,,
+3,timeout,2,live_curated,"[SpotCheck-timeout-1] nums = input().split()
+while True:
+    pass || [Mock Tester - Timeout] while True:
+    pass",Didn't finish -- worth checking what should update the loop's stopping condition.,,
+4,rejected,2,live_curated,[SpotCheck-rejected-2]  || [SpotCheck-rejected-1] ,Rejected submissions -- worth a reminder on what counts as a valid submission.,,
+5,runtime_error/ZeroDivisionError,2,live_curated,"[SpotCheck-ZeroDivisionError-2] nums = input().split()
+print(sum(int(n) for n in nums) / 0)  |  stderr last line: ZeroDivisionError: division by zero || [SpotCheck-ZeroDivisionError-1] nums = input().split()
+print(sum(int(n) for n in nums) / 0)  |  stderr last line: ZeroDivisionError: division by zero",ZeroDivisionError -- worth reading through the traceback together to see exactly where it crashed.,,
+6,runtime_error/EOFError,2,live_curated,"[SpotCheck-EOFError-2] a = input()
+b = input()
+print(a)  |  stderr last line: EOFError: EOF when reading a line || [SpotCheck-EOFError-1] a = input()
+b = input()
+print(a)  |  stderr last line: EOFError: EOF when reading a line",EOFError -- check whether the code is reading more input than it's actually given.,,
+7,runtime_error/ModuleNotFoundError,2,live_curated,"[SpotCheck-ModuleNotFoundError-2] import totally_fake_module_xyz
+nums = input().split()
+print(sum(int(n) for n in nums))  |  stderr last line: ModuleNotFoundError: No module named 'totally_fake_module_xyz' || [SpotCheck-ModuleNotFoundError-1] import totally_fake_module_xyz
+nums = input().split()
+print(sum(int(n) for n in nums))  |  stderr last line: ModuleNotFoundError: No module named 'totally_fake_module_xyz'",ModuleNotFoundError -- check whether the exercise actually needs that import.,,
+8,runtime_error/RecursionError,2,live_curated,"[SpotCheck-RecursionError-2] def f(n):
+    return f(n)
+nums = input().split()
+print(f(1))  |  stderr last line: RecursionError: maximum recursion depth exceeded || [SpotCheck-RecursionError-1] def f(n):
+    return f(n)
+nums = input().split()
+print(f(1))  |  stderr last line: RecursionError: maximum recursion depth exceeded",RecursionError -- check whether the function has a base case that stops the recursion.,,
+9,runtime_error/AttributeError,2,live_curated,"[SpotCheck-AttributeError-2] nums = input().split()
+print(nums.total())  |  stderr last line: AttributeError: 'list' object has no attribute 'total' || [SpotCheck-AttributeError-1] nums = input().split()
+print(nums.total())  |  stderr last line: AttributeError: 'list' object has no attribute 'total'",AttributeError -- check the exact method name against the real API; likely a small misspelling.,,
+10,runtime_error/KeyError,2,live_curated,"[SpotCheck-KeyError-2] d = {}
+nums = input().split()
+print(d[nums[0]])  |  stderr last line: KeyError: '1' || [SpotCheck-KeyError-1] d = {}
+nums = input().split()
+print(d[nums[0]])  |  stderr last line: KeyError: '1'",KeyError -- check whether the key was added to the dictionary before it's looked up.,,
+11,runtime_error/IndexError,2,live_curated,"[SpotCheck-IndexError-2] nums = input().split()
+print(int(nums[99]))  |  stderr last line: IndexError: list index out of range || [SpotCheck-IndexError-1] nums = input().split()
+print(int(nums[99]))  |  stderr last line: IndexError: list index out of range",IndexError -- check the index against the sequence's actual valid range.,,
+12,runtime_error/TypeError,2,live_curated,"[SpotCheck-TypeError-2] nums = input().split()
+print(sum(nums))  |  stderr last line: TypeError: unsupported operand type(s) for +: 'int' and 'str' || [SpotCheck-TypeError-1] nums = input().split()
+print(sum(nums))  |  stderr last line: TypeError: unsupported operand type(s) for +: 'int' and 'str'",TypeError -- check the types or argument count on the flagged line against what's expected.,,
+13,runtime_error/NameError,2,live_curated,"[SpotCheck-NameError-2] nums = input().split()
+print(total)  |  stderr last line: NameError: name 'total' is not defined || [Mock Tester - Runtime Error] nums = input().split()
+print(sum(int(n) for n in num))  |  stderr last line: NameError: name 'num' is not defined","NameError -- check the traceback's last line for the name it flags: a typo, or a name never defined.",,
+14,syntax_error,2,live_curated,"[SpotCheck-syntax-1] nums = input().split()
+print(sum(int(n) for n in nums)  |  stderr last line: SyntaxError: unexpected EOF while parsing || [Mock Tester - Syntax Error] nums = input().split()
+if len(nums) > 0
+    print(sum(int(n) for n in nums))  |  stderr last line: SyntaxError: invalid syntax",Syntax error -- worth comparing the flagged line against the exact pattern from the lecture slides.,,
+15,wrong_answer,2,live_ollama,"[SpotCheck-D_first_only-2] nums = input().split()
+print(int(nums[0])) || [SpotCheck-D_first_only-1] nums = input().split()
+print(int(nums[0]))","The parentheses around VAR2 and VAR3 are mismatched in both snippets, with VAR2 having an extra set of parentheses.",,
+16,wrong_answer,2,live_ollama,"[SpotCheck-C_product-2] nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result) || [SpotCheck-C_product-1] nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)",All snippets contain a missing closing parenthesis after VAR7 ( VAR4 ),,
+17,wrong_answer,2,live_ollama,[Jo] int || [karl] int,Wrong answer -- worth tracing through the test input step by step to see where the logic diverges.,,
+18,oom,2,direct_call (not reachable via live /api/submit today -- see note),"Not triggerable live: judge0_client.py sets no memory_limit, so this app's Judge0 config doesn't reliably enforce/report an OOM kill. Example of what WOULD classify this way: exit_code 137 (SIGKILL) or 'Killed' in stderr with no traceback.",Didn't finish -- worth checking what should update the loop's stopping condition.,,
+19,output_limit_exceeded,2,direct_call (not reachable via live /api/submit today -- see note),"Not triggerable live: would need Judge0's own stdout-size cap to fire ('File too large' / 'Errno 27' in stderr), not exercised by this app's current test cases. Example: a submission that floods stdout, e.g. an unbounded print loop.",Didn't finish -- worth checking what should update the loop's stopping condition.,,
+20,function_not_found,2,direct_call (not reachable via live /api/submit today -- see note),"Not reachable via the current live pipeline: main.py never passes expected_function_name to judge_and_feedback(), so classify.py's function_not_found special-case can never fire today -- a wrong/missing function name just reports as a plain NameError instead. Example: a function-based exercise where the student names their function differently from what the grader calls.",Function not found -- worth double-checking the exact function name the exercise asks for.,,
