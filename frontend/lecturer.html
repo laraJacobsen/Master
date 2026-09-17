@@ -111,6 +111,14 @@
   </div>
 </header>
 <main>
+  <div class="card" id="progress-card" style="display:none;">
+    <h2>Submission progress</h2>
+    <div id="progress-text" style="font-size:1.4rem; font-weight:bold;"></div>
+    <div id="progress-bar-track" style="background:#eceef3; border-radius:999px; height:10px; margin-top:0.6rem; overflow:hidden; display:none;">
+      <div id="progress-bar-fill" style="background:var(--navy); height:100%; width:0%;"></div>
+    </div>
+    <div id="progress-not-submitted" style="color:var(--muted); font-size:0.85rem; margin-top:0.4rem;"></div>
+  </div>
   <div class="grid">
     <div class="card">
       <h2>Submissions (live)</h2>
@@ -163,6 +171,41 @@
       document.getElementById("page-title").textContent = `Lecturer View -- ${q.title}`;
     } catch (e) {
       // Leave the generic title in place.
+    }
+  }
+
+  async function pollProgress() {
+    // Only meaningful for a single-question dashboard -- with no
+    // ?question_id= (the old "show everything" view) there's no one
+    // question's expected_students to compare against.
+    if (!QUESTION_ID) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(QUESTION_ID)}/progress`);
+      if (!res.ok) return;
+      const p = await res.json();
+
+      const card = document.getElementById("progress-card");
+      const text = document.getElementById("progress-text");
+      const track = document.getElementById("progress-bar-track");
+      const fill = document.getElementById("progress-bar-fill");
+      const notSubmitted = document.getElementById("progress-not-submitted");
+
+      card.style.display = "block";
+      if (p.expected == null) {
+        text.textContent = `${p.submitted} submitted`;
+        track.style.display = "none";
+        notSubmitted.textContent = "";
+      } else {
+        text.textContent = `${p.submitted}/${p.expected} submitted`;
+        track.style.display = "block";
+        const pct = p.expected > 0 ? Math.min(100, Math.round((p.submitted / p.expected) * 100)) : 0;
+        fill.style.width = `${pct}%`;
+        notSubmitted.textContent = p.not_submitted > 0
+          ? `${p.not_submitted} not yet submitted`
+          : "Everyone has submitted.";
+      }
+    } catch (e) {
+      // Backend not reachable yet -- stay quiet and retry on the next poll.
     }
   }
 
@@ -311,8 +354,10 @@
   loadQuestionTitle();
   poll();
   pollClusters();
+  pollProgress();
   setInterval(poll, POLL_MS);
   setInterval(pollClusters, POLL_MS);
+  setInterval(pollProgress, POLL_MS);
 </script>
 </body>
 </html>

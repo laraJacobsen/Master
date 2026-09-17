@@ -188,6 +188,10 @@
         </div>
       </div>
 
+      <h3>Class</h3>
+      <label for="f-expected">Expected number of students <span class="hint">optional -- powers the live "X/N submitted" counter on the dashboard</span></label>
+      <input type="number" id="f-expected" min="1" step="1" placeholder="e.g. 22">
+
       <h3>Reference solution <span class="hint">-- a known-correct solution, used only for the validation preview below</span></h3>
       <textarea id="f-reference" placeholder="print(sum(int(x) for x in input().split()))"></textarea>
 
@@ -239,7 +243,7 @@
   }
 
   function setFormLocked(locked) {
-    const fields = ["f-title", "f-prompt", "f-language", "f-time", "f-memory", "f-lines", "f-packages", "f-reference"];
+    const fields = ["f-title", "f-prompt", "f-language", "f-time", "f-memory", "f-lines", "f-packages", "f-expected", "f-reference"];
     fields.forEach(id => document.getElementById(id).disabled = locked);
     document.querySelectorAll(".tc-stdin, .tc-expected, .remove-tc").forEach(el => el.disabled = locked);
     document.getElementById("add-testcase-btn").disabled = locked;
@@ -258,6 +262,7 @@
     document.getElementById("f-memory").value = 125;
     document.getElementById("f-lines").value = 200;
     document.getElementById("f-packages").value = "";
+    document.getElementById("f-expected").value = "";
     document.getElementById("f-reference").value = "";
     document.getElementById("test-cases").innerHTML = "";
     addTestCaseRow();
@@ -278,6 +283,7 @@
     document.getElementById("f-memory").value = Math.round(q.memory_limit_kb / 1000);
     document.getElementById("f-lines").value = q.line_limit;
     document.getElementById("f-packages").value = q.extra_packages.join(", ");
+    document.getElementById("f-expected").value = q.expected_students ?? "";
     document.getElementById("f-reference").value = q.reference_solution || "";
     document.getElementById("test-cases").innerHTML = "";
     q.test_cases.forEach(tc => addTestCaseRow(tc.stdin, tc.expected_stdout));
@@ -290,6 +296,7 @@
   function formPayload() {
     const packages = document.getElementById("f-packages").value
       .split(",").map(s => s.trim()).filter(Boolean);
+    const expectedRaw = document.getElementById("f-expected").value;
     return {
       title: document.getElementById("f-title").value.trim(),
       prompt: document.getElementById("f-prompt").value.trim(),
@@ -300,6 +307,7 @@
       memory_limit_kb: Math.round(parseFloat(document.getElementById("f-memory").value) * 1000),
       extra_packages: packages,
       line_limit: parseInt(document.getElementById("f-lines").value, 10),
+      expected_students: expectedRaw ? parseInt(expectedRaw, 10) : null,
     };
   }
 
