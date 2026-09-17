@@ -437,7 +437,7 @@ def _latest_submission_per_student(question_id: str) -> dict:
     return latest
 
 
-def session_summary(lecture_seq: int) -> list:
+def session_summary(lecture_id: int) -> list:
     """Per-task submission rate + verdict tally for every question in this
     lecture, in the order they were run -- the STATE 2 lecturer summary's
     "how did the class do across ALL tasks" view (distinct from
@@ -445,7 +445,7 @@ def session_summary(lecture_seq: int) -> list:
     talking points on the live per-task dashboard; this groups by the
     AI-judged `verdict`, one row per task instead of one row per issue)."""
     tasks = []
-    for question in store.questions_for_lecture(lecture_seq):
+    for question in store.questions_for_lecture(lecture_id):
         latest_by_student = _latest_submission_per_student(question["id"])
         verdict_counts = defaultdict(int)
         for row in latest_by_student.values():
@@ -462,7 +462,7 @@ def session_summary(lecture_seq: int) -> list:
     return tasks
 
 
-def carry_forward_discussion_points(lecture_seq: int) -> list:
+def carry_forward_discussion_points(lecture_id: int) -> list:
     """Issues that cleared the discussion threshold on 2+ distinct tasks in
     this lecture -- worth raising again next time rather than treated as
     resolved. Coarse (exec_verdict, error_type) grouping only, same as
@@ -473,7 +473,7 @@ def carry_forward_discussion_points(lecture_seq: int) -> list:
     *shape* forward across tasks. This only asks "did wrong_answer itself
     recur," not "did the same bug recur.\""""
     occurrences_by_signature = defaultdict(list)  # (exec_verdict, error_type) -> [(question, student_count), ...]
-    for question in store.questions_for_lecture(lecture_seq):
+    for question in store.questions_for_lecture(lecture_id):
         students_by_signature = defaultdict(set)
         for row in store.all_submissions(question["id"]):
             key = (row.get("exec_verdict"), row.get("error_type"))
@@ -503,13 +503,13 @@ def carry_forward_discussion_points(lecture_seq: int) -> list:
     return result
 
 
-def student_recap(lecture_seq: int, student_name: str) -> dict:
+def student_recap(lecture_id: int, student_name: str) -> dict:
     """"Attempted N of M tasks" + this student's own most-recent verdict per
     task -- the STATE 2 student recap. Personal only: no comparison to
     classmates or the class average anywhere in this return value (see the
     product decision against any ranking/leaderboard UI)."""
     results = []
-    for question in store.questions_for_lecture(lecture_seq):
+    for question in store.questions_for_lecture(lecture_id):
         latest = _latest_submission_per_student(question["id"]).get(student_name)
         results.append(
             {

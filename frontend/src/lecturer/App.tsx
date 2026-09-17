@@ -39,6 +39,14 @@ function formatMMSS(totalSeconds: number): string {
 // to). With no param, falls back to the old behavior of showing everything.
 const QUESTION_ID = new URLSearchParams(window.location.search).get("question_id");
 
+// ?lecture_id= puts this page straight into the generalized end-of-lecture
+// summary view for that specific past lecture (the home dashboard's history
+// list links here) -- skips the live task-control UI/polling entirely, since
+// a historical lecture has nothing new to arrive. Mutually exclusive with
+// QUESTION_ID in practice (the two flows never link to each other with both
+// params set).
+const LECTURE_ID = new URLSearchParams(window.location.search).get("lecture_id");
+
 function verdictClass(v: string) {
   return "verdict-pill verdict-" + v;
 }
@@ -138,7 +146,26 @@ export default function App() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
+  // Historical mode (?lecture_id=): fetch that lecture's summary once and
+  // stop -- no polling, since a past lecture has nothing new to arrive.
   useEffect(() => {
+    if (!LECTURE_ID) return;
+    setSummaryLoading(true);
+    setSummaryError(null);
+    fetchLectureSummary(Number(LECTURE_ID))
+      .then((s) => {
+        setSummary(s);
+        setPageTitle(`Lecturer View -- ${s.lecture_label}`);
+      })
+      .catch((e) => {
+        setSummaryError(e instanceof Error ? e.message : "Could not load this lecture's summary.");
+      })
+      .finally(() => setSummaryLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (LECTURE_ID) return; // historical mode -- no live polling, see effect above.
+
     if (QUESTION_ID) {
       fetchQuestionDetail(QUESTION_ID)
         .then((q) => {
@@ -247,20 +274,20 @@ export default function App() {
     setAdvancing(true);
     setAdvanceMessage(null);
     try {
-      await finishLecture(QUESTION_ID);
-      setLectureFinished(true);
-      setSummaryLoading(true);
-      setSummaryError(null);
-      try {
-        setSummary(await fetchLectureSummary());
-      } catch (e) {
-        setSummaryError(e instanceof Error ? e.message : "Could not load the session summary.");
-      } finally {
-        setSummaryLoading(false);
+      const res = await finishLecture(QUESTION_ID);
+      if (res.lecture_id != null) {
+        // The summary view is now reachable by its own URL (?lecture_id=) --
+        // land there directly rather than toggling in-page state, so it's
+        // the same shareable/bookmarkable link the home dashboard's history
+        // list uses for this same lecture.
+        window.location.href = `lecturer.html?lecture_id=${res.lecture_id}`;
+        return;
       }
+      // Defensive fallback -- there was no active lecture to end (shouldn't
+      // normally happen if this button is visible at all).
+      setLectureFinished(true);
     } catch (e) {
       setAdvanceMessage(e instanceof Error ? e.message : "Could not finish the lecture.");
-    } finally {
       setAdvancing(false);
     }
   }
@@ -315,15 +342,20 @@ export default function App() {
         </div>
         <div style={{ textAlign: "right" }}>
           <div id="stats">
-            {subRows.length} submission{subRows.length === 1 ? "" : "s"}
+            {!LECTURE_ID && `${subRows.length} submission${subRows.length === 1 ? "" : "s"}`}
           </div>
-          <a href="setup.html" style={{ color: "#cadcfc", fontSize: "0.85rem" }}>
-            &larr; Question setup
+          <a href="index.html" style={{ color: "#cadcfc", fontSize: "0.85rem" }}>
+            &larr; Home
           </a>
+          {!LECTURE_ID && (
+            <a href="setup.html" style={{ color: "#cadcfc", fontSize: "0.85rem", marginLeft: "0.75rem" }}>
+              Question setup &rarr;
+            </a>
+          )}
         </div>
       </header>
       <main>
-        {QUESTION_ID && (
+        {QUESTION_ID && !LECTURE_ID && (
           <div className="card" id="task-control-card">
             {lectureFinished ? (
               <div id="lecture-finished-banner">
@@ -375,7 +407,7 @@ export default function App() {
             )}
           </div>
         )}
-        {!lectureFinished && (
+        {!lectureFinished && !LECTURE_ID && (
         <>
         <div className="card" id="progress-card" style={{ display: progress ? "block" : "none" }}>
           <h2>Submission progress</h2>
@@ -522,10 +554,10 @@ export default function App() {
         </div>
         </>
         )}
-        {lectureFinished && (
+        {(lectureFinished || LECTURE_ID) && (
           <div className="grid" id="session-summary">
             <div className="card" id="summary-tasks-card">
-              <h2>Session summary</h2>
+              <h2>{LECTURE_ID && summary ? summary.lecture_label : "Session summary"}</h2>
               {summaryLoading && <div className="summary-status">Loading...</div>}
               {summaryError && <div className="summary-status summary-error">{summaryError}</div>}
               {summary && summary.tasks.length === 0 && (

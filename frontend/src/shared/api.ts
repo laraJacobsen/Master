@@ -1,10 +1,14 @@
 import type {
+  ActiveLectureResponse,
   ApiErrorBody,
   ClusterRow,
   LectureFinishResponse,
+  LectureHistoryRow,
   LectureNextResponse,
+  LectureRow,
   LectureStatus,
   LectureSummary,
+  LectureTotals,
   ProgressResponse,
   PublicQuestion,
   QuestionPayload,
@@ -123,12 +127,46 @@ export function finishLecture(currentQuestionId: string | null): Promise<Lecture
   }).then((res) => asJson(res));
 }
 
-export function fetchLectureSummary(): Promise<LectureSummary> {
-  return fetch(`${API_BASE}/api/lecturer/lecture/summary`).then((res) => asJson(res));
+export function fetchLectureSummary(lectureId?: number | null): Promise<LectureSummary> {
+  const qs = lectureId != null ? `?lecture_id=${lectureId}` : "";
+  return fetch(`${API_BASE}/api/lecturer/lecture/summary${qs}`).then((res) => asJson(res));
 }
 
 export function fetchStudentRecap(studentName: string): Promise<StudentRecap> {
   return fetch(`${API_BASE}/api/lecture/recap?student_name=${encodeURIComponent(studentName)}`).then((res) =>
     asJson(res)
   );
+}
+
+export function createLecture(label: string | null): Promise<LectureRow> {
+  return fetch(`${API_BASE}/api/lecturer/lectures`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label }),
+  }).then((res) => asJson(res));
+}
+
+export function fetchActiveLecture(): Promise<ActiveLectureResponse> {
+  return fetch(`${API_BASE}/api/lecturer/lectures/active`).then((res) => asJson(res));
+}
+
+export function fetchLectureHistory(includeArchived = false): Promise<LectureHistoryRow[]> {
+  const qs = includeArchived ? "?include_archived=true" : "";
+  return fetch(`${API_BASE}/api/lecturer/lectures${qs}`).then((res) => asJson(res));
+}
+
+export function archiveLecture(lectureId: number): Promise<LectureRow> {
+  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/archive`, { method: "POST" }).then((res) =>
+    asJson(res)
+  );
+}
+
+export function unarchiveLecture(lectureId: number): Promise<LectureRow> {
+  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/unarchive`, { method: "POST" }).then((res) =>
+    asJson(res)
+  );
+}
+
+export function fetchLectureTotals(): Promise<LectureTotals> {
+  return fetch(`${API_BASE}/api/lecturer/stats/totals`).then((res) => asJson(res));
 }

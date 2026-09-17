@@ -101,6 +101,10 @@ class LectureAdvanceRequest(BaseModel):
     current_question_id: str | None = None
 
 
+class LectureCreateRequest(BaseModel):
+    label: str | None = None
+
+
 @app.get("/api/questions")
 def api_list_questions():
     return list_questions()
@@ -192,7 +196,10 @@ def api_lecturer_start_question(question_id: str):
             status_code=400,
             detail="Run the validation preview against a reference solution before starting.",
         )
-    store.start_question(question_id)
+    try:
+        store.start_question(question_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return store.get_question_row(question_id)
 
 
@@ -210,6 +217,64 @@ def api_lecturer_close_question(question_id: str):
     return store.get_question_row(question_id)
 
 
+@app.post("/api/lecturer/lectures")
+def api_lecturer_create_lecture(req: LectureCreateRequest):
+    """The home dashboard's "New lecture" action -- the only place a lecture
+    now starts (see store.start_question()'s docstring). 409s if one is
+    already in progress; the dashboard is expected to offer "Resume live
+    lecture" instead in that case."""
+    try:
+        return store.create_lecture(req.label)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.get("/api/lecturer/lectures/active")
+def api_lecturer_active_lecture():
+    """What the home dashboard checks to decide "New lecture" vs. "Resume
+    live lecture", and -- via live_question_id -- whether resuming should
+    land on the live task dashboard or back in task setup (a lecture can be
+    active with no question currently live, e.g. right after creation or
+    between "Next task" clicks with no drafts left)."""
+    lecture = store.get_active_lecture()
+    if not lecture:
+        return {"lecture": None, "live_question_id": None}
+    live_question = store.live_question_row()
+    return {"lecture": lecture, "live_question_id": live_question["id"] if live_question else None}
+
+
+@app.get("/api/lecturer/lectures")
+def api_lecturer_list_lectures(include_archived: bool = False):
+    """Lecture history for the home dashboard -- excludes archived (junk/
+    test) lectures by default."""
+    return store.list_lectures(include_archived=include_archived)
+
+
+@app.post("/api/lecturer/lectures/{lecture_id}/archive")
+def api_lecturer_archive_lecture(lecture_id: int):
+    """Hides a lecture from the default history list without deleting its
+    data -- see store.set_lecture_archived()'s docstring."""
+    if not store.get_lecture_row(lecture_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    store.set_lecture_archived(lecture_id, True)
+    return store.get_lecture_row(lecture_id)
+
+
+@app.post("/api/lecturer/lectures/{lecture_id}/unarchive")
+def api_lecturer_unarchive_lecture(lecture_id: int):
+    if not store.get_lecture_row(lecture_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    store.set_lecture_archived(lecture_id, False)
+    return store.get_lecture_row(lecture_id)
+
+
+@app.get("/api/lecturer/stats/totals")
+def api_lecturer_totals():
+    """All-time totals line on the home dashboard: lectures run + total
+    submissions, across the whole history (archived included)."""
+    return store.lecture_totals()
+
+
 @app.post("/api/lecturer/lecture/next")
 def api_lecturer_lecture_next(req: LectureAdvanceRequest):
     """Closes the dashboard's current question (if it's still live) and
@@ -225,38 +290,54 @@ def api_lecturer_lecture_next(req: LectureAdvanceRequest):
     if not next_question:
         return {"started": None}
 
-    store.start_question(next_question["id"])
+    try:
+        store.start_question(next_question["id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"started": store.get_question_row(next_question["id"])}
 
 
 @app.post("/api/lecturer/lecture/finish")
 def api_lecturer_lecture_finish(req: LectureAdvanceRequest):
-    """Closes the dashboard's current question (if it's still live) and
-    marks the whole lecture finished -- the "Finish lecture" button. Distinct
+    """Closes the dashboard's current question (if it's still live) and ends
+    the active lecture -- the "Finish lecture"/"End session" button. Distinct
     from just running out of draft questions: the lecturer can end early
-    even with drafts left unstarted."""
+    even with drafts left unstarted. Returns the ended lecture's id so the
+    caller can link straight to its (now generalized) summary view."""
     if req.current_question_id:
         current = store.get_question_row(req.current_question_id)
         if current and current["status"] == "live":
             store.close_question(req.current_question_id)
 
-    store.set_lecture_finished(True)
-    return {"finished": True}
+    lecture = store.get_active_lecture()
+    if lecture:
+        store.end_lecture(lecture["id"])
+    return {"finished": True, "lecture_id": lecture["id"] if lecture else None}
 
 
 @app.get("/api/lecturer/lecture/summary")
-def api_lecturer_lecture_summary(lecture_seq: int | None = None):
+def api_lecturer_lecture_summary(lecture_id: int | None = None):
     """The STATE 2 post-lecture view: per-task submission rate + verdict
     trend across every task in the lecture, plus carry-forward discussion
-    points (issues that recurred across 2+ tasks). Defaults to the lecture
-    that just ended -- see store.current_lecture_seq()'s docstring for why
-    that stays correct right after "End session" without the caller having
-    to pass anything."""
-    seq = lecture_seq if lecture_seq is not None else store.current_lecture_seq()
+    points (issues that recurred across 2+ tasks). Defaults to the current
+    lecture -- see store.current_lecture_row()'s docstring for why that
+    stays correct right after "End session" without the caller having to
+    pass anything. Also reachable directly via ?lecture_id= from the home
+    dashboard's history list, for any past lecture, not just the most
+    recent one."""
+    if lecture_id is None:
+        current = store.current_lecture_row()
+        if not current:
+            raise HTTPException(status_code=404, detail="No lecture has been run yet.")
+        lecture_id = current["id"]
+    lecture = store.get_lecture_row(lecture_id)
+    if not lecture:
+        raise HTTPException(status_code=404, detail="Not found")
     return {
-        "lecture_seq": seq,
-        "tasks": session_summary(seq),
-        "carry_forward_discussion_points": carry_forward_discussion_points(seq),
+        "lecture_id": lecture_id,
+        "lecture_label": lecture["display_label"],
+        "tasks": session_summary(lecture_id),
+        "carry_forward_discussion_points": carry_forward_discussion_points(lecture_id),
     }
 
 
@@ -265,8 +346,10 @@ def api_lecture_recap(student_name: str):
     """The STATE 2 student recap: this student's own attempted-vs-total and
     per-task verdicts for the lecture that just ended. No class-wide
     comparison -- see student_recap()'s docstring."""
-    seq = store.current_lecture_seq()
-    return student_recap(seq, student_name)
+    lecture = store.current_lecture_row()
+    if not lecture:
+        return {"attempted": 0, "total": 0, "results": []}
+    return student_recap(lecture["id"], student_name)
 
 
 def _seconds_remaining(question: dict) -> int:
@@ -285,7 +368,8 @@ def api_lecture_status():
     student's browser can auto-switch to a new task or the "waiting"/
     "finished" screen without a manual reload."""
     question = store.live_question_row()
-    finished = store.get_lecture_finished()
+    current_lecture = store.current_lecture_row()
+    finished = bool(current_lecture and current_lecture["ended_at"])
     if not question:
         return {"finished": finished, "question": None}
 

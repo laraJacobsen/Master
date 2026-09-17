@@ -77,6 +77,36 @@ export interface LectureNextResponse {
 // POST /api/lecturer/lecture/finish
 export interface LectureFinishResponse {
   finished: boolean;
+  lecture_id: number | null;
+}
+
+// GET/POST /api/lecturer/lectures* -- a single lecture row.
+export interface LectureRow {
+  id: number;
+  started_at: string;
+  ended_at: string | null;
+  label: string | null;
+  archived: boolean;
+  display_label: string;
+}
+
+// GET /api/lecturer/lectures -- history list, one entry per lecture.
+export interface LectureHistoryRow extends LectureRow {
+  task_count: number;
+  submitted_total: number;
+  verdict_counts: Partial<Record<Verdict, number>>;
+}
+
+// GET /api/lecturer/lectures/active
+export interface ActiveLectureResponse {
+  lecture: LectureRow | null;
+  live_question_id: string | null;
+}
+
+// GET /api/lecturer/stats/totals
+export interface LectureTotals {
+  lectures_run: number;
+  total_submissions: number;
 }
 
 export interface ValidationTestResult {
@@ -165,9 +195,11 @@ export interface CarryForwardPoint {
   discussion_point: string;
 }
 
-// GET /api/lecturer/lecture/summary -- the STATE 2 lecturer post-lecture view.
+// GET /api/lecturer/lecture/summary -- the STATE 2 lecturer post-lecture
+// view, generalized to any lecture_id (not just the most recent one).
 export interface LectureSummary {
-  lecture_seq: number;
+  lecture_id: number;
+  lecture_label: string;
   tasks: SessionTaskSummary[];
   carry_forward_discussion_points: CarryForwardPoint[];
 }

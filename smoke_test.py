@@ -332,7 +332,12 @@ def _run_checks(client):
         assert r.status_code == 200 and "Lecturer" in r.text and 'id="root"' in r.text, r.status_code
         print("Static frontend (lecturer.html)OK")
 
+        r = client.get("/")
+        assert r.status_code == 200 and 'id="root"' in r.text, r.status_code
+        print("Static frontend (index.html, site root) OK")
+
         _run_question_setup_checks(client)
+        _run_lecture_dashboard_checks(client)
 
 
 def _run_question_setup_checks(client):
@@ -451,6 +456,105 @@ def _run_question_setup_checks(client):
     progress = client.get("/api/lecturer/questions/sum-ints/progress").json()
     assert progress["expected"] is None and progress["not_submitted"] is None, progress
     print("Progress counter with no expected_students set   OK ->", progress)
+
+
+def _run_lecture_dashboard_checks(client):
+    """Home-dashboard flow: the seeded question's lecture is already active,
+    so a second "New lecture" must be refused, "resume" info must be
+    available, ending it must generalize the summary view to lecture_id, and
+    archive/unarchive must hide/restore history without losing data."""
+    r = client.get("/api/lecturer/lectures/active")
+    assert r.status_code == 200, r.text
+    active = r.json()
+    assert active["lecture"] is not None, active
+    seeded_lecture_id = active["lecture"]["id"]
+    assert active["live_question_id"] is not None, active
+    print("GET /api/lecturer/lectures/active     OK ->", active)
+
+    # One active lecture already -- a second "New lecture" is refused.
+    r = client.post("/api/lecturer/lectures", json={"label": None})
+    assert r.status_code == 409, r.text
+    print("POST /api/lecturer/lectures refused while one is active   OK")
+
+    r = client.get("/api/lecturer/lectures")
+    assert r.status_code == 200, r.text
+    history = r.json()
+    seeded_row = next(lec for lec in history if lec["id"] == seeded_lecture_id)
+    assert seeded_row["task_count"] == 2, seeded_row  # sum-ints + double-it
+    assert seeded_row["submitted_total"] > 0, seeded_row
+    assert seeded_row["archived"] is False, seeded_row
+    print("GET /api/lecturer/lectures (history)   OK ->", seeded_row)
+
+    # Ending it generalizes straight to a lecture_id -- the home dashboard's
+    # history-list link target, not just "whatever's most recent."
+    r = client.post("/api/lecturer/lecture/finish", json={"current_question_id": None})
+    assert r.status_code == 200, r.text
+    finished = r.json()
+    assert finished == {"finished": True, "lecture_id": seeded_lecture_id}, finished
+    print("POST /api/lecturer/lecture/finish returns lecture_id   OK")
+
+    r = client.get(f"/api/lecturer/lecture/summary?lecture_id={seeded_lecture_id}")
+    assert r.status_code == 200, r.text
+    summary = r.json()
+    assert summary["lecture_id"] == seeded_lecture_id, summary
+    assert {t["question_id"] for t in summary["tasks"]} == {"sum-ints", "double-it"}, summary
+    print("GET /api/lecturer/lecture/summary?lecture_id=   OK ->", summary["lecture_label"])
+
+    # No lecture active anymore -- "New lecture" now succeeds, and
+    # start_question requires exactly this new one.
+    r = client.get("/api/lecturer/lectures/active")
+    assert r.json() == {"lecture": None, "live_question_id": None}, r.json()
+
+    r = client.post("/api/lecturer/lectures", json={"label": "Week 3 -- Recursion"})
+    assert r.status_code == 200, r.text
+    new_lecture = r.json()
+    assert new_lecture["display_label"] == "Week 3 -- Recursion", new_lecture
+    print("POST /api/lecturer/lectures (New lecture)   OK ->", new_lecture)
+
+    r = client.post(
+        "/api/lecturer/questions",
+        json={
+            "title": "Sum Again",
+            "prompt": "Read space-separated integers and print their sum.",
+            "language": "python",
+            "test_cases": [{"stdin": "4 5\n", "expected_stdout": "9"}],
+            # Matches fake_post's fallback branch (plain sum) -- see module docstring.
+            "reference_solution": "print(sum(int(x) for x in input().split()))",
+        },
+    )
+    assert r.status_code == 200, r.text
+    qid = r.json()["id"]
+    r = client.post(f"/api/lecturer/questions/{qid}/validate")
+    assert r.status_code == 200 and r.json()["validated"] is True, r.text
+    r = client.post(f"/api/lecturer/questions/{qid}/start")
+    assert r.status_code == 200, r.text
+    assert r.json()["lecture_id"] == new_lecture["id"], r.json()
+    print("New question stamped with the newly active lecture   OK")
+
+    # Archive hides a lecture from the default list without touching its
+    # data, and can be undone.
+    r = client.post(f"/api/lecturer/lectures/{seeded_lecture_id}/archive")
+    assert r.status_code == 200 and r.json()["archived"] is True, r.text
+    visible_ids = {lec["id"] for lec in client.get("/api/lecturer/lectures").json()}
+    assert seeded_lecture_id not in visible_ids, visible_ids
+    all_ids = {lec["id"] for lec in client.get("/api/lecturer/lectures?include_archived=true").json()}
+    assert seeded_lecture_id in all_ids, all_ids
+    r = client.get(f"/api/lecturer/lecture/summary?lecture_id={seeded_lecture_id}")
+    assert r.status_code == 200 and len(r.json()["tasks"]) == 2, r.text  # data untouched
+    print("Archive hides from default list, keeps data   OK")
+
+    r = client.post(f"/api/lecturer/lectures/{seeded_lecture_id}/unarchive")
+    assert r.status_code == 200 and r.json()["archived"] is False, r.text
+    visible_ids = {lec["id"] for lec in client.get("/api/lecturer/lectures").json()}
+    assert seeded_lecture_id in visible_ids, visible_ids
+    print("Unarchive restores it to the default list   OK")
+
+    r = client.get("/api/lecturer/stats/totals")
+    assert r.status_code == 200, r.text
+    totals = r.json()
+    assert totals["lectures_run"] >= 2, totals
+    assert totals["total_submissions"] >= 1, totals
+    print("GET /api/lecturer/stats/totals   OK ->", totals)
 
 
 if __name__ == "__main__":
