@@ -16,7 +16,23 @@ export interface PublicQuestion {
   example: TestCase | null;
 }
 
-export type QuestionStatus = "draft" | "live";
+// GET /api/lecture/status's `question` -- same shape as PublicQuestion plus
+// the timer fields the student page needs to run its countdown.
+export interface LiveQuestion extends PublicQuestion {
+  duration_seconds: number;
+  started_at: string | null;
+  seconds_remaining: number;
+}
+
+// GET /api/lecture/status -- polled by the student page so it can
+// auto-switch tasks and show the waiting/finished screens (see
+// src/student/App.tsx).
+export interface LectureStatus {
+  finished: boolean;
+  question: LiveQuestion | null;
+}
+
+export type QuestionStatus = "draft" | "live" | "closed";
 
 // GET/POST/PUT /api/lecturer/questions* -- full question row (setup page +
 // lecturer page title lookup).
@@ -35,6 +51,8 @@ export interface QuestionRow {
   status: QuestionStatus;
   validated: boolean;
   expected_students: number | null;
+  duration_seconds: number;
+  started_at: string | null;
 }
 
 export interface QuestionPayload {
@@ -48,6 +66,17 @@ export interface QuestionPayload {
   extra_packages: string[];
   line_limit: number;
   expected_students: number | null;
+  duration_seconds: number;
+}
+
+// POST /api/lecturer/lecture/next
+export interface LectureNextResponse {
+  started: QuestionRow | null;
+}
+
+// POST /api/lecturer/lecture/finish
+export interface LectureFinishResponse {
+  finished: boolean;
 }
 
 export interface ValidationTestResult {

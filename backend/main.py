@@ -19,6 +19,7 @@ from the /root/prototype directory (see README.md).
 
 import json
 import os
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -69,6 +70,7 @@ class QuestionCreateRequest(BaseModel):
     extra_packages: list[str] = []
     line_limit: int = DEFAULT_LINE_LIMIT
     expected_students: int | None = None
+    duration_seconds: int = 600
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -84,6 +86,14 @@ class QuestionUpdateRequest(BaseModel):
     extra_packages: list[str] | None = None
     line_limit: int | None = None
     expected_students: int | None = None
+    duration_seconds: int | None = None
+
+
+class LectureAdvanceRequest(BaseModel):
+    # The dashboard's own question_id, so "Next task"/"Finish lecture" can
+    # close it out even if it somehow isn't the most-recently-started live
+    # question (see api_lecturer_lecture_next/finish).
+    current_question_id: str | None = None
 
 
 @app.get("/api/questions")
@@ -177,8 +187,91 @@ def api_lecturer_start_question(question_id: str):
             status_code=400,
             detail="Run the validation preview against a reference solution before starting.",
         )
-    store.set_status(question_id, "live")
+    store.start_question(question_id)
     return store.get_question_row(question_id)
+
+
+@app.post("/api/lecturer/questions/{question_id}/close")
+def api_lecturer_close_question(question_id: str):
+    """Ends a question's live window without starting another -- used
+    standalone, and internally by the "Next task"/"Finish lecture" flow
+    below, whenever the dashboard's current question needs to stop accepting
+    submissions."""
+    question = store.get_question_row(question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail="Not found")
+    if question["status"] == "live":
+        store.close_question(question_id)
+    return store.get_question_row(question_id)
+
+
+@app.post("/api/lecturer/lecture/next")
+def api_lecturer_lecture_next(req: LectureAdvanceRequest):
+    """Closes the dashboard's current question (if it's still live) and
+    starts the next validated draft question, in creation order -- the
+    "Next task" button. Returns {"started": null} when there's nothing left
+    to advance to, so the lecturer knows to use "Finish lecture" instead."""
+    if req.current_question_id:
+        current = store.get_question_row(req.current_question_id)
+        if current and current["status"] == "live":
+            store.close_question(req.current_question_id)
+
+    next_question = store.next_draft_question()
+    if not next_question:
+        return {"started": None}
+
+    store.start_question(next_question["id"])
+    return {"started": store.get_question_row(next_question["id"])}
+
+
+@app.post("/api/lecturer/lecture/finish")
+def api_lecturer_lecture_finish(req: LectureAdvanceRequest):
+    """Closes the dashboard's current question (if it's still live) and
+    marks the whole lecture finished -- the "Finish lecture" button. Distinct
+    from just running out of draft questions: the lecturer can end early
+    even with drafts left unstarted."""
+    if req.current_question_id:
+        current = store.get_question_row(req.current_question_id)
+        if current and current["status"] == "live":
+            store.close_question(req.current_question_id)
+
+    store.set_lecture_finished(True)
+    return {"finished": True}
+
+
+def _seconds_remaining(question: dict) -> int:
+    if not question.get("started_at"):
+        return question["duration_seconds"]
+    started = datetime.strptime(question["started_at"], "%Y-%m-%d %H:%M:%S")
+    elapsed = (datetime.utcnow() - started).total_seconds()
+    return max(0, int(question["duration_seconds"] - elapsed))
+
+
+@app.get("/api/lecture/status")
+def api_lecture_status():
+    """Polled by the student page (see live-submission-progress-decision-
+    style reasoning in student/App.tsx) to find the currently live question,
+    its timer, and whether the lecturer has ended the lecture -- so a
+    student's browser can auto-switch to a new task or the "waiting"/
+    "finished" screen without a manual reload."""
+    question = store.live_question_row()
+    finished = store.get_lecture_finished()
+    if not question:
+        return {"finished": finished, "question": None}
+
+    return {
+        "finished": finished,
+        "question": {
+            "id": question["id"],
+            "title": question["title"],
+            "prompt": question["prompt"],
+            "language": question["language"],
+            "example": dict(question["test_cases"][0]) if question["test_cases"] else None,
+            "duration_seconds": question["duration_seconds"],
+            "started_at": question["started_at"],
+            "seconds_remaining": _seconds_remaining(question),
+        },
+    }
 
 
 @app.post("/api/submit")
@@ -187,7 +280,7 @@ def api_submit(req: SubmitRequest):
     if not question:
         raise HTTPException(status_code=404, detail=f"Unknown question_id: {req.question_id!r}")
     if question["status"] != "live":
-        raise HTTPException(status_code=409, detail="This question isn't live yet.")
+        raise HTTPException(status_code=409, detail="This question isn't live (not started yet, or already closed).")
 
     attempt_number = store.next_attempt_number(req.student_name, req.question_id)
     tests_total = len(question["test_cases"])

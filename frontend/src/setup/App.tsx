@@ -36,6 +36,7 @@ export default function App() {
   const [lineLimit, setLineLimit] = useState("200");
   const [packages, setPackages] = useState("");
   const [expectedStudents, setExpectedStudents] = useState("");
+  const [durationMinutes, setDurationMinutes] = useState("10");
   const [referenceSolution, setReferenceSolution] = useState("");
 
   const [formStatusText, setFormStatusText] = useState("");
@@ -69,6 +70,7 @@ export default function App() {
     setLineLimit("200");
     setPackages("");
     setExpectedStudents("");
+    setDurationMinutes("10");
     setReferenceSolution("");
     setTestCases([emptyTestCase()]);
     setFormStatusText("");
@@ -88,6 +90,7 @@ export default function App() {
     setLineLimit(String(q.line_limit));
     setPackages(q.extra_packages.join(", "));
     setExpectedStudents(q.expected_students != null ? String(q.expected_students) : "");
+    setDurationMinutes(String(q.duration_seconds / 60));
     setReferenceSolution(q.reference_solution || "");
     setTestCases(
       q.test_cases.length
@@ -125,6 +128,7 @@ export default function App() {
       extra_packages: packageList,
       line_limit: parseInt(lineLimit, 10),
       expected_students: expectedStudents ? parseInt(expectedStudents, 10) : null,
+      duration_seconds: Math.round(parseFloat(durationMinutes) * 60),
     };
   }
 
@@ -132,6 +136,11 @@ export default function App() {
     const payload = formPayload();
     if (!payload.title || !payload.prompt || payload.test_cases.length === 0) {
       setFormStatusText("Title, prompt, and at least one test case are required.");
+      setFormStatusColor("var(--bad)");
+      return;
+    }
+    if (!payload.duration_seconds || payload.duration_seconds <= 0) {
+      setFormStatusText("Time limit must be a positive number of minutes.");
       setFormStatusColor("var(--bad)");
       return;
     }
@@ -215,7 +224,16 @@ export default function App() {
                   <div>
                     <div className="q-title">{q.title}</div>
                     <div className="q-meta">
-                      <span className={"status-pill " + (q.status === "live" ? "status-live" : "status-draft")}>
+                      <span
+                        className={
+                          "status-pill " +
+                          (q.status === "live"
+                            ? "status-live"
+                            : q.status === "closed"
+                            ? "status-closed"
+                            : "status-draft")
+                        }
+                      >
                         {q.status}
                       </span>{" "}
                       {q.id}
@@ -374,6 +392,22 @@ export default function App() {
               value={expectedStudents}
               disabled={locked}
               onChange={(e) => setExpectedStudents(e.target.value)}
+            />
+
+            <label htmlFor="f-duration">
+              Time limit for students (minutes){" "}
+              <span className="hint">
+                countdown shown on the student page -- their code auto-submits when it hits zero
+              </span>
+            </label>
+            <input
+              type="number"
+              id="f-duration"
+              min={1}
+              step={1}
+              value={durationMinutes}
+              disabled={locked}
+              onChange={(e) => setDurationMinutes(e.target.value)}
             />
 
             <h3>

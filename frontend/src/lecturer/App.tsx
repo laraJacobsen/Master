@@ -1,14 +1,23 @@
 import { Fragment, useEffect, useState } from "react";
-import type { ClusterRow, ProgressResponse, SubmissionRow, ValidationTestResult } from "../shared/types";
+import type { ClusterRow, ProgressResponse, QuestionRow, SubmissionRow, ValidationTestResult } from "../shared/types";
 import {
   fetchClusters,
   fetchProgress,
   fetchQuestionDetail,
   fetchSubmissionDetail,
   fetchSubmissions,
+  finishLecture,
+  nextTask,
 } from "../shared/api";
 
 const POLL_MS = 3000;
+
+function formatMMSS(totalSeconds: number): string {
+  const s = Math.max(0, Math.round(totalSeconds));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${m}:${rem.toString().padStart(2, "0")}`;
+}
 
 // Which question this dashboard is watching -- set via ?question_id= (the
 // link the setup page's "Start"/"Live dashboard" actions send a lecturer
@@ -94,10 +103,21 @@ export default function App() {
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [inspector, setInspector] = useState<InspectorState | null>(null);
 
+  // Powers the "Time remaining" banner and gates the Next task/Finish
+  // lecture controls -- see api_lecture_next/finish in backend/main.py.
+  const [question, setQuestion] = useState<QuestionRow | null>(null);
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const [advancing, setAdvancing] = useState(false);
+  const [advanceMessage, setAdvanceMessage] = useState<string | null>(null);
+  const [lectureFinished, setLectureFinished] = useState(false);
+
   useEffect(() => {
     if (QUESTION_ID) {
       fetchQuestionDetail(QUESTION_ID)
-        .then((q) => setPageTitle(`Lecturer View -- ${q.title}`))
+        .then((q) => {
+          setPageTitle(`Lecturer View -- ${q.title}`);
+          setQuestion(q);
+        })
         .catch(() => {
           // Leave the generic title in place.
         });
@@ -128,19 +148,80 @@ export default function App() {
           // Backend not reachable yet -- stay quiet and retry on the next poll.
         });
     };
+    // Re-fetched (not just loaded once) so the "Time remaining" banner and
+    // status pill stay accurate if the question gets closed out from under
+    // this tab (e.g. a second lecturer tab, or a manual API call).
+    const pollQuestion = () => {
+      if (!QUESTION_ID) return;
+      fetchQuestionDetail(QUESTION_ID)
+        .then((q) => setQuestion(q))
+        .catch(() => {
+          // Backend not reachable yet -- stay quiet and retry on the next poll.
+        });
+    };
 
     poll();
     pollClusters();
     pollProgress();
+    pollQuestion();
     const t1 = window.setInterval(poll, POLL_MS);
     const t2 = window.setInterval(pollClusters, POLL_MS);
     const t3 = window.setInterval(pollProgress, POLL_MS);
+    const t4 = window.setInterval(pollQuestion, POLL_MS);
     return () => {
       window.clearInterval(t1);
       window.clearInterval(t2);
       window.clearInterval(t3);
+      window.clearInterval(t4);
     };
   }, []);
+
+  // Ticks the "Time remaining" banner once a second, anchored to the
+  // question's server-side started_at/duration_seconds (re-synced whenever
+  // pollQuestion above refreshes `question`) rather than counting down from
+  // page-load, so it can't drift from what the student page shows.
+  useEffect(() => {
+    if (!question || question.status !== "live" || !question.started_at) {
+      setSecondsRemaining(null);
+      return;
+    }
+    const startedMs = new Date(question.started_at.replace(" ", "T") + "Z").getTime();
+    const endMs = startedMs + question.duration_seconds * 1000;
+    const tick = () => setSecondsRemaining(Math.max(0, Math.round((endMs - Date.now()) / 1000)));
+    tick();
+    const t = window.setInterval(tick, 1000);
+    return () => window.clearInterval(t);
+  }, [question]);
+
+  async function handleNextTask() {
+    setAdvancing(true);
+    setAdvanceMessage(null);
+    try {
+      const res = await nextTask(QUESTION_ID);
+      if (res.started) {
+        window.location.href = `lecturer.html?question_id=${encodeURIComponent(res.started.id)}`;
+      } else {
+        setAdvanceMessage("No more tasks left to start -- click \"Finish lecture\" to end.");
+        setAdvancing(false);
+      }
+    } catch (e) {
+      setAdvanceMessage(e instanceof Error ? e.message : "Could not advance to the next task.");
+      setAdvancing(false);
+    }
+  }
+
+  async function handleFinishLecture() {
+    setAdvancing(true);
+    setAdvanceMessage(null);
+    try {
+      await finishLecture(QUESTION_ID);
+      setLectureFinished(true);
+    } catch (e) {
+      setAdvanceMessage(e instanceof Error ? e.message : "Could not finish the lecture.");
+    } finally {
+      setAdvancing(false);
+    }
+  }
 
   function toggleExpanded(subId: number) {
     setExpandedSubIds((prev) => {
@@ -200,6 +281,50 @@ export default function App() {
         </div>
       </header>
       <main>
+        {QUESTION_ID && (
+          <div className="card" id="task-control-card">
+            {lectureFinished ? (
+              <div id="lecture-finished-banner">
+                <h2>Lecture finished</h2>
+                <p>
+                  Students now see an end-of-lecture screen. This dashboard stays available for you to keep
+                  reviewing submissions and discussion points.
+                </p>
+              </div>
+            ) : (
+              <>
+                <h2>Task control</h2>
+                <div className="task-control-row">
+                  <div>
+                    <div className="timer-label">Time remaining</div>
+                    <div className={"timer-value" + (secondsRemaining === 0 ? " time-up" : "")}>
+                      {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
+                    </div>
+                    {secondsRemaining === 0 && (
+                      <div style={{ color: "var(--bad)", fontSize: "0.85rem" }}>
+                        Time's up -- students' code has been auto-submitted.
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <button className="secondary" onClick={handleNextTask} disabled={advancing}>
+                      Next task
+                    </button>
+                    <button
+                      className="danger"
+                      onClick={handleFinishLecture}
+                      disabled={advancing}
+                      style={{ marginLeft: "0.6rem" }}
+                    >
+                      Finish lecture
+                    </button>
+                  </div>
+                </div>
+                {advanceMessage && <div className="advance-message">{advanceMessage}</div>}
+              </>
+            )}
+          </div>
+        )}
         <div className="card" id="progress-card" style={{ display: progress ? "block" : "none" }}>
           <h2>Submission progress</h2>
           <div id="progress-text" style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
