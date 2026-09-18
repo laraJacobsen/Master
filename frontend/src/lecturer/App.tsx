@@ -12,7 +12,6 @@ import {
   fetchActiveLecture,
   fetchClusters,
   fetchJoinedCount,
-  fetchLectureDetail,
   fetchLectureSummary,
   fetchProgress,
   fetchQuestionDetail,
@@ -193,13 +192,26 @@ export default function App() {
   // Lobby mode (?lobby=): fetch the lecture row once (its code/label don't
   // change), then poll the joined-count -- the one thing in this view that
   // actually updates while the lecturer's watching students trickle in.
+  // Checks live_question_id first: navigating back here (e.g. from "Manage
+  // questions") after the lecture has already been started must land on the
+  // live task dashboard, not the pre-start lobby again -- otherwise "Start
+  // lecture" would fire a second time and start a second question
+  // concurrently with the one already live.
   useEffect(() => {
     if (!LOBBY_ID) return;
     const id = Number(LOBBY_ID);
-    fetchLectureDetail(id)
-      .then((lecture) => {
-        setLobbyLecture(lecture);
-        setPageTitle(`Lecturer View -- ${lecture.display_label} (lobby)`);
+    fetchActiveLecture()
+      .then((a) => {
+        if (a.live_question_id) {
+          window.location.href = `lecturer.html?question_id=${encodeURIComponent(a.live_question_id)}`;
+          return;
+        }
+        if (!a.lecture || a.lecture.id !== id) {
+          setLobbyError("This lecture is no longer active.");
+          return;
+        }
+        setLobbyLecture(a.lecture);
+        setPageTitle(`Lecturer View -- ${a.lecture.display_label} (lobby)`);
       })
       .catch((e) => setLobbyError(e instanceof Error ? e.message : "Could not load this lecture."));
 

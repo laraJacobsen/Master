@@ -52,6 +52,12 @@ export default function App() {
   // decision) -- fetched once so the "Open lobby" banner knows whether the
   // lobby's already open (show a link back to it instead of the button).
   const [activeLecture, setActiveLecture] = useState<LectureRow | null>(null);
+  // If a question is already live, "back to the lobby" must actually mean
+  // "back to the live dashboard" -- see the lobby-view fix in
+  // lecturer/App.tsx for why (landing on the pre-start lobby again would
+  // let "Start lecture" fire a second time on top of the question already
+  // running).
+  const [liveQuestionId, setLiveQuestionId] = useState<string | null>(null);
   const [openingLobby, setOpeningLobby] = useState(false);
   const [lobbyError, setLobbyError] = useState<string | null>(null);
   const [addingTestQuestions, setAddingTestQuestions] = useState(false);
@@ -68,7 +74,10 @@ export default function App() {
 
   function loadActiveLecture() {
     fetchActiveLecture()
-      .then((a) => setActiveLecture(a.lecture))
+      .then((a) => {
+        setActiveLecture(a.lecture);
+        setLiveQuestionId(a.live_question_id);
+      })
       .catch(() => {
         // Not critical -- the lobby banner just won't show.
       });
@@ -323,7 +332,18 @@ export default function App() {
       <main>
         {activeLecture && (
           <div className="card" id="lobby-banner">
-            {activeLecture.lobby_opened_at ? (
+            {liveQuestionId ? (
+              <>
+                <h2>Lecture is live</h2>
+                <p className="hint" style={{ marginBottom: "0.6rem" }}>
+                  A question is already running. You can still add, edit, or delete draft questions here for
+                  later in the lecture.
+                </p>
+                <a href={`lecturer.html?question_id=${encodeURIComponent(liveQuestionId)}`}>
+                  <button type="button">Back to live dashboard &rarr;</button>
+                </a>
+              </>
+            ) : activeLecture.lobby_opened_at ? (
               <>
                 <h2>Lobby is open</h2>
                 <p className="hint" style={{ marginBottom: "0.6rem" }}>
