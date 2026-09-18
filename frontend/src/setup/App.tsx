@@ -7,6 +7,7 @@ import {
   updateQuestion,
   validateQuestion as validateQuestionApi,
 } from "../shared/api";
+import { HeaderNavLink } from "../shared/HeaderNavLink";
 
 interface TestCaseDraft {
   stdin: string;
@@ -208,9 +209,7 @@ export default function App() {
         <h1>Lecturer -- Question Setup</h1>
         <p>Author a question, set its grading config, validate it against a known-correct solution, then start it.</p>
         <p>
-          <a href="index.html" style={{ color: "#cadcfc" }}>
-            &larr; Home
-          </a>
+          <HeaderNavLink href="index.html">&larr; Home</HeaderNavLink>
         </p>
       </header>
       <main>

@@ -17,6 +17,7 @@ import {
   finishLecture,
   nextTask,
 } from "../shared/api";
+import { HeaderNavLink } from "../shared/HeaderNavLink";
 
 const POLL_MS = 3000;
 
@@ -344,13 +345,13 @@ export default function App() {
           <div id="stats">
             {!LECTURE_ID && `${subRows.length} submission${subRows.length === 1 ? "" : "s"}`}
           </div>
-          <a href="index.html" style={{ color: "#cadcfc", fontSize: "0.85rem" }}>
+          <HeaderNavLink href="index.html" style={{ fontSize: "0.85rem" }}>
             &larr; Home
-          </a>
+          </HeaderNavLink>
           {!LECTURE_ID && (
-            <a href="setup.html" style={{ color: "#cadcfc", fontSize: "0.85rem", marginLeft: "0.75rem" }}>
+            <HeaderNavLink href="setup.html" style={{ fontSize: "0.85rem", marginLeft: "0.75rem" }}>
               Question setup &rarr;
-            </a>
+            </HeaderNavLink>
           )}
         </div>
       </header>
