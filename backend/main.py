@@ -135,7 +135,11 @@ def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
     if row["status"] != "draft":
         raise HTTPException(status_code=409, detail="Cannot edit a question once it has started.")
 
-    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    # exclude_unset (not "v is not None") so a field explicitly sent as null
+    # -- e.g. clearing reference_solution or expected_students -- actually
+    # clears it, while a field the client never sent at all still leaves the
+    # existing value alone.
+    fields = req.model_dump(exclude_unset=True)
     if "test_cases" in fields:
         fields["test_cases"] = [tc if isinstance(tc, dict) else tc.model_dump() for tc in req.test_cases]
     if fields:

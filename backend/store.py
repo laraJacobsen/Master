@@ -411,12 +411,15 @@ def get_question_row(question_id: str):
 def list_question_rows(status: str = None) -> list:
     with _lock:
         conn = _connect()
+        # rowid DESC breaks ties within the same created_at second (same
+        # reasoning as all_submissions()'s "id DESC" -- two questions can be
+        # created in the same second).
         if status:
             cur = conn.execute(
-                "SELECT * FROM questions WHERE status = ? ORDER BY created_at DESC", (status,)
+                "SELECT * FROM questions WHERE status = ? ORDER BY created_at DESC, rowid DESC", (status,)
             )
         else:
-            cur = conn.execute("SELECT * FROM questions ORDER BY created_at DESC")
+            cur = conn.execute("SELECT * FROM questions ORDER BY created_at DESC, rowid DESC")
         rows = [_deserialize_question(dict(r)) for r in cur.fetchall()]
         conn.close()
         return rows

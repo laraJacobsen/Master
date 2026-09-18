@@ -18,7 +18,8 @@ DEFAULT_LINE_LIMIT = 200  # generous for a lecture-hall exercise; catches runawa
 
 REJECTION_REASONS = ["empty", "whitespace_only", "too_long", "encoding_error", "disallowed_package"]
 
-_IMPORT_RE = re.compile(r"^\s*(?:import|from)\s+([a-zA-Z_][\w.]*)", re.MULTILINE)
+_FROM_IMPORT_RE = re.compile(r"^\s*from\s+([a-zA-Z_][\w.]*)")
+_PLAIN_IMPORT_RE = re.compile(r"^\s*import\s+(.+)$")
 
 try:
     _STDLIB_MODULES = set(sys.stdlib_module_names)  # Python 3.10+
@@ -57,8 +58,26 @@ def pre_execution_check(source_code: str, line_limit: int = DEFAULT_LINE_LIMIT, 
 
 def _first_disallowed_import(source_code: str, extra_packages: list) -> str | None:
     allowed = _STDLIB_MODULES | set(extra_packages)
-    for match in _IMPORT_RE.finditer(source_code):
-        top_level = match.group(1).split(".")[0]
-        if top_level not in allowed:
-            return top_level
+    # Split on ";" too, not just "\n" -- `import os; import numpy` puts a
+    # second statement on the same physical line, past where a "^"-anchored
+    # per-line match would look.
+    statements = (stmt for line in source_code.split("\n") for stmt in line.split(";"))
+
+    for statement in statements:
+        from_match = _FROM_IMPORT_RE.match(statement)
+        if from_match:
+            top_level = from_match.group(1).split(".")[0]
+            if top_level not in allowed:
+                return top_level
+            continue
+
+        plain_match = _PLAIN_IMPORT_RE.match(statement)
+        if plain_match:
+            # `import os, numpy as np` names several top-level packages in
+            # one statement, each optionally aliased.
+            for name in plain_match.group(1).split(","):
+                top_level = name.strip().split(" as ")[0].strip().split(".")[0]
+                if top_level and top_level not in allowed:
+                    return top_level
+
     return None

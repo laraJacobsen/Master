@@ -72,8 +72,13 @@ def run_submission(
     if language not in LANGUAGE_IDS:
         raise ValueError(f"Unsupported language: {language!r}. Supported: {list(LANGUAGE_IDS)}")
 
-    cpu_time_limit = min(cpu_time_limit or DEFAULT_CPU_TIME_LIMIT, MAX_CPU_TIME_LIMIT)
-    memory_limit_kb = min(memory_limit_kb or DEFAULT_MEMORY_LIMIT_KB, MAX_MEMORY_LIMIT_KB)
+    # "x if x is not None else DEFAULT", not "x or DEFAULT" -- an explicit 0
+    # is a real (if unusual) limit, not "unset", and `or` would silently
+    # replace it with the default since 0 is falsy.
+    cpu_time_limit = cpu_time_limit if cpu_time_limit is not None else DEFAULT_CPU_TIME_LIMIT
+    memory_limit_kb = memory_limit_kb if memory_limit_kb is not None else DEFAULT_MEMORY_LIMIT_KB
+    cpu_time_limit = min(cpu_time_limit, MAX_CPU_TIME_LIMIT)
+    memory_limit_kb = min(memory_limit_kb, MAX_MEMORY_LIMIT_KB)
     # The HTTP call itself must outlast Judge0's own cpu_time_limit (wait=true
     # blocks until Judge0 finishes), plus headroom for compilation/queueing.
     timeout = max(timeout, cpu_time_limit + 10)
