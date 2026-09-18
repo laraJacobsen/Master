@@ -567,18 +567,40 @@ def get_question_row(question_id: str):
         return _deserialize_question(dict(row)) if row else None
 
 
-def list_question_rows(status: str = None) -> list:
+def list_question_rows(status: str = None, current_lecture_only: bool = False) -> list:
+    """`current_lecture_only` scopes to the setup page's "this lecture's
+    question bank": never-started drafts (lecture_id IS NULL -- reusable
+    across lectures until started) plus whatever's tied to the currently
+    active lecture. Without it, past lectures' already-closed questions --
+    each still carrying its own lecture_id -- would otherwise sit in that
+    list forever, which is exactly what made "New lecture" look like it
+    wasn't actually starting fresh (see the home-dashboard bug report: a
+    previous lecture's "Double It", answers and all, still showing up on
+    setup after starting a brand-new lecture with nothing in it yet).
+    Defaults to False so the student-facing live-question lookup (see
+    questions.py's list_questions(), which also calls this) is unaffected --
+    it only ever has one live question at a time regardless."""
     with _lock:
         conn = _connect()
+        clauses = []
+        params = []
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if current_lecture_only:
+            active = conn.execute(
+                "SELECT id FROM lectures WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if active:
+                clauses.append("(lecture_id IS NULL OR lecture_id = ?)")
+                params.append(active["id"])
+            else:
+                clauses.append("lecture_id IS NULL")
         # rowid DESC breaks ties within the same created_at second (same
         # reasoning as all_submissions()'s "id DESC" -- two questions can be
         # created in the same second).
-        if status:
-            cur = conn.execute(
-                "SELECT * FROM questions WHERE status = ? ORDER BY created_at DESC, rowid DESC", (status,)
-            )
-        else:
-            cur = conn.execute("SELECT * FROM questions ORDER BY created_at DESC, rowid DESC")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        cur = conn.execute(f"SELECT * FROM questions {where} ORDER BY created_at DESC, rowid DESC", params)
         rows = [_deserialize_question(dict(r)) for r in cur.fetchall()]
         conn.close()
         return rows
