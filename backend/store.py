@@ -19,6 +19,7 @@ import os
 import re
 import sqlite3
 import threading
+from collections import defaultdict
 from datetime import datetime
 
 DB_PATH = os.environ.get(
@@ -91,7 +92,7 @@ def init_db():
                 expected_students INTEGER,
                 duration_seconds INTEGER NOT NULL DEFAULT 600,
                 started_at TEXT,
-                lecture_seq INTEGER
+                lecture_id INTEGER
             )
             """
         )
@@ -106,69 +107,118 @@ def init_db():
             conn.execute("ALTER TABLE questions ADD COLUMN duration_seconds INTEGER NOT NULL DEFAULT 600")
         if "started_at" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN started_at TEXT")
-        if "lecture_seq" not in existing_q_columns:
-            conn.execute("ALTER TABLE questions ADD COLUMN lecture_seq INTEGER")
         # A question that was already `live` before started_at existed (e.g.
         # an existing checkout's seeded sum-ints) would otherwise have no
         # timer zero-point -- backfill it to "now" so its countdown starts
         # fresh from a full duration rather than never counting down at all.
         conn.execute("UPDATE questions SET started_at = datetime('now') WHERE status = 'live' AND started_at IS NULL")
-        # Same idea for lecture_seq: any question that was already started
-        # before this column existed belongs to "lecture 1" as far as
-        # session-summary/carry-forward-discussion-point aggregation is
-        # concerned (see backend/aggregation.py) -- there's no way to
-        # recover finer-grained history than that, and 1 is always a valid
-        # sequence number (current_seq starts there too, below). Draft
-        # questions stay NULL; they get stamped properly whenever they're
-        # eventually started.
-        conn.execute(
-            "UPDATE questions SET lecture_seq = 1 WHERE lecture_seq IS NULL AND status IN ('live', 'closed')"
-        )
 
-        # One-row table tracking the current lecture: `finished` is whether
-        # the lecturer has explicitly ended the whole lecture (distinct from
-        # "between tasks" -- see the "Next task"/"End session" flow in
-        # main.py), and `current_seq` is which lecture run is "current" --
-        # every question is stamped with the current_seq value at the moment
-        # it's started (see start_question() below), which is what scopes
-        # "this lecture's tasks" for session_summary()/
-        # carry_forward_discussion_points()/student_recap() in
-        # aggregation.py without needing a separate lectures table: nothing
-        # here needs to browse *past* lectures, only identify the one that
-        # just ended, and lecture_seq on questions is already enough for
-        # that. current_seq is bumped only when a question is started while
-        # the previous lecture was finished=1 (see start_question()) -- so
-        # it intentionally does NOT change just because "End session" was
-        # clicked, which is what lets the summary/recap endpoints keep
-        # reading the lecture that just ended until a new one actually
-        # starts.
+        # `lectures`: a real table (see home-dashboard-scoping-decision),
+        # replacing the earlier lecture_seq int + one-row lecture_state
+        # counter -- browsing *past* lectures (the home dashboard's history
+        # list) needs actual rows, not just a sequence number. `ended_at IS
+        # NULL` means "this lecture is currently live"; there's deliberately
+        # no separate finished/current-pointer table anymore -- the single-
+        # active-lecture invariant (create_lecture()/start_question() below)
+        # plus "most recent row by id" (current_lecture_row() below) for
+        # "which lecture is current" is the whole state machine.
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS lecture_state (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                finished INTEGER NOT NULL DEFAULT 0,
-                current_seq INTEGER NOT NULL DEFAULT 1
+            CREATE TABLE IF NOT EXISTS lectures (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                label TEXT,
+                archived INTEGER NOT NULL DEFAULT 0
             )
             """
         )
-        existing_lecture_state_columns = {row["name"] for row in conn.execute("PRAGMA table_info(lecture_state)")}
-        if "current_seq" not in existing_lecture_state_columns:
-            conn.execute("ALTER TABLE lecture_state ADD COLUMN current_seq INTEGER NOT NULL DEFAULT 1")
-        if not conn.execute("SELECT 1 FROM lecture_state WHERE id = 1").fetchone():
-            conn.execute("INSERT INTO lecture_state (id, finished, current_seq) VALUES (1, 0, 1)")
+
+        existing_q_columns = {row["name"] for row in conn.execute("PRAGMA table_info(questions)")}
+        if "lecture_seq" in existing_q_columns:
+            # Migrating a DB from the lecture_seq/lecture_state scheme: one
+            # lectures row per distinct lecture_seq, best-effort started_at/
+            # ended_at backfilled from the questions that carried that seq
+            # (there's no more precise record of when an old lecture actually
+            # wrapped up than "its last task's start time plus that task's
+            # own duration"), then questions.lecture_id backfilled and the
+            # old column/table dropped.
+            has_lecture_state = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='lecture_state'"
+            ).fetchone()
+            old_state = None
+            if has_lecture_state:
+                old_state = conn.execute(
+                    "SELECT finished, current_seq FROM lecture_state WHERE id = 1"
+                ).fetchone()
+
+            seqs = [
+                r["lecture_seq"]
+                for r in conn.execute(
+                    "SELECT DISTINCT lecture_seq FROM questions WHERE lecture_seq IS NOT NULL ORDER BY lecture_seq"
+                )
+            ]
+            seq_to_lecture_id = {}
+            for seq in seqs:
+                agg = conn.execute(
+                    "SELECT MIN(started_at) AS first_started, MAX(started_at) AS last_started, "
+                    "MAX(duration_seconds) AS last_duration FROM questions WHERE lecture_seq = ?",
+                    (seq,),
+                ).fetchone()
+                still_live = bool(old_state) and seq == old_state["current_seq"] and not old_state["finished"]
+                ended_at = None
+                if not still_live and agg["last_started"]:
+                    ended_at = conn.execute(
+                        "SELECT datetime(?, '+' || ? || ' seconds') AS v",
+                        (agg["last_started"], agg["last_duration"] or 0),
+                    ).fetchone()["v"]
+                cur = conn.execute(
+                    "INSERT INTO lectures (started_at, ended_at) VALUES (?, ?)",
+                    (agg["first_started"] or datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), ended_at),
+                )
+                seq_to_lecture_id[seq] = cur.lastrowid
+
+            if "lecture_id" not in existing_q_columns:
+                conn.execute("ALTER TABLE questions ADD COLUMN lecture_id INTEGER")
+            for seq, lecture_id in seq_to_lecture_id.items():
+                conn.execute("UPDATE questions SET lecture_id = ? WHERE lecture_seq = ?", (lecture_id, seq))
+            conn.execute("ALTER TABLE questions DROP COLUMN lecture_seq")
+            if has_lecture_state:
+                conn.execute("DROP TABLE lecture_state")
+        elif "lecture_id" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN lecture_id INTEGER")
+            # A question that was already live/closed before lecture_id (and
+            # lecture_seq before it) ever existed has no real history to
+            # recover -- give it one synthetic already-ended lecture row so
+            # it isn't just silently excluded from session-summary/carry-
+            # forward/recap aggregation forever.
+            orphaned = conn.execute(
+                "SELECT COUNT(*) AS c FROM questions WHERE status IN ('live', 'closed') AND lecture_id IS NULL"
+            ).fetchone()["c"]
+            if orphaned:
+                fallback_id = conn.execute(
+                    "INSERT INTO lectures (started_at, ended_at) VALUES (datetime('now'), datetime('now'))"
+                ).lastrowid
+                conn.execute(
+                    "UPDATE questions SET lecture_id = ? WHERE status IN ('live', 'closed') AND lecture_id IS NULL",
+                    (fallback_id,),
+                )
 
         # Seed the original MVP question directly as `live`/validated so a fresh
         # checkout keeps working exactly as before without anyone having to walk
         # it through the setup page first (see smoke_test.py, README.md).
         seeded = conn.execute("SELECT 1 FROM questions WHERE id = 'sum-ints'").fetchone()
         if not seeded:
+            seed_lecture_id = conn.execute(
+                "INSERT INTO lectures (started_at) VALUES (datetime('now'))"
+            ).lastrowid
             conn.execute(
                 """
                 INSERT INTO questions
                     (id, title, prompt, language, test_cases, reference_solution,
                      cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
-                     status, validated, duration_seconds, started_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', 1, ?, datetime('now'))
+                     status, validated, duration_seconds, started_at, lecture_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', 1, ?, datetime('now'), ?)
                 """,
                 (
                     "sum-ints",
@@ -191,6 +241,7 @@ def init_db():
                     "[]",
                     200,
                     600,
+                    seed_lecture_id,
                 ),
             )
 
@@ -292,27 +343,24 @@ def set_status(question_id: str, status: str) -> None:
 
 def start_question(question_id: str) -> None:
     """Flips a question live, stamps `started_at` as the timer's zero point,
-    and tags it with the current lecture_seq -- see
+    and tags it with the currently active lecture -- see
     api_lecturer_start_question/api_lecturer_lecture_next in main.py, both
-    of which call this. If the previous lecture had been marked finished,
-    this is the start of a NEW lecture: bump current_seq (so it gets its own
-    scope for session_summary()/carry_forward_discussion_points()/
-    student_recap() in aggregation.py) and clear the finished flag. Done as
-    one transaction (rather than composing update_question()/
-    set_lecture_finished(), which each take their own lock) so the
-    read-then-write of current_seq can't race another call."""
+    of which call this. Requires an active lecture to already exist
+    (create_lecture(), the home dashboard's "New lecture" action) -- there's
+    no more implicit "starting a question right after the last lecture ended
+    begins a new one" behavior; the home dashboard is now the only place a
+    lecture starts. Raises ValueError if none is active."""
     with _lock:
         conn = _connect()
-        row = conn.execute("SELECT finished, current_seq FROM lecture_state WHERE id = 1").fetchone()
-        current_seq = row["current_seq"] if row else 1
-        if row and row["finished"]:
-            current_seq += 1
+        active = conn.execute(
+            "SELECT id FROM lectures WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not active:
+            conn.close()
+            raise ValueError("No active lecture -- start one from the home dashboard first.")
         conn.execute(
-            "UPDATE lecture_state SET finished = 0, current_seq = ? WHERE id = 1", (current_seq,)
-        )
-        conn.execute(
-            "UPDATE questions SET status = 'live', started_at = ?, lecture_seq = ? WHERE id = ?",
-            (datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), current_seq, question_id),
+            "UPDATE questions SET status = 'live', started_at = ?, lecture_id = ? WHERE id = ?",
+            (datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), active["id"], question_id),
         )
         conn.commit()
         conn.close()
@@ -341,46 +389,157 @@ def next_draft_question():
         return _deserialize_question(dict(row)) if row else None
 
 
-def get_lecture_finished() -> bool:
+def _lecture_display_label(row: dict) -> str:
+    if row.get("label"):
+        return row["label"]
+    started = datetime.strptime(row["started_at"], "%Y-%m-%d %H:%M:%S")
+    return f"Lecture -- {started.strftime('%b %d, %Y')}"
+
+
+def _serialize_lecture(row: dict) -> dict:
+    lecture = dict(row)
+    lecture["archived"] = bool(lecture["archived"])
+    lecture["display_label"] = _lecture_display_label(lecture)
+    return lecture
+
+
+def create_lecture(label: str = None) -> dict:
+    """Starts a brand-new lecture -- the home dashboard's "New lecture"
+    action, and now the ONLY place a lecture starts (see start_question()'s
+    docstring: there's no more implicit trigger). Refuses if one is already
+    active (`ended_at IS NULL`) -- this backend supports exactly one live
+    lecture at a time, and the home dashboard is expected to offer "Resume"
+    instead of a second "New lecture" whenever this would raise."""
     with _lock:
         conn = _connect()
-        row = conn.execute("SELECT finished FROM lecture_state WHERE id = 1").fetchone()
+        if conn.execute("SELECT 1 FROM lectures WHERE ended_at IS NULL").fetchone():
+            conn.close()
+            raise ValueError("A lecture is already in progress.")
+        cur = conn.execute(
+            "INSERT INTO lectures (started_at, label) VALUES (datetime('now'), ?)", (label,)
+        )
+        lecture_id = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM lectures WHERE id = ?", (lecture_id,)).fetchone()
         conn.close()
-        return bool(row["finished"]) if row else False
+        return _serialize_lecture(dict(row))
 
 
-def set_lecture_finished(value: bool) -> None:
+def get_lecture_row(lecture_id: int):
     with _lock:
         conn = _connect()
-        conn.execute("UPDATE lecture_state SET finished = ? WHERE id = 1", (1 if value else 0,))
+        row = conn.execute("SELECT * FROM lectures WHERE id = ?", (lecture_id,)).fetchone()
+        conn.close()
+        return _serialize_lecture(dict(row)) if row else None
+
+
+def get_active_lecture():
+    """The one lecture currently in progress (`ended_at IS NULL`), or None --
+    what the home dashboard checks to decide "New lecture" vs. "Resume live
+    lecture"."""
+    with _lock:
+        conn = _connect()
+        row = conn.execute(
+            "SELECT * FROM lectures WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        return _serialize_lecture(dict(row)) if row else None
+
+
+def current_lecture_row():
+    """The most relevant lecture for "what should /api/lecture/status,
+    /api/lecture/recap, and the default lecture/summary view point at right
+    now" -- the active lecture if one exists, else whichever lecture most
+    recently ended. Since a lectures row is only ever created by
+    create_lecture() (no more implicit trigger -- see start_question()), the
+    newest row by id is always exactly this: still live, or the one that
+    just ended and hasn't been replaced by a new "New lecture" click yet."""
+    with _lock:
+        conn = _connect()
+        row = conn.execute("SELECT * FROM lectures ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        return _serialize_lecture(dict(row)) if row else None
+
+
+def end_lecture(lecture_id: int) -> None:
+    """Marks a lecture's live window over -- the "Finish lecture"/"End
+    session" action. A no-op if it's already ended or isn't the active one,
+    same defensive shape as close_question()."""
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            "UPDATE lectures SET ended_at = datetime('now') WHERE id = ? AND ended_at IS NULL",
+            (lecture_id,),
+        )
         conn.commit()
         conn.close()
 
 
-def current_lecture_seq() -> int:
-    """Which lecture run is "current" -- the scope session_summary()/
-    carry_forward_discussion_points()/student_recap() in aggregation.py use
-    when the caller doesn't pin a specific lecture_seq. Stays pointed at the
-    lecture that just ended until a new question is actually started (see
-    start_question()'s docstring), which is what lets the post-"End
-    session" summary/recap views keep working right after the lecturer
-    clicks it."""
+def set_lecture_archived(lecture_id: int, value: bool) -> None:
+    """Hides (or restores) a lecture from the default history list without
+    touching its data -- for junk/test lectures in a dev DB that isn't wiped
+    between runs (see the home-dashboard-scoping-decision). Never deletes
+    anything."""
     with _lock:
         conn = _connect()
-        row = conn.execute("SELECT current_seq FROM lecture_state WHERE id = 1").fetchone()
+        conn.execute("UPDATE lectures SET archived = ? WHERE id = ?", (1 if value else 0, lecture_id))
+        conn.commit()
         conn.close()
-        return row["current_seq"] if row else 1
 
 
-def questions_for_lecture(lecture_seq: int) -> list:
-    """Every question stamped with this lecture_seq, in the order they were
-    run -- the per-task rows for the STATE 2 lecturer summary and the
+def list_lectures(include_archived: bool = False) -> list:
+    """Lecture history for the home dashboard: newest first, each annotated
+    with how many tasks it had and a short submission-stats snapshot (total
+    distinct-student submissions summed across its tasks, plus a verdict
+    breakdown) -- aggregate only, no student names/ids anywhere in this view
+    (see the product decision against any per-student identification here)."""
+    with _lock:
+        conn = _connect()
+        query = "SELECT * FROM lectures"
+        if not include_archived:
+            query += " WHERE archived = 0"
+        query += " ORDER BY id DESC"
+        lectures = [_serialize_lecture(dict(r)) for r in conn.execute(query)]
+        conn.close()
+
+    for lecture in lectures:
+        questions = questions_for_lecture(lecture["id"])
+        lecture["task_count"] = len(questions)
+        submitted_total = 0
+        verdict_counts = defaultdict(int)
+        for q in questions:
+            latest_by_student = {}
+            for row in all_submissions(q["id"]):
+                latest_by_student.setdefault(row["student_name"], row)
+            submitted_total += len(latest_by_student)
+            for row in latest_by_student.values():
+                verdict_counts[row.get("verdict") or "error"] += 1
+        lecture["submitted_total"] = submitted_total
+        lecture["verdict_counts"] = dict(verdict_counts)
+    return lectures
+
+
+def lecture_totals() -> dict:
+    """All-time counts across every lecture ever run (including archived --
+    this is a lifetime tally, not "what's currently visible") -- the home
+    dashboard's optional all-time stats line."""
+    with _lock:
+        conn = _connect()
+        lectures_run = conn.execute("SELECT COUNT(*) AS c FROM lectures").fetchone()["c"]
+        total_submissions = conn.execute("SELECT COUNT(*) AS c FROM submissions").fetchone()["c"]
+        conn.close()
+        return {"lectures_run": lectures_run, "total_submissions": total_submissions}
+
+
+def questions_for_lecture(lecture_id: int) -> list:
+    """Every question stamped with this lecture_id, in the order they were
+    run -- the per-task rows for the lecturer session summary and the
     student recap (see aggregation.py)."""
     with _lock:
         conn = _connect()
         cur = conn.execute(
-            "SELECT * FROM questions WHERE lecture_seq = ? ORDER BY created_at ASC, rowid ASC",
-            (lecture_seq,),
+            "SELECT * FROM questions WHERE lecture_id = ? ORDER BY created_at ASC, rowid ASC",
+            (lecture_id,),
         )
         rows = [_deserialize_question(dict(r)) for r in cur.fetchall()]
         conn.close()

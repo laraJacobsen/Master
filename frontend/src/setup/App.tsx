@@ -207,6 +207,11 @@ export default function App() {
       <header>
         <h1>Lecturer -- Question Setup</h1>
         <p>Author a question, set its grading config, validate it against a known-correct solution, then start it.</p>
+        <p>
+          <a href="index.html" style={{ color: "#cadcfc" }}>
+            &larr; Home
+          </a>
+        </p>
       </header>
       <main>
         <div className="grid">
