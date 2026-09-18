@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
-import type { QuestionRow, QuestionStatus, ValidationTestResult } from "../shared/types";
+import type { MouseEvent } from "react";
+import type { LectureRow, QuestionRow, QuestionStatus, ValidationTestResult } from "../shared/types";
 import {
   createQuestion,
+  deleteQuestion as deleteQuestionApi,
+  fetchActiveLecture,
   fetchQuestionList,
+  openLobby as openLobbyApi,
   startQuestion as startQuestionApi,
   updateQuestion,
   validateQuestion as validateQuestionApi,
@@ -44,6 +48,13 @@ export default function App() {
   const [validationResult, setValidationResult] = useState<ValidationResultState | null>(null);
   const [startDisabled, setStartDisabled] = useState(true);
 
+  // The lecture this setup session belongs to (see the lobby-scoping-
+  // decision) -- fetched once so the "Open lobby" banner knows whether the
+  // lobby's already open (show a link back to it instead of the button).
+  const [activeLecture, setActiveLecture] = useState<LectureRow | null>(null);
+  const [openingLobby, setOpeningLobby] = useState(false);
+  const [lobbyError, setLobbyError] = useState<string | null>(null);
+
   const locked = currentStatus === "live";
 
   function loadQuestionList() {
@@ -54,9 +65,44 @@ export default function App() {
       });
   }
 
+  function loadActiveLecture() {
+    fetchActiveLecture()
+      .then((a) => setActiveLecture(a.lecture))
+      .catch(() => {
+        // Not critical -- the lobby banner just won't show.
+      });
+  }
+
   useEffect(() => {
     loadQuestionList();
+    loadActiveLecture();
   }, []);
+
+  async function handleOpenLobby() {
+    if (!activeLecture) return;
+    setOpeningLobby(true);
+    setLobbyError(null);
+    try {
+      await openLobbyApi(activeLecture.id);
+      window.location.href = `lecturer.html?lobby=${activeLecture.id}`;
+    } catch (e) {
+      setLobbyError(e instanceof Error ? e.message : "Could not open the lobby.");
+      setOpeningLobby(false);
+    }
+  }
+
+  async function handleDeleteQuestion(q: QuestionRow, e: MouseEvent) {
+    e.stopPropagation(); // don't also trigger the row's own onClick (load into form)
+    if (!window.confirm(`Delete "${q.title}"? This can't be undone.`)) return;
+    try {
+      await deleteQuestionApi(q.id);
+      if (currentId === q.id) resetForm();
+      loadQuestionList();
+    } catch (err) {
+      setFormStatusText(err instanceof Error ? err.message : "Could not delete this question.");
+      setFormStatusColor("var(--bad)");
+    }
+  }
 
   function resetForm() {
     setCurrentId(null);
@@ -214,6 +260,34 @@ export default function App() {
         </p>
       </header>
       <main>
+        {activeLecture && (
+          <div className="card" id="lobby-banner">
+            {activeLecture.lobby_opened_at ? (
+              <>
+                <h2>Lobby is open</h2>
+                <p className="hint" style={{ marginBottom: "0.6rem" }}>
+                  Students can already join with code <strong>{activeLecture.join_code}</strong>. Add, edit, or
+                  delete draft questions here any time before you start the lecture.
+                </p>
+                <a href={`lecturer.html?lobby=${activeLecture.id}`}>
+                  <button type="button">Back to lobby &rarr;</button>
+                </a>
+              </>
+            ) : (
+              <>
+                <h2>Ready for class?</h2>
+                <p className="hint" style={{ marginBottom: "0.6rem" }}>
+                  Prepare as many questions as you like first -- nothing is joinable and no timer starts until you
+                  open the lobby.
+                </p>
+                <button type="button" onClick={handleOpenLobby} disabled={openingLobby}>
+                  {openingLobby ? "Opening..." : "Open lobby"}
+                </button>
+                {lobbyError && <div style={{ color: "var(--bad)", marginTop: "0.5rem" }}>{lobbyError}</div>}
+              </>
+            )}
+          </div>
+        )}
         <div className="grid">
           <div className="card">
             <h2>Questions</h2>
@@ -249,6 +323,15 @@ export default function App() {
                   </div>
                   {q.status === "live" && (
                     <a href={`lecturer.html?question_id=${encodeURIComponent(q.id)}`}>Live dashboard &rarr;</a>
+                  )}
+                  {q.status === "draft" && (
+                    <button
+                      type="button"
+                      className="danger delete-question-btn"
+                      onClick={(e) => handleDeleteQuestion(q, e)}
+                    >
+                      Delete
+                    </button>
                   )}
                 </li>
               ))}

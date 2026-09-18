@@ -28,6 +28,12 @@ const POLL_MS = 2000;
 // for the rest of this browser tab so a page refresh mid-lecture doesn't
 // force retyping it; a new tab (new lecture, most likely) asks again.
 const JOIN_SESSION_KEY = "lecture_joined";
+// The name typed on the join screen -- carried forward so the later
+// answering screen's own name field is pre-filled instead of asking twice
+// (same self-chosen display name either way, see submission-format-and-
+// error-taxonomy.md's no-real-identity stance -- this doesn't collect
+// anything new, just moves the existing collection point earlier).
+const JOIN_NAME_KEY = "lecture_joined_name";
 
 function hasJoinedThisSession(): boolean {
   try {
@@ -37,9 +43,18 @@ function hasJoinedThisSession(): boolean {
   }
 }
 
-function markJoinedThisSession(): void {
+function getJoinedName(): string {
+  try {
+    return sessionStorage.getItem(JOIN_NAME_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function markJoinedThisSession(studentName: string): void {
   try {
     sessionStorage.setItem(JOIN_SESSION_KEY, "1");
+    sessionStorage.setItem(JOIN_NAME_KEY, studentName);
   } catch {
     // Best effort -- worst case the student re-enters the code after a refresh.
   }
@@ -57,6 +72,7 @@ function formatMMSS(totalSeconds: number): string {
 export default function App() {
   const [joined, setJoined] = useState(hasJoinedThisSession);
   const [phase, setPhase] = useState<Phase>(() => (hasJoinedThisSession() ? "loading" : "join"));
+  const [joinNameInput, setJoinNameInput] = useState("");
   const [joinCodeInput, setJoinCodeInput] = useState("");
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -66,12 +82,14 @@ export default function App() {
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
 
-  const [name, setName] = useState("");
+  // Pre-filled from the join screen's name (see JOIN_NAME_KEY) if this tab
+  // already joined -- still editable here in case of a typo.
+  const [name, setName] = useState(getJoinedName);
   const [code, setCode] = useState("");
   // Mirrors of `name`/`code` for the auto-submit-on-timeout path, which can
   // fire from inside a setInterval/poll callback where the `name`/`code`
   // state captured at effect-setup time would otherwise be stale.
-  const nameRef = useRef("");
+  const nameRef = useRef(getJoinedName());
   const codeRef = useRef("");
 
   const [submitting, setSubmitting] = useState(false);
@@ -280,7 +298,12 @@ export default function App() {
   }, [joined]);
 
   async function handleJoin() {
+    const trimmedName = joinNameInput.trim();
     const code = joinCodeInput.trim();
+    if (!trimmedName) {
+      setJoinError("Enter your name.");
+      return;
+    }
     if (!code) {
       setJoinError("Enter the code your lecturer shared.");
       return;
@@ -288,8 +311,9 @@ export default function App() {
     setJoining(true);
     setJoinError(null);
     try {
-      await joinLectureApi(code);
-      markJoinedThisSession();
+      await joinLectureApi(code, trimmedName);
+      markJoinedThisSession(trimmedName);
+      updateName(trimmedName); // carries forward to the answering screen's own name field
       setJoined(true);
       setPhase("loading");
     } catch (e) {
@@ -358,13 +382,24 @@ export default function App() {
         <main className="waiting-main">
           <div className="card accent-navy waiting-card">
             <h2>Enter the lecture</h2>
+            <label htmlFor="join-name">Your name</label>
+            <input
+              type="text"
+              id="join-name"
+              placeholder="e.g. Lara Pinheiro"
+              autoFocus
+              value={joinNameInput}
+              onChange={(e) => setJoinNameInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleJoin();
+              }}
+            />
             <label htmlFor="join-code">Join code</label>
             <input
               type="text"
               id="join-code"
               placeholder="e.g. 482913"
               inputMode="numeric"
-              autoFocus
               value={joinCodeInput}
               onChange={(e) => setJoinCodeInput(e.target.value)}
               onKeyDown={(e) => {

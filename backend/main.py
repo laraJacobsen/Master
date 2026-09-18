@@ -107,6 +107,7 @@ class LectureCreateRequest(BaseModel):
 
 class LectureJoinRequest(BaseModel):
     code: str
+    student_name: str
 
 
 @app.get("/api/questions")
@@ -155,6 +156,21 @@ def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
         fields["validated"] = 0
         store.update_question(question_id, fields)
     return store.get_question_row(question_id)
+
+
+@app.delete("/api/lecturer/questions/{question_id}")
+def api_lecturer_delete_question(question_id: str):
+    """Removes a draft question outright -- the setup page's delete button.
+    Same status rule as editing: once a question has gone live, its history
+    needs to stay put for the session summary/recap, so this only ever
+    touches drafts."""
+    row = store.get_question_row(question_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Not found")
+    if row["status"] != "draft":
+        raise HTTPException(status_code=409, detail="Cannot delete a question once it has started.")
+    store.delete_question(question_id)
+    return {"deleted": True}
 
 
 @app.post("/api/lecturer/questions/{question_id}/validate")
@@ -249,6 +265,35 @@ def api_lecturer_active_lecture():
         return {"lecture": None, "live_question_id": None}
     live_question = store.live_question_row()
     return {"lecture": lecture, "live_question_id": live_question["id"] if live_question else None}
+
+
+@app.get("/api/lecturer/lectures/{lecture_id}")
+def api_lecturer_lecture_detail(lecture_id: int):
+    lecture = store.get_lecture_row(lecture_id)
+    if not lecture:
+        raise HTTPException(status_code=404, detail="Not found")
+    return lecture
+
+
+@app.post("/api/lecturer/lectures/{lecture_id}/open_lobby")
+def api_lecturer_open_lobby(lecture_id: int):
+    """Opens the lobby: from here on the join code is live and students can
+    actually join (see api_lecture_join below) and the first question can be
+    started (see store.start_question()'s docstring) -- setup.html's "Open
+    lobby" button. Idempotent (store.open_lobby()'s docstring), so this is
+    also what a lecturer navigating back into the lobby view resolves to."""
+    lecture = store.get_lecture_row(lecture_id)
+    if not lecture:
+        raise HTTPException(status_code=404, detail="Not found")
+    if lecture["ended_at"]:
+        raise HTTPException(status_code=409, detail="This lecture has already ended.")
+    return store.open_lobby(lecture_id)
+
+
+@app.get("/api/lecturer/lectures/{lecture_id}/joined_count")
+def api_lecturer_joined_count(lecture_id: int):
+    """The lobby view's live "N joined" counter."""
+    return {"joined": store.joined_count(lecture_id)}
 
 
 @app.get("/api/lecturer/lectures")
@@ -404,13 +449,27 @@ def api_lecture_join(req: LectureJoinRequest):
     /api/submit itself stays open, same as every other endpoint (see the
     "No auth" known simplification in README.md) -- a wrong/missing code
     here just means the student never sees the "enter the lecture" screen
-    clear, it doesn't block anything at the API level."""
+    clear, it doesn't block anything at the API level.
+
+    Also takes the student's name now (not just the code) and records the
+    join (store.record_join()) -- what backs the lobby's live "N joined"
+    counter. This is the same name the student would otherwise have typed
+    again on the answering screen a few minutes later; the student page
+    carries it forward instead of asking twice."""
     active = store.get_active_lecture()
     if not active:
         raise HTTPException(status_code=404, detail="No lecture is live right now.")
+    if not active.get("lobby_opened_at"):
+        raise HTTPException(
+            status_code=403, detail="This lecture hasn't been opened for joining yet -- check with your lecturer."
+        )
     lecture = store.check_join_code(req.code)
     if not lecture:
         raise HTTPException(status_code=403, detail="That code didn't match. Check with your lecturer and try again.")
+    student_name = req.student_name.strip()
+    if not student_name:
+        raise HTTPException(status_code=400, detail="Enter your name.")
+    store.record_join(lecture["id"], student_name)
     return {"lecture_id": lecture["id"], "label": lecture["display_label"]}
 
 

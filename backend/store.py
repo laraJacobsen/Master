@@ -131,7 +131,8 @@ def init_db():
                 ended_at TEXT,
                 label TEXT,
                 archived INTEGER NOT NULL DEFAULT 0,
-                join_code TEXT
+                join_code TEXT,
+                lobby_opened_at TEXT
             )
             """
         )
@@ -150,6 +151,37 @@ def init_db():
             conn.execute(
                 "UPDATE lectures SET join_code = ? WHERE id = ?", (_generate_join_code(), row["id"])
             )
+
+        # Migration for DBs created before the lobby stage existed (see the
+        # lobby-scoping-decision) -- same pattern as join_code above.
+        if "lobby_opened_at" not in existing_lecture_columns:
+            conn.execute("ALTER TABLE lectures ADD COLUMN lobby_opened_at TEXT")
+        # Backfill: an already-active lecture from before this column existed
+        # was necessarily already past the lobby stage (there was no lobby
+        # gate to have stopped at), so treat it as opened from the start --
+        # otherwise it would suddenly become unjoinable/unstartable on
+        # upgrade. Ended lectures are left alone, same reasoning as join_code.
+        conn.execute(
+            "UPDATE lectures SET lobby_opened_at = started_at WHERE ended_at IS NULL AND lobby_opened_at IS NULL"
+        )
+
+        # `lecture_joins`: one row per distinct student who's entered the
+        # lobby join code for a given lecture -- backs the lobby's live "N
+        # joined" counter (join_lobby-scoping-decision.md). The uniqueness
+        # constraint is what makes a refresh/rejoin idempotent rather than
+        # inflating the count; see api_lecture_join in main.py, the only
+        # writer.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lecture_joins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lecture_id INTEGER NOT NULL,
+                student_name TEXT NOT NULL,
+                joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (lecture_id, student_name)
+            )
+            """
+        )
 
         existing_q_columns = {row["name"] for row in conn.execute("PRAGMA table_info(questions)")}
         if "lecture_seq" in existing_q_columns:
@@ -226,11 +258,12 @@ def init_db():
         # it through the setup page first (see smoke_test.py, README.md).
         seeded = conn.execute("SELECT 1 FROM questions WHERE id = 'sum-ints'").fetchone()
         if not seeded:
-            # Also gets a join code (see _generate_join_code/create_lecture)
-            # so a fresh checkout's student page can actually get past the
-            # join screen without anyone having clicked "New lecture" first.
+            # Also gets a join code, already "opened" (see _generate_join_code/
+            # create_lecture/open_lobby) so a fresh checkout's student page can
+            # actually get past the join screen without anyone having clicked
+            # "New lecture" then "Open lobby" first.
             seed_lecture_id = conn.execute(
-                "INSERT INTO lectures (started_at, join_code) VALUES (datetime('now'), ?)",
+                "INSERT INTO lectures (started_at, join_code, lobby_opened_at) VALUES (datetime('now'), ?, datetime('now'))",
                 (_generate_join_code(),),
             ).lastrowid
             conn.execute(
@@ -370,19 +403,39 @@ def start_question(question_id: str) -> None:
     (create_lecture(), the home dashboard's "New lecture" action) -- there's
     no more implicit "starting a question right after the last lecture ended
     begins a new one" behavior; the home dashboard is now the only place a
-    lecture starts. Raises ValueError if none is active."""
+    lecture starts. Also requires that lecture's lobby to have been opened
+    (open_lobby() below) -- the lobby is where students join and get
+    counted *before* anything is timed, so a question can't go live and
+    start a countdown out from under a lobby that was never actually
+    opened. Raises ValueError in either missing-prerequisite case."""
     with _lock:
         conn = _connect()
         active = conn.execute(
-            "SELECT id FROM lectures WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1"
+            "SELECT id, lobby_opened_at FROM lectures WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1"
         ).fetchone()
         if not active:
             conn.close()
             raise ValueError("No active lecture -- start one from the home dashboard first.")
+        if not active["lobby_opened_at"]:
+            conn.close()
+            raise ValueError("Open the lobby before starting the lecture.")
         conn.execute(
             "UPDATE questions SET status = 'live', started_at = ?, lecture_id = ? WHERE id = ?",
             (datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), active["id"], question_id),
         )
+        conn.commit()
+        conn.close()
+
+
+def delete_question(question_id: str) -> None:
+    """Removes a draft question outright -- callers (see main.py) are
+    responsible for rejecting this once a question has gone live, same
+    division of responsibility as update_question(). Safe as a hard delete:
+    a still-draft question can't have any submissions (see api_submit's
+    status == "live" check), so there's nothing orphaned to worry about."""
+    with _lock:
+        conn = _connect()
+        conn.execute("DELETE FROM questions WHERE id = ?", (question_id,))
         conn.commit()
         conn.close()
 
@@ -473,6 +526,57 @@ def check_join_code(code: str):
     if code.strip().upper() != lecture["join_code"].strip().upper():
         return None
     return lecture
+
+
+def open_lobby(lecture_id: int) -> dict:
+    """Opens the lobby: from this point on, students can actually join (see
+    api_lecture_join in main.py, which now also gates on this) and starting
+    the first question is allowed (see start_question()'s docstring). Before
+    this, a lecture exists (so the lecturer can author/edit/delete questions
+    against it) but is otherwise inert -- no code shown, nothing joinable,
+    nothing timed. Idempotent: calling it again on an already-open lobby is
+    a no-op, not an error, so a lecturer navigating back to setup and then
+    back to the lobby doesn't re-stamp the open time."""
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            "UPDATE lectures SET lobby_opened_at = datetime('now') "
+            "WHERE id = ? AND ended_at IS NULL AND lobby_opened_at IS NULL",
+            (lecture_id,),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM lectures WHERE id = ?", (lecture_id,)).fetchone()
+        conn.close()
+        return _serialize_lecture(dict(row)) if row else None
+
+
+def record_join(lecture_id: int, student_name: str) -> None:
+    """Records one distinct student joining the lobby -- the UNIQUE
+    (lecture_id, student_name) constraint on lecture_joins makes a
+    refresh/rejoin from the same student a no-op rather than double-counting
+    them in the lobby's live counter (joined_count() below)."""
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            "INSERT INTO lecture_joins (lecture_id, student_name) VALUES (?, ?) "
+            "ON CONFLICT (lecture_id, student_name) DO NOTHING",
+            (lecture_id, student_name),
+        )
+        conn.commit()
+        conn.close()
+
+
+def joined_count(lecture_id: int) -> int:
+    """How many distinct students have joined this lecture's lobby -- the
+    lobby view's live counter, polled the same way the live task dashboard
+    polls submission progress."""
+    with _lock:
+        conn = _connect()
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM lecture_joins WHERE lecture_id = ?", (lecture_id,)
+        ).fetchone()["c"]
+        conn.close()
+        return count
 
 
 def get_lecture_row(lecture_id: int):

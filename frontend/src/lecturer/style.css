@@ -175,6 +175,20 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
 .join-code-pill strong { color: var(--navy); letter-spacing: 0.1em; }
 #lecture-finished-banner h2 { color: var(--ok); }
 
+/* Lobby mode (?lobby=) -- same big code display the home dashboard uses
+   for its own "lecture in progress" card. */
+.join-code-display {
+  background: var(--bg);
+  border: 1px solid #e3e5ec;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.9rem;
+  text-align: center;
+}
+.join-code-label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.join-code-value { color: var(--navy); font-size: 2rem; font-weight: bold; letter-spacing: 0.15em; margin: 0.1rem 0; }
+.join-code-hint { color: var(--muted); font-size: 0.78rem; }
+
 /* STATE 2: post-lecture session summary */
 .hint { font-weight: normal; color: var(--muted); font-size: 0.78rem; }
 .summary-status { color: var(--muted); font-size: 0.9rem; }

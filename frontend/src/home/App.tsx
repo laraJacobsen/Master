@@ -85,9 +85,21 @@ export default function App() {
   function handleResume() {
     if (active?.live_question_id) {
       window.location.href = `lecturer.html?question_id=${encodeURIComponent(active.live_question_id)}`;
+    } else if (active?.lecture?.lobby_opened_at) {
+      // Lobby's open but nothing's live yet (right after "Open lobby", or
+      // between "Next task" clicks with no drafts left) -- back to the lobby,
+      // not setup, since students may already be sitting in it.
+      window.location.href = `lecturer.html?lobby=${active.lecture.id}`;
     } else {
+      // Lecture exists but the lobby was never opened -- still prepping.
       window.location.href = "setup.html";
     }
+  }
+
+  function resumeLabel(): string {
+    if (active?.live_question_id) return "Resume live lecture";
+    if (active?.lecture?.lobby_opened_at) return "Back to lobby";
+    return "Continue setup";
   }
 
   async function handleArchiveToggle(row: LectureHistoryRow) {
@@ -117,17 +129,24 @@ export default function App() {
             <>
               <h2>Lecture in progress</h2>
               <p className="muted-note">
-                {active!.lecture!.display_label} is currently live -- this backend supports one lecture at a
+                {active!.lecture!.display_label} is currently active -- this backend supports one lecture at a
                 time, so finish it before starting another.
               </p>
-              {active!.lecture!.join_code && (
-                <div id="join-code-display" className="join-code-display">
-                  <div className="join-code-label">Join code</div>
-                  <div className="join-code-value">{active!.lecture!.join_code}</div>
-                  <div className="join-code-hint">Students enter this on the student page to join.</div>
-                </div>
+              {active!.lecture!.lobby_opened_at ? (
+                active!.lecture!.join_code && (
+                  <div id="join-code-display" className="join-code-display">
+                    <div className="join-code-label">Join code</div>
+                    <div className="join-code-value">{active!.lecture!.join_code}</div>
+                    <div className="join-code-hint">Students enter this on the student page to join.</div>
+                  </div>
+                )
+              ) : (
+                <p className="muted-note">
+                  Still being prepared -- nothing is joinable yet. Add your questions on setup, then open the
+                  lobby when you're ready for students to join.
+                </p>
               )}
-              <button onClick={handleResume}>Resume live lecture</button>
+              <button onClick={handleResume}>{resumeLabel()}</button>
             </>
           ) : (
             <>
