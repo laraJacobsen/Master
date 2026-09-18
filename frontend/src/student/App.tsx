@@ -162,7 +162,7 @@ export default function App() {
     setStatusText("Running your code on Judge0...");
     slowNoticeRef.current = window.setTimeout(() => {
       setStatusText(
-        "Still working -- AI grading can take up to a minute, especially on the first submission of a session."
+        "Still working. AI grading can take up to a minute, especially on the first submission of a session."
       );
     }, 4000);
 
@@ -376,7 +376,7 @@ export default function App() {
     return (
       <>
         <header>
-          <h1>Interactive Lecture -- Student</h1>
+          <h1>Interactive Lecture</h1>
           <p>Enter the code your lecturer shared to join.</p>
         </header>
         <main className="waiting-main">
@@ -424,7 +424,7 @@ export default function App() {
     return (
       <>
         <header>
-          <h1>Interactive Lecture -- Student</h1>
+          <h1>Interactive Lecture</h1>
         </header>
         <main>
           <div className="card">Loading...</div>
@@ -438,18 +438,18 @@ export default function App() {
     return (
       <>
         <header>
-          <h1>Interactive Lecture -- Student</h1>
+          <h1>Interactive Lecture</h1>
         </header>
         <main className="waiting-main">
           <div className="card accent-navy waiting-card">
-            <h2>That's the lecture -- thanks for working through it.</h2>
-            <p className="waiting-message">Nothing else needed from you here -- it's safe to close this tab.</p>
+            <h2>That's the lecture. Thanks for working through it.</h2>
+            <p className="waiting-message">Nothing else needed from you here. It's safe to close this tab.</p>
           </div>
           {recap && (
             <div className="card" id="recap-card">
               <h2>Your recap</h2>
               <div id="recap-summary-line">
-                {recap.attempted} of {recap.total} tasks attempted -- {correctCount} of {recap.total} correct
+                {recap.attempted} of {recap.total} tasks attempted, {correctCount} correct
               </div>
               <ul id="recap-list">
                 {recap.results.map((r) => (
@@ -481,7 +481,7 @@ export default function App() {
   return (
     <>
       <header>
-        <h1>Interactive Lecture -- Student</h1>
+        <h1>Interactive Lecture</h1>
         <p>Practice problems with instant feedback that gets more specific the more you try.</p>
       </header>
       <main>
@@ -603,7 +603,7 @@ export default function App() {
                 )}
                 {waitingIsEmpty && (
                   <div className="neutral-note">
-                    No code to submit this time -- that's fine, next one's coming.
+                    No code to submit this time. That's fine, the next one's coming.
                   </div>
                 )}
                 {errorMessage && !waitingIsGrading && (

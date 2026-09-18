@@ -197,6 +197,12 @@ export function unarchiveLecture(lectureId: number): Promise<LectureRow> {
   );
 }
 
+export function deleteLecture(lectureId: number): Promise<{ deleted: boolean }> {
+  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}`, { method: "DELETE" }).then((res) =>
+    asJson(res)
+  );
+}
+
 export function fetchLectureTotals(): Promise<LectureTotals> {
   return fetch(`${API_BASE}/api/lecturer/stats/totals`).then((res) => asJson(res));
 }

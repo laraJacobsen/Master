@@ -61,3 +61,54 @@ button.danger { background: var(--bad); }
    inside a `header p` and relies on that already-smaller inherited size --
    giving this a fixed size would change one of the two. */
 .header-nav-link { color: var(--ice); }
+
+/* Persistent top nav bar (see shared/NavBar.tsx) -- home/setup/lecturer
+   only, sitting above each page's own <header>. A touch darker than
+   --navy so the two don't visually blend into one solid block. */
+.top-nav {
+  background: #161c42;
+  padding: 0.6rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  animation: fade-in-down 0.35s ease-out;
+}
+.top-nav-brand {
+  color: white;
+  font-weight: bold;
+  font-size: 0.95rem;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+.top-nav-brand:hover { color: var(--ice); }
+.top-nav-actions { display: flex; align-items: center; gap: 0.75rem; }
+.top-nav-home {
+  color: var(--ice);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+.top-nav-home:hover { text-decoration: underline; }
+.top-nav-cta {
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.82rem;
+  text-decoration: none;
+  transition: background 0.15s ease, transform 0.15s ease;
+  display: inline-block;
+}
+.top-nav-cta:hover { background: rgba(255, 255, 255, 0.22); transform: translateY(-1px); }
+
+@keyframes fade-in-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* Reusable entrance animation for cards -- stack with an inline
+   animation-delay for a staggered effect where it's worth it. */
+.fade-in-up { animation: fade-in-up 0.45s ease-out both; }
