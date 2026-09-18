@@ -8,6 +8,7 @@ import type {
   ValidationTestResult,
 } from "../shared/types";
 import {
+  fetchActiveLecture,
   fetchClusters,
   fetchLectureSummary,
   fetchProgress,
@@ -126,6 +127,12 @@ export default function App() {
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [inspector, setInspector] = useState<InspectorState | null>(null);
 
+  // The active lecture's Kahoot-style join code, shown in the Task control
+  // card for the whole session -- fetched once (it doesn't change once the
+  // lecture starts, so unlike the polled state below there's no need to
+  // re-fetch it).
+  const [joinCode, setJoinCode] = useState<string | null>(null);
+
   // Powers the "Time remaining" banner and gates the Next task/Finish
   // lecture controls -- see api_lecture_next/finish in backend/main.py.
   const [question, setQuestion] = useState<QuestionRow | null>(null);
@@ -174,6 +181,11 @@ export default function App() {
         })
         .catch(() => {
           // Leave the generic title in place.
+        });
+      fetchActiveLecture()
+        .then((a) => setJoinCode(a.lecture?.join_code ?? null))
+        .catch(() => {
+          // Not critical -- the task-control card just omits the code.
         });
     }
 
@@ -334,6 +346,25 @@ export default function App() {
       ? Math.min(100, Math.round((progress.submitted / progress.expected) * 100))
       : 0;
 
+  // `expected` is just a number the lecturer typed in at setup time (see
+  // live-submission-progress-scoping-decision.md) -- there's no roster, so
+  // it can be wrong in either direction. Submitted > expected is a normal
+  // outcome (more students showed up than the lecturer guessed), not an
+  // error state, so it needs its own wording rather than raw "7/2 submitted"
+  // reading like something's broken.
+  function submittedText(submitted: number, expected: number | null): string {
+    if (expected == null) return `${submitted} submitted`;
+    if (submitted > expected) return `${submitted} submitted (more than the ${expected} expected)`;
+    return `${submitted}/${expected} submitted`;
+  }
+
+  function notSubmittedText(notSubmitted: number | null): string {
+    if (notSubmitted == null) return "";
+    if (notSubmitted > 0) return `${notSubmitted} not yet submitted`;
+    if (notSubmitted === 0) return "Everyone has submitted.";
+    return `${-notSubmitted} more than expected`;
+  }
+
   return (
     <>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -364,7 +395,14 @@ export default function App() {
               </div>
             ) : (
               <>
-                <h2>Task control</h2>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <h2>Task control</h2>
+                  {joinCode && (
+                    <div id="join-code-pill" className="join-code-pill">
+                      Join code <strong>{joinCode}</strong>
+                    </div>
+                  )}
+                </div>
                 <div className="task-control-row">
                   <div>
                     {secondsRemaining === 0 ? (
@@ -372,11 +410,7 @@ export default function App() {
                         <div className="timer-label">Pacing</div>
                         <div className="timer-value time-up">
                           Time's up --{" "}
-                          {progress
-                            ? progress.expected != null
-                              ? `${progress.submitted}/${progress.expected} submitted`
-                              : `${progress.submitted} submitted`
-                            : "-- submitted"}
+                          {progress ? submittedText(progress.submitted, progress.expected) : "-- submitted"}
                         </div>
                       </>
                     ) : (
@@ -412,10 +446,7 @@ export default function App() {
         <div className="card" id="progress-card" style={{ display: progress ? "block" : "none" }}>
           <h2>Submission progress</h2>
           <div id="progress-text" style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
-            {progress &&
-              (progress.expected == null
-                ? `${progress.submitted} submitted`
-                : `${progress.submitted}/${progress.expected} submitted`)}
+            {progress && submittedText(progress.submitted, progress.expected)}
           </div>
           <div
             id="progress-bar-track"
@@ -434,11 +465,7 @@ export default function App() {
             />
           </div>
           <div id="progress-not-submitted" style={{ color: "var(--muted)", fontSize: "0.85rem", marginTop: "0.4rem" }}>
-            {progress && progress.expected != null
-              ? progress.not_submitted && progress.not_submitted > 0
-                ? `${progress.not_submitted} not yet submitted`
-                : "Everyone has submitted."
-              : ""}
+            {progress && progress.expected != null ? notSubmittedText(progress.not_submitted) : ""}
           </div>
         </div>
         <div className="grid">
@@ -577,7 +604,7 @@ export default function App() {
                     {summary.tasks.map((t) => (
                       <tr key={t.question_id}>
                         <td>{t.title}</td>
-                        <td>{t.expected != null ? `${t.submitted}/${t.expected}` : `${t.submitted}`}</td>
+                        <td>{submittedText(t.submitted, t.expected)}</td>
                         <td>
                           <div className="verdict-breakdown">
                             {Object.entries(t.verdict_counts).map(([verdict, count]) => (

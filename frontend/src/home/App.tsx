@@ -120,6 +120,13 @@ export default function App() {
                 {active!.lecture!.display_label} is currently live -- this backend supports one lecture at a
                 time, so finish it before starting another.
               </p>
+              {active!.lecture!.join_code && (
+                <div id="join-code-display" className="join-code-display">
+                  <div className="join-code-label">Join code</div>
+                  <div className="join-code-value">{active!.lecture!.join_code}</div>
+                  <div className="join-code-hint">Students enter this on the student page to join.</div>
+                </div>
+              )}
               <button onClick={handleResume}>Resume live lecture</button>
             </>
           ) : (

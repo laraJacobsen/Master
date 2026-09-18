@@ -4,6 +4,7 @@ import type {
   ClusterRow,
   LectureFinishResponse,
   LectureHistoryRow,
+  LectureJoinResponse,
   LectureNextResponse,
   LectureRow,
   LectureStatus,
@@ -109,6 +110,14 @@ export function fetchClusters(questionId?: string | null): Promise<ClusterRow[]>
 
 export function fetchLectureStatus(): Promise<LectureStatus> {
   return fetch(`${API_BASE}/api/lecture/status`).then((res) => asJson(res));
+}
+
+export function joinLecture(code: string): Promise<LectureJoinResponse> {
+  return fetch(`${API_BASE}/api/lecture/join`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  }).then((res) => asJson(res));
 }
 
 export function nextTask(currentQuestionId: string | null): Promise<LectureNextResponse> {

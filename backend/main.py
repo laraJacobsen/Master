@@ -105,6 +105,10 @@ class LectureCreateRequest(BaseModel):
     label: str | None = None
 
 
+class LectureJoinRequest(BaseModel):
+    code: str
+
+
 @app.get("/api/questions")
 def api_list_questions():
     return list_questions()
@@ -390,6 +394,24 @@ def api_lecture_status():
             "seconds_remaining": _seconds_remaining(question),
         },
     }
+
+
+@app.post("/api/lecture/join")
+def api_lecture_join(req: LectureJoinRequest):
+    """Kahoot-style entry gate for the student page (store.check_join_code's
+    docstring) -- called once, before the student page starts polling
+    /api/lecture/status. This is a soft UX gate, not real access control:
+    /api/submit itself stays open, same as every other endpoint (see the
+    "No auth" known simplification in README.md) -- a wrong/missing code
+    here just means the student never sees the "enter the lecture" screen
+    clear, it doesn't block anything at the API level."""
+    active = store.get_active_lecture()
+    if not active:
+        raise HTTPException(status_code=404, detail="No lecture is live right now.")
+    lecture = store.check_join_code(req.code)
+    if not lecture:
+        raise HTTPException(status_code=403, detail="That code didn't match. Check with your lecturer and try again.")
+    return {"lecture_id": lecture["id"], "label": lecture["display_label"]}
 
 
 @app.post("/api/submit")

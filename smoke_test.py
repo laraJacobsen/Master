@@ -160,6 +160,18 @@ def _run_checks(client):
         assert any(q["id"] == "sum-ints" for q in qs), qs
         print("GET /api/questions            OK ->", qs)
 
+        # A fresh checkout's seeded lecture must already have a join code --
+        # otherwise the student page's join screen (see student/App.tsx)
+        # would have nothing valid to accept until a lecturer clicks "New
+        # lecture" once, breaking the "just clone and run" out-of-box flow.
+        r = client.get("/api/lecturer/lectures/active")
+        assert r.status_code == 200, r.text
+        seed_lecture = r.json()["lecture"]
+        assert seed_lecture and seed_lecture["join_code"], seed_lecture
+        r = client.post("/api/lecture/join", json={"code": seed_lecture["join_code"]})
+        assert r.status_code == 200, r.text
+        print("Seeded lecture already has a working join code   OK ->", seed_lecture["join_code"])
+
         r = client.post(
             "/api/submit",
             json={
@@ -505,11 +517,26 @@ def _run_lecture_dashboard_checks(client):
     r = client.get("/api/lecturer/lectures/active")
     assert r.json() == {"lecture": None, "live_question_id": None}, r.json()
 
+    # Joining with nothing live gets a clear "no lecture" 404, not a
+    # generic "wrong code" 403.
+    r = client.post("/api/lecture/join", json={"code": "123456"})
+    assert r.status_code == 404, r.text
+    print("POST /api/lecture/join with no active lecture   OK -> 404")
+
     r = client.post("/api/lecturer/lectures", json={"label": "Week 3 -- Recursion"})
     assert r.status_code == 200, r.text
     new_lecture = r.json()
     assert new_lecture["display_label"] == "Week 3 -- Recursion", new_lecture
+    assert new_lecture["join_code"] and len(new_lecture["join_code"]) == 6, new_lecture
     print("POST /api/lecturer/lectures (New lecture)   OK ->", new_lecture)
+
+    # Kahoot-style join gate: right code lets a student in, wrong code
+    # doesn't, and it's case/whitespace-insensitive.
+    r = client.post("/api/lecture/join", json={"code": f"  {new_lecture['join_code']}  "})
+    assert r.status_code == 200 and r.json()["lecture_id"] == new_lecture["id"], r.text
+    r = client.post("/api/lecture/join", json={"code": "000000"})
+    assert r.status_code == 403, r.text
+    print("POST /api/lecture/join   OK -> correct code accepted, wrong code rejected")
 
     r = client.post(
         "/api/lecturer/questions",

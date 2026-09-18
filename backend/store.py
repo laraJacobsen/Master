@@ -17,6 +17,7 @@ graded against it stay comparable to later ones.
 import json
 import os
 import re
+import secrets
 import sqlite3
 import threading
 from collections import defaultdict
@@ -129,10 +130,26 @@ def init_db():
                 started_at TEXT NOT NULL,
                 ended_at TEXT,
                 label TEXT,
-                archived INTEGER NOT NULL DEFAULT 0
+                archived INTEGER NOT NULL DEFAULT 0,
+                join_code TEXT
             )
             """
         )
+        # Migration for DBs created before join_code existed (see the
+        # Kahoot-style join-code decision) -- CREATE TABLE IF NOT EXISTS
+        # above doesn't touch columns on an already-existing table.
+        existing_lecture_columns = {row["name"] for row in conn.execute("PRAGMA table_info(lectures)")}
+        if "join_code" not in existing_lecture_columns:
+            conn.execute("ALTER TABLE lectures ADD COLUMN join_code TEXT")
+        # Backfill a code onto whichever lecture is currently active in an
+        # existing DB (there's at most one) -- otherwise an in-progress
+        # lecture from before this feature existed would have no code, and
+        # the student page's join screen would have nothing valid to accept.
+        # Ended lectures are left alone; nobody needs to join one that's over.
+        for row in conn.execute("SELECT id FROM lectures WHERE ended_at IS NULL AND join_code IS NULL"):
+            conn.execute(
+                "UPDATE lectures SET join_code = ? WHERE id = ?", (_generate_join_code(), row["id"])
+            )
 
         existing_q_columns = {row["name"] for row in conn.execute("PRAGMA table_info(questions)")}
         if "lecture_seq" in existing_q_columns:
@@ -209,8 +226,12 @@ def init_db():
         # it through the setup page first (see smoke_test.py, README.md).
         seeded = conn.execute("SELECT 1 FROM questions WHERE id = 'sum-ints'").fetchone()
         if not seeded:
+            # Also gets a join code (see _generate_join_code/create_lecture)
+            # so a fresh checkout's student page can actually get past the
+            # join screen without anyone having clicked "New lecture" first.
             seed_lecture_id = conn.execute(
-                "INSERT INTO lectures (started_at) VALUES (datetime('now'))"
+                "INSERT INTO lectures (started_at, join_code) VALUES (datetime('now'), ?)",
+                (_generate_join_code(),),
             ).lastrowid
             conn.execute(
                 """
@@ -403,26 +424,55 @@ def _serialize_lecture(row: dict) -> dict:
     return lecture
 
 
+def _generate_join_code() -> str:
+    """A 6-digit Kahoot-style PIN the lecturer reads/projects and students
+    type in to enter the lecture. Digits only (not the question/rubric
+    validation package allow-list -- unrelated) so it's easy to read aloud
+    and type on a phone keyboard. No uniqueness check against past lectures:
+    only one lecture is ever live at a time (see create_lecture's docstring),
+    so only the current code needs to be unambiguous."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
 def create_lecture(label: str = None) -> dict:
     """Starts a brand-new lecture -- the home dashboard's "New lecture"
     action, and now the ONLY place a lecture starts (see start_question()'s
     docstring: there's no more implicit trigger). Refuses if one is already
     active (`ended_at IS NULL`) -- this backend supports exactly one live
     lecture at a time, and the home dashboard is expected to offer "Resume"
-    instead of a second "New lecture" whenever this would raise."""
+    instead of a second "New lecture" whenever this would raise.
+
+    Also mints this lecture's join code (see _generate_join_code) -- a soft,
+    Kahoot-style entry gate for the student page, not real access control
+    (see the "No auth" known simplification in README.md; /api/submit itself
+    stays open)."""
     with _lock:
         conn = _connect()
         if conn.execute("SELECT 1 FROM lectures WHERE ended_at IS NULL").fetchone():
             conn.close()
             raise ValueError("A lecture is already in progress.")
         cur = conn.execute(
-            "INSERT INTO lectures (started_at, label) VALUES (datetime('now'), ?)", (label,)
+            "INSERT INTO lectures (started_at, label, join_code) VALUES (datetime('now'), ?, ?)",
+            (label, _generate_join_code()),
         )
         lecture_id = cur.lastrowid
         conn.commit()
         row = conn.execute("SELECT * FROM lectures WHERE id = ?", (lecture_id,)).fetchone()
         conn.close()
         return _serialize_lecture(dict(row))
+
+
+def check_join_code(code: str):
+    """Validates a student-typed code against the active lecture's join
+    code. Returns the active lecture dict on a match, None if there's no
+    active lecture or the code doesn't match (case/whitespace-insensitive --
+    students will paste/type it inconsistently)."""
+    lecture = get_active_lecture()
+    if not lecture or not lecture.get("join_code"):
+        return None
+    if code.strip().upper() != lecture["join_code"].strip().upper():
+        return None
+    return lecture
 
 
 def get_lecture_row(lecture_id: int):

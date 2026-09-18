@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { LectureStatus, StudentRecap, SubmissionRow, SubmitResponse, TestCase, Verdict } from "../shared/types";
-import { fetchLectureStatus, fetchStudentRecap, fetchSubmissions, submitCode as submitCodeApi } from "../shared/api";
+import {
+  fetchLectureStatus,
+  fetchStudentRecap,
+  fetchSubmissions,
+  joinLecture as joinLectureApi,
+  submitCode as submitCodeApi,
+} from "../shared/api";
 
 const VERDICT_LABELS: Record<string, string> = {
   correct: "Correct",
@@ -16,7 +22,30 @@ const VERDICT_LABELS: Record<string, string> = {
 // in sync.
 const POLL_MS = 2000;
 
-type Phase = "loading" | "answering" | "waiting" | "finished";
+// Kahoot-style entry gate (POST /api/lecture/join) -- a soft UX gate, not
+// real access control (/api/submit itself stays open either way, see the
+// "No auth" known simplification in README.md). Once entered, remembered
+// for the rest of this browser tab so a page refresh mid-lecture doesn't
+// force retyping it; a new tab (new lecture, most likely) asks again.
+const JOIN_SESSION_KEY = "lecture_joined";
+
+function hasJoinedThisSession(): boolean {
+  try {
+    return sessionStorage.getItem(JOIN_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markJoinedThisSession(): void {
+  try {
+    sessionStorage.setItem(JOIN_SESSION_KEY, "1");
+  } catch {
+    // Best effort -- worst case the student re-enters the code after a refresh.
+  }
+}
+
+type Phase = "join" | "loading" | "answering" | "waiting" | "finished";
 
 function formatMMSS(totalSeconds: number): string {
   const s = Math.max(0, Math.round(totalSeconds));
@@ -26,7 +55,11 @@ function formatMMSS(totalSeconds: number): string {
 }
 
 export default function App() {
-  const [phase, setPhase] = useState<Phase>("loading");
+  const [joined, setJoined] = useState(hasJoinedThisSession);
+  const [phase, setPhase] = useState<Phase>(() => (hasJoinedThisSession() ? "loading" : "join"));
+  const [joinCodeInput, setJoinCodeInput] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [questionId, setQuestionId] = useState<string | null>(null);
   const [promptText, setPromptText] = useState("");
   const [example, setExample] = useState<TestCase | null>(null);
@@ -224,6 +257,7 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (!joined) return; // Still on the join-code screen -- nothing to poll yet.
     let cancelled = false;
     const poll = () => {
       fetchLectureStatus()
@@ -240,9 +274,30 @@ export default function App() {
       cancelled = true;
       window.clearInterval(t);
     };
-    // Intentionally runs once on mount -- applyStatus reads current state via refs.
+    // applyStatus reads current state via refs -- only `joined` needs to
+    // retrigger this (start polling right after a successful join).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [joined]);
+
+  async function handleJoin() {
+    const code = joinCodeInput.trim();
+    if (!code) {
+      setJoinError("Enter the code your lecturer shared.");
+      return;
+    }
+    setJoining(true);
+    setJoinError(null);
+    try {
+      await joinLectureApi(code);
+      markJoinedThisSession();
+      setJoined(true);
+      setPhase("loading");
+    } catch (e) {
+      setJoinError(e instanceof Error ? e.message : "Could not join.");
+    } finally {
+      setJoining(false);
+    }
+  }
 
   // Local 1s countdown between polls so the timer doesn't visibly jump only
   // every POLL_MS -- re-synced to the server's own count on every poll
@@ -292,6 +347,43 @@ export default function App() {
 
   const verdictClass = (v: Verdict) => "verdict-badge verdict-" + v;
   const verdictLabel = (v: Verdict) => VERDICT_LABELS[v] || v;
+
+  if (phase === "join") {
+    return (
+      <>
+        <header>
+          <h1>Interactive Lecture -- Student</h1>
+          <p>Enter the code your lecturer shared to join.</p>
+        </header>
+        <main className="waiting-main">
+          <div className="card accent-navy waiting-card">
+            <h2>Enter the lecture</h2>
+            <label htmlFor="join-code">Join code</label>
+            <input
+              type="text"
+              id="join-code"
+              placeholder="e.g. 482913"
+              inputMode="numeric"
+              autoFocus
+              value={joinCodeInput}
+              onChange={(e) => setJoinCodeInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleJoin();
+              }}
+            />
+            <button onClick={handleJoin} disabled={joining}>
+              {joining ? "Joining..." : "Join"}
+            </button>
+            {joinError && (
+              <div id="error-box" style={{ display: "block" }}>
+                {joinError}
+              </div>
+            )}
+          </div>
+        </main>
+      </>
+    );
+  }
 
   if (phase === "loading") {
     return (

@@ -59,6 +59,18 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
 .muted-note { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.75rem; }
 .form-error { color: var(--bad); font-size: 0.85rem; margin-top: 0.6rem; }
 
+.join-code-display {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.9rem;
+  text-align: center;
+}
+.join-code-label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.join-code-value { color: var(--navy); font-size: 2rem; font-weight: bold; letter-spacing: 0.15em; margin: 0.1rem 0; }
+.join-code-hint { color: var(--muted); font-size: 0.78rem; }
+
 #totals-line {
   text-align: center;
   color: var(--muted);

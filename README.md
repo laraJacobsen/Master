@@ -110,7 +110,11 @@ Then open in a browser:
   already live, so this step is only needed to add more questions.
 - Student page: `http://localhost:8000/student.html?question_id=sum-ints`
   (or whatever question id you started; with no `question_id`, it falls back
-  to the first live question)
+  to the first live question). First shows a Kahoot-style "enter the code"
+  screen -- the join code for the currently live lecture is shown on the
+  home page (and on the live task-control dashboard) once a lecture is
+  active; a fresh checkout's pre-seeded lecture already has one. Entering it
+  is remembered for the rest of that browser tab.
 - Lecturer page: `http://localhost:8000/lecturer.html?question_id=sum-ints`
   (the setup page's "Start"/"Live dashboard" links go here directly; with no
   `question_id` it shows submissions across every question, the old behavior)
@@ -174,13 +178,23 @@ manual test doesn't exercise).
   page has no question *picker* -- it takes `?question_id=` (or falls back to
   the first live question), so more than one live question at a time isn't
   really usable from the student side yet.
+- The live "X/N submitted" counter's denominator is just a number the
+  lecturer typed in at setup time (see
+  `feedback-research/live-submission-progress-scoping-decision.md`), so more
+  students can submit than were expected -- the lecturer dashboard shows
+  that as "N submitted (more than the M expected)" rather than a raw
+  numerator-over-denominator that reads like an error.
 - Package allow-list enforcement (`backend/validation.py`) is a static check
   of `import`/`from` statements against stdlib + the question's configured
   extras -- it doesn't stop a workaround like `__import__("os")`, and isn't
   meant to (this is a lecture-hall classroom tool, not a hostile sandbox
   boundary; Judge0 itself is the actual execution sandbox).
 - No auth -- anyone who can reach the URL can submit as any name, and anyone
-  who can reach `/setup.html` can author/start questions.
+  who can reach `/setup.html` can author/start questions. The student page's
+  join code (see "Running it" above) is a Kahoot-style soft gate for casual
+  access, not real access control: `/api/submit` and every other endpoint
+  stay open regardless, and the code itself is a plain 6-digit number with
+  no rate limiting on guesses.
 - Lecturer page polls every 3 seconds rather than pushing updates (no
   websockets yet) -- fine for a lecture-sized class, revisit if this needs
   to feel more instant.
