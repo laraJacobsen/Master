@@ -1,35 +1,6 @@
-:root {
-  --navy: #1e2761;
-  --bg: #f7f8fb;
-  --card: #ffffff;
-  --muted: #5a6072;
-  --bad: #b85042;
-  --ok: #2c5f2d;
-  --border: #e3e5ec;
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  font-family: Calibri, Arial, sans-serif;
-  background: var(--bg);
-  color: #1a1a2e;
-}
-header {
-  background: var(--navy);
-  color: white;
-  padding: 1.25rem 1.5rem;
-}
-header h1 { margin: 0; font-size: 1.3rem; }
-header p { margin: 0.25rem 0 0; color: #cadcfc; font-size: 0.9rem; }
 main { max-width: 700px; margin: 1.5rem auto; padding: 0 1rem 3rem; }
 
-.card {
-  background: var(--card);
-  border-radius: 10px;
-  padding: 1.1rem 1.3rem;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-  margin-bottom: 1.25rem;
-}
+.card { padding: 1.1rem 1.3rem; }
 .card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
 
 label { display: block; font-weight: bold; margin-bottom: 0.3rem; font-size: 0.85rem; }
@@ -44,16 +15,7 @@ input[type=text] {
   font-family: inherit;
 }
 
-button {
-  background: var(--navy);
-  color: white;
-  border: none;
-  padding: 0.55rem 1.1rem;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-button.secondary { background: #eceef3; color: var(--navy); }
+button { padding: 0.55rem 1.1rem; font-size: 0.9rem; }
 button:disabled { background: #b6bacb; cursor: not-allowed; }
 
 .muted-note { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.75rem; }

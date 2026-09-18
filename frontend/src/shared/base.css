@@ -1,0 +1,63 @@
+/* Shared across all four page entry points (home/setup/lecturer/student).
+   Only rules that are IDENTICAL on every page live here -- anything that
+   differs even slightly (card/button padding, main's max-width/layout,
+   per-page components) stays in that page's own style.css. See the
+   home-dashboard CSS-dedup pass: student's button has no :disabled style
+   and its recap card's <h2> has no matching rule at all, so `button`'s
+   padding/font-size and `.card h2` are deliberately NOT here -- moving
+   either into a universally-imported file would visibly change student,
+   which nothing asked for. */
+
+* { box-sizing: border-box; }
+
+:root {
+  --navy: #1e2761;
+  --bg: #f7f8fb;
+  --card: #ffffff;
+  --muted: #5a6072;
+  --bad: #b85042;
+  --ok: #2c5f2d;
+  --warn: #b8860b;
+  --border: #e3e5ec;
+  --ice: #cadcfc;
+}
+
+body {
+  margin: 0;
+  font-family: Calibri, Arial, sans-serif;
+  background: var(--bg);
+  color: #1a1a2e;
+}
+
+header {
+  background: var(--navy);
+  color: white;
+  padding: 1.25rem 1.5rem;
+}
+header h1 { margin: 0; font-size: 1.3rem; }
+header p { margin: 0.25rem 0 0; color: var(--ice); font-size: 0.9rem; }
+
+.card {
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  margin-bottom: 1.25rem;
+}
+
+button {
+  background: var(--navy);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+/* Only ever applied on home/setup/lecturer -- student has no secondary/
+   danger buttons, so centralizing these is safe either way. */
+button.secondary { background: #eceef3; color: var(--navy); }
+button.danger { background: var(--bad); }
+
+/* Font-size deliberately left to context: lecturer's usage sits in a bare
+   div and sets its own 0.85rem via the `style` prop, while setup's sits
+   inside a `header p` and relies on that already-smaller inherited size --
+   giving this a fixed size would change one of the two. */
+.header-nav-link { color: var(--ice); }

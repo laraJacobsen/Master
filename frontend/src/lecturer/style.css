@@ -1,40 +1,15 @@
-:root {
-  --navy: #1e2761;
-  --bg: #f7f8fb;
-  --card: #ffffff;
-  --muted: #5a6072;
-  --bad: #b85042;
-  --ok: #2c5f2d;
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  font-family: Calibri, Arial, sans-serif;
-  background: var(--bg);
-  color: #1a1a2e;
-}
 header {
-  background: var(--navy);
-  color: white;
-  padding: 1.25rem 1.5rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-header h1 { margin: 0; font-size: 1.3rem; }
 #stats { font-size: 0.95rem; opacity: 0.9; }
 main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem 3rem; }
 
 .grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 1.25rem; }
 @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
 
-.card {
-  background: var(--card);
-  border-radius: 10px;
-  padding: 1.1rem 1.3rem;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-  margin-bottom: 1.25rem;
-}
+.card { padding: 1.1rem 1.3rem; }
 .card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
 .card h2 .pulse-dot {
   display: inline-block;
@@ -65,7 +40,7 @@ th { color: var(--muted); font-weight: bold; font-size: 0.8rem; text-transform: 
   white-space: nowrap;
 }
 .verdict-correct { background: #2c5f2d; }
-.verdict-partially_correct { background: #b8860b; }
+.verdict-partially_correct { background: var(--warn); }
 .verdict-incorrect, .verdict-error { background: var(--bad); }
 
 #discussion-list { list-style: none; margin: 0; padding: 0; }
@@ -134,17 +109,7 @@ th { color: var(--muted); font-weight: bold; font-size: 0.8rem; text-transform: 
   margin: 0;
 }
 
-button {
-  background: var(--navy);
-  color: white;
-  border: none;
-  padding: 0.55rem 1.1rem;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-button.secondary { background: #eceef3; color: var(--navy); }
-button.danger { background: var(--bad); }
+button { padding: 0.55rem 1.1rem; font-size: 0.9rem; }
 button:disabled { background: #b6bacb; cursor: not-allowed; }
 
 #task-control-card .timer-label {
