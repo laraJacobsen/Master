@@ -555,6 +555,12 @@ export default function App() {
         </>
         )}
         {(lectureFinished || LECTURE_ID) && (
+          <>
+          <div id="back-to-home-row">
+            <a href="index.html" className="back-to-home-btn">
+              &larr; Back to home
+            </a>
+          </div>
           <div className="grid" id="session-summary">
             <div className="card" id="summary-tasks-card">
               <h2>{LECTURE_ID && summary ? summary.lecture_label : "Session summary"}</h2>
