@@ -2,8 +2,10 @@ import type {
   ActiveLectureResponse,
   ApiErrorBody,
   ClusterRow,
+  JoinedCountResponse,
   LectureFinishResponse,
   LectureHistoryRow,
+  LectureJoinResponse,
   LectureNextResponse,
   LectureRow,
   LectureStatus,
@@ -75,6 +77,12 @@ export function startQuestion(questionId: string): Promise<QuestionRow> {
   }).then((res) => asJson(res));
 }
 
+export function deleteQuestion(questionId: string): Promise<{ deleted: boolean }> {
+  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}`, {
+    method: "DELETE",
+  }).then((res) => asJson(res));
+}
+
 export function submitCode(payload: {
   student_name: string;
   question_id: string;
@@ -109,6 +117,14 @@ export function fetchClusters(questionId?: string | null): Promise<ClusterRow[]>
 
 export function fetchLectureStatus(): Promise<LectureStatus> {
   return fetch(`${API_BASE}/api/lecture/status`).then((res) => asJson(res));
+}
+
+export function joinLecture(code: string, studentName: string): Promise<LectureJoinResponse> {
+  return fetch(`${API_BASE}/api/lecture/join`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, student_name: studentName }),
+  }).then((res) => asJson(res));
 }
 
 export function nextTask(currentQuestionId: string | null): Promise<LectureNextResponse> {
@@ -148,6 +164,20 @@ export function createLecture(label: string | null): Promise<LectureRow> {
 
 export function fetchActiveLecture(): Promise<ActiveLectureResponse> {
   return fetch(`${API_BASE}/api/lecturer/lectures/active`).then((res) => asJson(res));
+}
+
+export function fetchLectureDetail(lectureId: number): Promise<LectureRow> {
+  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}`).then((res) => asJson(res));
+}
+
+export function openLobby(lectureId: number): Promise<LectureRow> {
+  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/open_lobby`, { method: "POST" }).then((res) =>
+    asJson(res)
+  );
+}
+
+export function fetchJoinedCount(lectureId: number): Promise<JoinedCountResponse> {
+  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/joined_count`).then((res) => asJson(res));
 }
 
 export function fetchLectureHistory(includeArchived = false): Promise<LectureHistoryRow[]> {

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import type {
   ClusterRow,
+  LectureRow,
   LectureSummary,
   ProgressResponse,
   QuestionRow,
@@ -8,7 +9,9 @@ import type {
   ValidationTestResult,
 } from "../shared/types";
 import {
+  fetchActiveLecture,
   fetchClusters,
+  fetchJoinedCount,
   fetchLectureSummary,
   fetchProgress,
   fetchQuestionDetail,
@@ -47,6 +50,14 @@ const QUESTION_ID = new URLSearchParams(window.location.search).get("question_id
 // QUESTION_ID in practice (the two flows never link to each other with both
 // params set).
 const LECTURE_ID = new URLSearchParams(window.location.search).get("lecture_id");
+
+// ?lobby= puts this page into the lobby stage for that lecture: the code +
+// a live "N joined" counter + a "Start lecture" button, before anything is
+// timed (see the lobby-scoping-decision). One more state in the same
+// lecturer-dashboard state machine as QUESTION_ID/LECTURE_ID above, not a
+// separate page -- the audience and the underlying page never change,
+// only which controls/data are showing.
+const LOBBY_ID = new URLSearchParams(window.location.search).get("lobby");
 
 function verdictClass(v: string) {
   return "verdict-pill verdict-" + v;
@@ -127,6 +138,12 @@ export default function App() {
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [inspector, setInspector] = useState<InspectorState | null>(null);
 
+  // The active lecture's Kahoot-style join code, shown in the Task control
+  // card for the whole session -- fetched once (it doesn't change once the
+  // lecture starts, so unlike the polled state below there's no need to
+  // re-fetch it).
+  const [joinCode, setJoinCode] = useState<string | null>(null);
+
   // Powers the "Time remaining" banner and gates the Next task/Finish
   // lecture controls -- see api_lecture_next/finish in backend/main.py.
   const [question, setQuestion] = useState<QuestionRow | null>(null);
@@ -147,6 +164,15 @@ export default function App() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
+  // Lobby mode (?lobby=) -- the lecture row itself (for its code/label,
+  // fetched once) and the live joined-count (polled, same cadence as the
+  // rest of this dashboard's polling).
+  const [lobbyLecture, setLobbyLecture] = useState<LectureRow | null>(null);
+  const [joinedCount, setJoinedCount] = useState<number | null>(null);
+  const [lobbyError, setLobbyError] = useState<string | null>(null);
+  const [startingLecture, setStartingLecture] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+
   // Historical mode (?lecture_id=): fetch that lecture's summary once and
   // stop -- no polling, since a past lecture has nothing new to arrive.
   useEffect(() => {
@@ -164,8 +190,46 @@ export default function App() {
       .finally(() => setSummaryLoading(false));
   }, []);
 
+  // Lobby mode (?lobby=): fetch the lecture row once (its code/label don't
+  // change), then poll the joined-count -- the one thing in this view that
+  // actually updates while the lecturer's watching students trickle in.
+  // Checks live_question_id first: navigating back here (e.g. from "Manage
+  // questions") after the lecture has already been started must land on the
+  // live task dashboard, not the pre-start lobby again -- otherwise "Start
+  // lecture" would fire a second time and start a second question
+  // concurrently with the one already live.
   useEffect(() => {
-    if (LECTURE_ID) return; // historical mode -- no live polling, see effect above.
+    if (!LOBBY_ID) return;
+    const id = Number(LOBBY_ID);
+    fetchActiveLecture()
+      .then((a) => {
+        if (a.live_question_id) {
+          window.location.href = `lecturer.html?question_id=${encodeURIComponent(a.live_question_id)}`;
+          return;
+        }
+        if (!a.lecture || a.lecture.id !== id) {
+          setLobbyError("This lecture is no longer active.");
+          return;
+        }
+        setLobbyLecture(a.lecture);
+        setPageTitle(`Lecturer View -- ${a.lecture.display_label} (lobby)`);
+      })
+      .catch((e) => setLobbyError(e instanceof Error ? e.message : "Could not load this lecture."));
+
+    const pollJoined = () => {
+      fetchJoinedCount(id)
+        .then((r) => setJoinedCount(r.joined))
+        .catch(() => {
+          // Backend not reachable yet -- stay quiet and retry on the next poll.
+        });
+    };
+    pollJoined();
+    const t = window.setInterval(pollJoined, POLL_MS);
+    return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    if (LECTURE_ID || LOBBY_ID) return; // historical/lobby mode -- no live task polling, see effects above.
 
     if (QUESTION_ID) {
       fetchQuestionDetail(QUESTION_ID)
@@ -175,6 +239,11 @@ export default function App() {
         })
         .catch(() => {
           // Leave the generic title in place.
+        });
+      fetchActiveLecture()
+        .then((a) => setJoinCode(a.lecture?.join_code ?? null))
+        .catch(() => {
+          // Not critical -- the task-control card just omits the code.
         });
     }
 
@@ -293,6 +362,27 @@ export default function App() {
     }
   }
 
+  // Lobby mode's "Start lecture" button -- reuses the same "start the
+  // earliest validated draft" logic "Next task" already uses (there's
+  // nothing currently live yet, so passing no current_question_id is
+  // exactly right), just from the lobby's own view instead of a live task's.
+  async function handleStartLecture() {
+    setStartingLecture(true);
+    setStartError(null);
+    try {
+      const res = await nextTask(null);
+      if (res.started) {
+        window.location.href = `lecturer.html?question_id=${encodeURIComponent(res.started.id)}`;
+      } else {
+        setStartError("No questions ready to start yet -- add and validate one on setup first.");
+        setStartingLecture(false);
+      }
+    } catch (e) {
+      setStartError(e instanceof Error ? e.message : "Could not start the lecture.");
+      setStartingLecture(false);
+    }
+  }
+
   function toggleExpanded(subId: number) {
     setExpandedSubIds((prev) => {
       const next = new Set(prev);
@@ -335,6 +425,25 @@ export default function App() {
       ? Math.min(100, Math.round((progress.submitted / progress.expected) * 100))
       : 0;
 
+  // `expected` is just a number the lecturer typed in at setup time (see
+  // live-submission-progress-scoping-decision.md) -- there's no roster, so
+  // it can be wrong in either direction. Submitted > expected is a normal
+  // outcome (more students showed up than the lecturer guessed), not an
+  // error state, so it needs its own wording rather than raw "7/2 submitted"
+  // reading like something's broken.
+  function submittedText(submitted: number, expected: number | null): string {
+    if (expected == null) return `${submitted} submitted`;
+    if (submitted > expected) return `${submitted} submitted (more than the ${expected} expected)`;
+    return `${submitted}/${expected} submitted`;
+  }
+
+  function notSubmittedText(notSubmitted: number | null): string {
+    if (notSubmitted == null) return "";
+    if (notSubmitted > 0) return `${notSubmitted} not yet submitted`;
+    if (notSubmitted === 0) return "Everyone has submitted.";
+    return `${-notSubmitted} more than expected`;
+  }
+
   return (
     <>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -343,12 +452,12 @@ export default function App() {
         </div>
         <div style={{ textAlign: "right" }}>
           <div id="stats">
-            {!LECTURE_ID && `${subRows.length} submission${subRows.length === 1 ? "" : "s"}`}
+            {!LECTURE_ID && !LOBBY_ID && `${subRows.length} submission${subRows.length === 1 ? "" : "s"}`}
           </div>
           <HeaderNavLink href="index.html" style={{ fontSize: "0.85rem" }}>
             &larr; Home
           </HeaderNavLink>
-          {!LECTURE_ID && (
+          {!LECTURE_ID && !LOBBY_ID && (
             <HeaderNavLink href="setup.html" style={{ fontSize: "0.85rem", marginLeft: "0.75rem" }}>
               Question setup &rarr;
             </HeaderNavLink>
@@ -356,6 +465,44 @@ export default function App() {
         </div>
       </header>
       <main>
+        {LOBBY_ID && (
+          <div className="card" id="lobby-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <h2>Lobby</h2>
+              <button className="secondary" onClick={() => (window.location.href = "setup.html")}>
+                Manage questions
+              </button>
+            </div>
+            {lobbyError && <div className="summary-status summary-error">{lobbyError}</div>}
+            {lobbyLecture && (
+              <>
+                <div id="join-code-display" className="join-code-display">
+                  <div className="join-code-label">Join code</div>
+                  <div className="join-code-value">{lobbyLecture.join_code}</div>
+                  <div className="join-code-hint">Students enter this on the student page to join.</div>
+                </div>
+                <div id="joined-count" style={{ textAlign: "center", margin: "0.9rem 0" }}>
+                  <span style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
+                    {joinedCount != null ? joinedCount : "--"}
+                  </span>{" "}
+                  <span style={{ color: "var(--muted)" }}>
+                    student{joinedCount === 1 ? "" : "s"} joined
+                  </span>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <button onClick={handleStartLecture} disabled={startingLecture}>
+                    {startingLecture ? "Starting..." : "Start lecture (earliest question)"}
+                  </button>
+                </div>
+                {startError && (
+                  <div className="summary-status summary-error" style={{ textAlign: "center", marginTop: "0.6rem" }}>
+                    {startError}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
         {QUESTION_ID && !LECTURE_ID && (
           <div className="card" id="task-control-card">
             {lectureFinished ? (
@@ -365,7 +512,14 @@ export default function App() {
               </div>
             ) : (
               <>
-                <h2>Task control</h2>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <h2>Task control</h2>
+                  {joinCode && (
+                    <div id="join-code-pill" className="join-code-pill">
+                      Join code <strong>{joinCode}</strong>
+                    </div>
+                  )}
+                </div>
                 <div className="task-control-row">
                   <div>
                     {secondsRemaining === 0 ? (
@@ -373,11 +527,7 @@ export default function App() {
                         <div className="timer-label">Pacing</div>
                         <div className="timer-value time-up">
                           Time's up --{" "}
-                          {progress
-                            ? progress.expected != null
-                              ? `${progress.submitted}/${progress.expected} submitted`
-                              : `${progress.submitted} submitted`
-                            : "-- submitted"}
+                          {progress ? submittedText(progress.submitted, progress.expected) : "-- submitted"}
                         </div>
                       </>
                     ) : (
@@ -408,15 +558,12 @@ export default function App() {
             )}
           </div>
         )}
-        {!lectureFinished && !LECTURE_ID && (
+        {!lectureFinished && !LECTURE_ID && !LOBBY_ID && (
         <>
         <div className="card" id="progress-card" style={{ display: progress ? "block" : "none" }}>
           <h2>Submission progress</h2>
           <div id="progress-text" style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
-            {progress &&
-              (progress.expected == null
-                ? `${progress.submitted} submitted`
-                : `${progress.submitted}/${progress.expected} submitted`)}
+            {progress && submittedText(progress.submitted, progress.expected)}
           </div>
           <div
             id="progress-bar-track"
@@ -435,11 +582,7 @@ export default function App() {
             />
           </div>
           <div id="progress-not-submitted" style={{ color: "var(--muted)", fontSize: "0.85rem", marginTop: "0.4rem" }}>
-            {progress && progress.expected != null
-              ? progress.not_submitted && progress.not_submitted > 0
-                ? `${progress.not_submitted} not yet submitted`
-                : "Everyone has submitted."
-              : ""}
+            {progress && progress.expected != null ? notSubmittedText(progress.not_submitted) : ""}
           </div>
         </div>
         <div className="grid">
@@ -584,7 +727,7 @@ export default function App() {
                     {summary.tasks.map((t) => (
                       <tr key={t.question_id}>
                         <td>{t.title}</td>
-                        <td>{t.expected != null ? `${t.submitted}/${t.expected}` : `${t.submitted}`}</td>
+                        <td>{submittedText(t.submitted, t.expected)}</td>
                         <td>
                           <div className="verdict-breakdown">
                             {Object.entries(t.verdict_counts).map(([verdict, count]) => (

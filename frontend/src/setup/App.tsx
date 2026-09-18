@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
-import type { QuestionRow, QuestionStatus, ValidationTestResult } from "../shared/types";
+import type { MouseEvent } from "react";
+import type { LectureRow, QuestionRow, QuestionStatus, ValidationTestResult } from "../shared/types";
 import {
   createQuestion,
+  deleteQuestion as deleteQuestionApi,
+  fetchActiveLecture,
   fetchQuestionList,
+  openLobby as openLobbyApi,
   startQuestion as startQuestionApi,
   updateQuestion,
   validateQuestion as validateQuestionApi,
@@ -45,6 +49,20 @@ export default function App() {
   const [validationResult, setValidationResult] = useState<ValidationResultState | null>(null);
   const [startDisabled, setStartDisabled] = useState(true);
 
+  // The lecture this setup session belongs to (see the lobby-scoping-
+  // decision) -- fetched once so the "Open lobby" banner knows whether the
+  // lobby's already open (show a link back to it instead of the button).
+  const [activeLecture, setActiveLecture] = useState<LectureRow | null>(null);
+  // If a question is already live, "back to the lobby" must actually mean
+  // "back to the live dashboard" -- see the lobby-view fix in
+  // lecturer/App.tsx for why (landing on the pre-start lobby again would
+  // let "Start lecture" fire a second time on top of the question already
+  // running).
+  const [liveQuestionId, setLiveQuestionId] = useState<string | null>(null);
+  const [openingLobby, setOpeningLobby] = useState(false);
+  const [lobbyError, setLobbyError] = useState<string | null>(null);
+  const [addingTestQuestions, setAddingTestQuestions] = useState(false);
+
   const locked = currentStatus === "live";
 
   function loadQuestionList() {
@@ -55,9 +73,107 @@ export default function App() {
       });
   }
 
+  function loadActiveLecture() {
+    fetchActiveLecture()
+      .then((a) => {
+        setActiveLecture(a.lecture);
+        setLiveQuestionId(a.live_question_id);
+      })
+      .catch(() => {
+        // Not critical -- the lobby banner just won't show.
+      });
+  }
+
   useEffect(() => {
     loadQuestionList();
+    loadActiveLecture();
   }, []);
+
+  async function handleOpenLobby() {
+    if (!activeLecture) return;
+    setOpeningLobby(true);
+    setLobbyError(null);
+    try {
+      await openLobbyApi(activeLecture.id);
+      window.location.href = `lecturer.html?lobby=${activeLecture.id}`;
+    } catch (e) {
+      setLobbyError(e instanceof Error ? e.message : "Could not open the lobby.");
+      setOpeningLobby(false);
+    }
+  }
+
+  async function handleDeleteQuestion(q: QuestionRow, e: MouseEvent) {
+    e.stopPropagation(); // don't also trigger the row's own onClick (load into form)
+    if (!window.confirm(`Delete "${q.title}"? This can't be undone.`)) return;
+    try {
+      await deleteQuestionApi(q.id);
+      if (currentId === q.id) resetForm();
+      loadQuestionList();
+    } catch (err) {
+      setFormStatusText(err instanceof Error ? err.message : "Could not delete this question.");
+      setFormStatusColor("var(--bad)");
+    }
+  }
+
+  // Dev convenience only: three real, correct-by-construction questions
+  // (validated immediately so they're startable right away) so testing the
+  // whole lobby/start/submit flow doesn't require typing a question in by
+  // hand every time. Not something a real class needs -- just faster manual
+  // testing.
+  async function addTestQuestions() {
+    setAddingTestQuestions(true);
+    setFormStatusText("Adding test questions...");
+    setFormStatusColor("var(--muted)");
+    const samples = [
+      {
+        title: "Double It",
+        prompt: "Read one integer and print double it.",
+        test_cases: [
+          { stdin: "3\n", expected: "6" },
+          { stdin: "10\n", expected: "20" },
+        ],
+        reference_solution: "print(int(input()) * 2)",
+      },
+      {
+        title: "Sum Two",
+        prompt: "Read two integers on one line and print their sum.",
+        test_cases: [{ stdin: "3 4\n", expected: "7" }],
+        reference_solution: "a, b = map(int, input().split()); print(a + b)",
+      },
+      {
+        title: "Reverse It",
+        prompt: "Read a line of text and print it reversed.",
+        test_cases: [{ stdin: "hello\n", expected: "olleh" }],
+        reference_solution: "print(input()[::-1])",
+      },
+    ];
+    try {
+      for (const sample of samples) {
+        const created = await createQuestion({
+          title: sample.title,
+          prompt: sample.prompt,
+          language: "python",
+          test_cases: sample.test_cases.map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected })),
+          reference_solution: sample.reference_solution,
+          cpu_time_limit_s: 5,
+          memory_limit_kb: 128000,
+          extra_packages: [],
+          line_limit: 200,
+          expected_students: null,
+          duration_seconds: 600,
+        });
+        await validateQuestionApi(created.id);
+      }
+      setFormStatusText("Added 3 validated test questions.");
+      setFormStatusColor("var(--ok)");
+      loadQuestionList();
+    } catch (err) {
+      setFormStatusText(err instanceof Error ? err.message : "Could not add test questions.");
+      setFormStatusColor("var(--bad)");
+    } finally {
+      setAddingTestQuestions(false);
+    }
+  }
 
   function resetForm() {
     setCurrentId(null);
@@ -213,6 +329,45 @@ export default function App() {
         </p>
       </header>
       <main>
+        {activeLecture && (
+          <div className="card" id="lobby-banner">
+            {liveQuestionId ? (
+              <>
+                <h2>Lecture is live</h2>
+                <p className="hint" style={{ marginBottom: "0.6rem" }}>
+                  A question is already running. You can still add, edit, or delete draft questions here for
+                  later in the lecture.
+                </p>
+                <a href={`lecturer.html?question_id=${encodeURIComponent(liveQuestionId)}`}>
+                  <button type="button">Back to live dashboard &rarr;</button>
+                </a>
+              </>
+            ) : activeLecture.lobby_opened_at ? (
+              <>
+                <h2>Lobby is open</h2>
+                <p className="hint" style={{ marginBottom: "0.6rem" }}>
+                  Students can already join with code <strong>{activeLecture.join_code}</strong>. Add, edit, or
+                  delete draft questions here any time before you start the lecture.
+                </p>
+                <a href={`lecturer.html?lobby=${activeLecture.id}`}>
+                  <button type="button">Back to lobby &rarr;</button>
+                </a>
+              </>
+            ) : (
+              <>
+                <h2>Ready for class?</h2>
+                <p className="hint" style={{ marginBottom: "0.6rem" }}>
+                  Prepare as many questions as you like first -- nothing is joinable and no timer starts until you
+                  open the lobby.
+                </p>
+                <button type="button" onClick={handleOpenLobby} disabled={openingLobby}>
+                  {openingLobby ? "Opening..." : "Open lobby"}
+                </button>
+                {lobbyError && <div style={{ color: "var(--bad)", marginTop: "0.5rem" }}>{lobbyError}</div>}
+              </>
+            )}
+          </div>
+        )}
         <div className="grid">
           <div className="card">
             <h2>Questions</h2>
@@ -249,11 +404,30 @@ export default function App() {
                   {q.status === "live" && (
                     <a href={`lecturer.html?question_id=${encodeURIComponent(q.id)}`}>Live dashboard &rarr;</a>
                   )}
+                  {q.status === "draft" && (
+                    <button
+                      type="button"
+                      className="danger delete-question-btn"
+                      onClick={(e) => handleDeleteQuestion(q, e)}
+                    >
+                      Delete
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
             <button className="secondary" id="new-question-btn" style={{ marginTop: "0.9rem" }} onClick={resetForm}>
               + New question
+            </button>
+            <button
+              className="secondary"
+              id="add-test-questions-btn"
+              style={{ marginTop: "0.9rem" }}
+              onClick={addTestQuestions}
+              disabled={addingTestQuestions}
+              title="Dev convenience -- adds 3 real, pre-validated questions so you don't have to type one in by hand to test the flow."
+            >
+              {addingTestQuestions ? "Adding..." : "+ Add 3 test questions"}
             </button>
           </div>
 

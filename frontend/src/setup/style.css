@@ -63,6 +63,9 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
 #question-list .q-meta { font-size: 0.78rem; color: var(--muted); }
 #question-list a { color: var(--navy); font-size: 0.8rem; text-decoration: none; }
 #question-list a:hover { text-decoration: underline; }
+.delete-question-btn { padding: 0.2rem 0.6rem; margin: 0; font-size: 0.78rem; }
+
+#lobby-banner p { margin: 0; }
 
 #empty-list { color: var(--muted); font-size: 0.88rem; }
 

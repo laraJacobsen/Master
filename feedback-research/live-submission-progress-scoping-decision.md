@@ -47,3 +47,17 @@ name-level "not yet submitted" list, just a number. If a future roster-based
 feature (e.g. the idle-student nudge) needs actual names, that's a separate,
 larger piece of work building on a real roster, not an extension of this
 plain-number field.
+
+## Display fix for submitted > expected (2026-09-18)
+
+The known limitation above was landing as a genuine-looking bug report: when
+more students submitted than the lecturer's typed-in number (a normal
+outcome of a guessed headcount, not an error), the counter read as a raw
+"7/2 submitted" -- a numerator bigger than its denominator, which looks
+broken even though both numbers were correct. `frontend/src/lecturer/App.tsx`
+now special-cases `submitted > expected` with its own wording ("7 submitted
+(more than the 2 expected)") everywhere the count is shown (the live
+task-control banner, the progress card, and the end-of-lecture summary
+table), and the not-yet-submitted line distinguishes "still waiting on some"
+from "more showed up than expected" instead of collapsing both non-positive
+cases into "Everyone has submitted."

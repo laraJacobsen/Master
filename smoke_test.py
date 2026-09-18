@@ -160,6 +160,19 @@ def _run_checks(client):
         assert any(q["id"] == "sum-ints" for q in qs), qs
         print("GET /api/questions            OK ->", qs)
 
+        # A fresh checkout's seeded lecture must already have a join code AND
+        # an already-open lobby -- otherwise the student page's join screen
+        # (see student/App.tsx) would have nothing valid to accept until a
+        # lecturer clicks "New lecture" then "Open lobby", breaking the
+        # "just clone and run" out-of-box flow.
+        r = client.get("/api/lecturer/lectures/active")
+        assert r.status_code == 200, r.text
+        seed_lecture = r.json()["lecture"]
+        assert seed_lecture and seed_lecture["join_code"] and seed_lecture["lobby_opened_at"], seed_lecture
+        r = client.post("/api/lecture/join", json={"code": seed_lecture["join_code"], "student_name": "Zoe"})
+        assert r.status_code == 200, r.text
+        print("Seeded lecture already has a working, open join code   OK ->", seed_lecture["join_code"])
+
         r = client.post(
             "/api/submit",
             json={
@@ -505,12 +518,23 @@ def _run_lecture_dashboard_checks(client):
     r = client.get("/api/lecturer/lectures/active")
     assert r.json() == {"lecture": None, "live_question_id": None}, r.json()
 
+    # Joining with nothing live gets a clear "no lecture" 404, not a
+    # generic "wrong code" 403.
+    r = client.post("/api/lecture/join", json={"code": "123456", "student_name": "Zoe"})
+    assert r.status_code == 404, r.text
+    print("POST /api/lecture/join with no active lecture   OK -> 404")
+
     r = client.post("/api/lecturer/lectures", json={"label": "Week 3 -- Recursion"})
     assert r.status_code == 200, r.text
     new_lecture = r.json()
     assert new_lecture["display_label"] == "Week 3 -- Recursion", new_lecture
+    assert new_lecture["join_code"] and len(new_lecture["join_code"]) == 6, new_lecture
+    assert new_lecture["lobby_opened_at"] is None, new_lecture  # not open yet -- just created
     print("POST /api/lecturer/lectures (New lecture)   OK ->", new_lecture)
 
+    # A draft can be authored/validated before the lobby even opens (prep
+    # ahead of class), but starting it is refused until the lobby is open --
+    # and the right join code is refused too, for the same reason.
     r = client.post(
         "/api/lecturer/questions",
         json={
@@ -526,10 +550,74 @@ def _run_lecture_dashboard_checks(client):
     qid = r.json()["id"]
     r = client.post(f"/api/lecturer/questions/{qid}/validate")
     assert r.status_code == 200 and r.json()["validated"] is True, r.text
+
+    r = client.post("/api/lecture/join", json={"code": new_lecture["join_code"], "student_name": "Zoe"})
+    assert r.status_code == 403, r.text
+    print("POST /api/lecture/join refused before the lobby opens   OK -> 403")
+
+    r = client.post(f"/api/lecturer/questions/{qid}/start")
+    assert r.status_code == 400, r.text
+    print("Starting a question before the lobby opens is refused   OK -> 400")
+
+    # Delete-while-draft: add a throwaway draft, delete it, confirm it's
+    # gone -- and confirm a *live* question can't be deleted the same way.
+    r = client.post(
+        "/api/lecturer/questions",
+        json={
+            "title": "Throwaway",
+            "prompt": "p",
+            "language": "python",
+            "test_cases": [{"stdin": "1\n", "expected_stdout": "1"}],
+        },
+    )
+    throwaway_id = r.json()["id"]
+    r = client.delete(f"/api/lecturer/questions/{throwaway_id}")
+    assert r.status_code == 200 and r.json() == {"deleted": True}, r.text
+    assert client.get(f"/api/lecturer/questions/{throwaway_id}").status_code == 404
+    print("DELETE draft question   OK")
+
+    r = client.post(f"/api/lecturer/lectures/{new_lecture['id']}/open_lobby")
+    assert r.status_code == 200, r.text
+    opened = r.json()
+    assert opened["lobby_opened_at"] is not None, opened
+    print("POST .../open_lobby   OK ->", opened["lobby_opened_at"])
+
+    # Opening it again is a no-op, not an error (see store.open_lobby's
+    # idempotency docstring) -- the timestamp shouldn't move.
+    r = client.post(f"/api/lecturer/lectures/{new_lecture['id']}/open_lobby")
+    assert r.status_code == 200 and r.json()["lobby_opened_at"] == opened["lobby_opened_at"], r.text
+
+    # A live question now can't be deleted.
+    r = client.delete(f"/api/lecturer/questions/sum-ints")
+    assert r.status_code == 409, r.text
+    print("DELETE refused on a live question   OK -> 409")
+
+    # Kahoot-style join gate, now that the lobby's open: right code lets a
+    # student in and is counted, wrong code doesn't, and it's
+    # case/whitespace-insensitive. A second join from the same name doesn't
+    # double-count (idempotent per store.record_join's docstring).
+    r = client.get(f"/api/lecturer/lectures/{new_lecture['id']}/joined_count")
+    assert r.json() == {"joined": 0}, r.text
+
+    r = client.post(
+        "/api/lecture/join", json={"code": f"  {new_lecture['join_code']}  ", "student_name": "Grace"}
+    )
+    assert r.status_code == 200 and r.json()["lecture_id"] == new_lecture["id"], r.text
+    r = client.post("/api/lecture/join", json={"code": "000000", "student_name": "Grace"})
+    assert r.status_code == 403, r.text
+    r = client.post("/api/lecture/join", json={"code": new_lecture["join_code"], "student_name": "Grace"})
+    assert r.status_code == 200, r.text  # same student rejoining -- fine, not double-counted
+    r = client.post("/api/lecture/join", json={"code": new_lecture["join_code"], "student_name": "Henry"})
+    assert r.status_code == 200, r.text
+
+    r = client.get(f"/api/lecturer/lectures/{new_lecture['id']}/joined_count")
+    assert r.json() == {"joined": 2}, r.text
+    print("POST /api/lecture/join + joined_count   OK -> 2 distinct students, no double-count")
+
     r = client.post(f"/api/lecturer/questions/{qid}/start")
     assert r.status_code == 200, r.text
     assert r.json()["lecture_id"] == new_lecture["id"], r.json()
-    print("New question stamped with the newly active lecture   OK")
+    print("Starting a question after the lobby opens   OK")
 
     # Archive hides a lecture from the default list without touching its
     # data, and can be undone.

@@ -32,6 +32,17 @@ export interface LectureStatus {
   question: LiveQuestion | null;
 }
 
+// POST /api/lecture/join -- the Kahoot-style entry gate on the student page.
+export interface LectureJoinResponse {
+  lecture_id: number;
+  label: string;
+}
+
+// GET /api/lecturer/lectures/{id}/joined_count -- the lobby's live counter.
+export interface JoinedCountResponse {
+  joined: number;
+}
+
 export type QuestionStatus = "draft" | "live" | "closed";
 
 // GET/POST/PUT /api/lecturer/questions* -- full question row (setup page +
@@ -88,6 +99,17 @@ export interface LectureRow {
   label: string | null;
   archived: boolean;
   display_label: string;
+  // Kahoot-style PIN students type into the student page to enter this
+  // lecture -- a soft UX gate, not real access control (see README's "No
+  // auth" known simplification). Null for lectures created before this
+  // existed, or the synthetic historical rows the DB migration backfills.
+  join_code: string | null;
+  // Set once the lecturer clicks "Open lobby" -- null means the lecture
+  // exists (questions can be authored/edited/deleted against it) but
+  // nothing is joinable and no question can be started yet. See the
+  // lobby-scoping-decision: this is the gate between "prepping before
+  // class" and "the lobby is up, students are joining."
+  lobby_opened_at: string | null;
 }
 
 // GET /api/lecturer/lectures -- history list, one entry per lecture.

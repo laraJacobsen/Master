@@ -34,6 +34,14 @@ def main():
         lecture = api("POST", "/api/lecturer/lectures", json={"label": "Simulated lecture"})
         print(f"Created lecture #{lecture['id']} ({lecture['display_label']})")
 
+    if not lecture.get("lobby_opened_at"):
+        # Starting a question now requires the lobby to be open (see the
+        # lobby-scoping-decision) -- skip straight past the "students
+        # trickle in" wait, since this script is about exercising the rest
+        # of the flow quickly, not the lobby itself.
+        lecture = api("POST", f"/api/lecturer/lectures/{lecture['id']}/open_lobby")
+        print(f"Opened lobby -- join code {lecture['join_code']}")
+
     # --- Task 1 ---
     q1 = api(
         "POST",
