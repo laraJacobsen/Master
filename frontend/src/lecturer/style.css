@@ -181,3 +181,17 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
 }
 #carry-forward-list li:last-child { border-bottom: none; }
 .carry-forward-tasks { margin-top: 0.25rem; color: var(--muted); font-size: 0.8rem; }
+
+#back-to-home-row { margin-bottom: 1.25rem; }
+.back-to-home-btn {
+  display: inline-block;
+  background: var(--navy);
+  color: white;
+  border: none;
+  padding: 0.55rem 1.1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+.back-to-home-btn:hover { opacity: 0.9; }
