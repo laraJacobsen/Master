@@ -54,6 +54,7 @@ export default function App() {
   const [activeLecture, setActiveLecture] = useState<LectureRow | null>(null);
   const [openingLobby, setOpeningLobby] = useState(false);
   const [lobbyError, setLobbyError] = useState<string | null>(null);
+  const [addingTestQuestions, setAddingTestQuestions] = useState(false);
 
   const locked = currentStatus === "live";
 
@@ -101,6 +102,66 @@ export default function App() {
     } catch (err) {
       setFormStatusText(err instanceof Error ? err.message : "Could not delete this question.");
       setFormStatusColor("var(--bad)");
+    }
+  }
+
+  // Dev convenience only: three real, correct-by-construction questions
+  // (validated immediately so they're startable right away) so testing the
+  // whole lobby/start/submit flow doesn't require typing a question in by
+  // hand every time. Not something a real class needs -- just faster manual
+  // testing.
+  async function addTestQuestions() {
+    setAddingTestQuestions(true);
+    setFormStatusText("Adding test questions...");
+    setFormStatusColor("var(--muted)");
+    const samples = [
+      {
+        title: "Double It",
+        prompt: "Read one integer and print double it.",
+        test_cases: [
+          { stdin: "3\n", expected: "6" },
+          { stdin: "10\n", expected: "20" },
+        ],
+        reference_solution: "print(int(input()) * 2)",
+      },
+      {
+        title: "Sum Two",
+        prompt: "Read two integers on one line and print their sum.",
+        test_cases: [{ stdin: "3 4\n", expected: "7" }],
+        reference_solution: "a, b = map(int, input().split()); print(a + b)",
+      },
+      {
+        title: "Reverse It",
+        prompt: "Read a line of text and print it reversed.",
+        test_cases: [{ stdin: "hello\n", expected: "olleh" }],
+        reference_solution: "print(input()[::-1])",
+      },
+    ];
+    try {
+      for (const sample of samples) {
+        const created = await createQuestion({
+          title: sample.title,
+          prompt: sample.prompt,
+          language: "python",
+          test_cases: sample.test_cases.map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected })),
+          reference_solution: sample.reference_solution,
+          cpu_time_limit_s: 5,
+          memory_limit_kb: 128000,
+          extra_packages: [],
+          line_limit: 200,
+          expected_students: null,
+          duration_seconds: 600,
+        });
+        await validateQuestionApi(created.id);
+      }
+      setFormStatusText("Added 3 validated test questions.");
+      setFormStatusColor("var(--ok)");
+      loadQuestionList();
+    } catch (err) {
+      setFormStatusText(err instanceof Error ? err.message : "Could not add test questions.");
+      setFormStatusColor("var(--bad)");
+    } finally {
+      setAddingTestQuestions(false);
     }
   }
 
@@ -338,6 +399,16 @@ export default function App() {
             </ul>
             <button className="secondary" id="new-question-btn" style={{ marginTop: "0.9rem" }} onClick={resetForm}>
               + New question
+            </button>
+            <button
+              className="secondary"
+              id="add-test-questions-btn"
+              style={{ marginTop: "0.9rem" }}
+              onClick={addTestQuestions}
+              disabled={addingTestQuestions}
+              title="Dev convenience -- adds 3 real, pre-validated questions so you don't have to type one in by hand to test the flow."
+            >
+              {addingTestQuestions ? "Adding..." : "+ Add 3 test questions"}
             </button>
           </div>
 
