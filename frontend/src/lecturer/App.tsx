@@ -454,7 +454,12 @@ export default function App() {
       <main>
         {LOBBY_ID && (
           <div className="card" id="lobby-card">
-            <h2>Lobby</h2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <h2>Lobby</h2>
+              <button className="secondary" onClick={() => (window.location.href = "setup.html")}>
+                Manage questions
+              </button>
+            </div>
             {lobbyError && <div className="summary-status summary-error">{lobbyError}</div>}
             {lobbyLecture && (
               <>
