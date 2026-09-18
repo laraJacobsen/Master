@@ -407,7 +407,15 @@ def start_question(question_id: str) -> None:
     (open_lobby() below) -- the lobby is where students join and get
     counted *before* anything is timed, so a question can't go live and
     start a countdown out from under a lobby that was never actually
-    opened. Raises ValueError in either missing-prerequisite case."""
+    opened. Raises ValueError in either missing-prerequisite case.
+
+    Always closes out any other currently-live question first -- there's
+    only ever one active lecture, so "live" should never mean more than one
+    question at once. A hard invariant here rather than trusting every
+    caller to remember to close the previous one (a caller that doesn't --
+    e.g. the lobby's "Start lecture" reached a second time after a question
+    was already started -- would otherwise leave two questions live at
+    once instead of one advancing to the next)."""
     with _lock:
         conn = _connect()
         active = conn.execute(
@@ -419,6 +427,7 @@ def start_question(question_id: str) -> None:
         if not active["lobby_opened_at"]:
             conn.close()
             raise ValueError("Open the lobby before starting the lecture.")
+        conn.execute("UPDATE questions SET status = 'closed' WHERE status = 'live' AND id != ?", (question_id,))
         conn.execute(
             "UPDATE questions SET status = 'live', started_at = ?, lecture_id = ? WHERE id = ?",
             (datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), active["id"], question_id),
