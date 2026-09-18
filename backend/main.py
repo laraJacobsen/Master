@@ -117,7 +117,10 @@ def api_list_questions():
 
 @app.get("/api/lecturer/questions")
 def api_lecturer_list_questions():
-    return store.list_question_rows()
+    """The setup page's question list -- scoped to never-started drafts plus
+    whatever's tied to the currently active lecture, not every question ever
+    authored (see store.list_question_rows()'s docstring)."""
+    return store.list_question_rows(current_lecture_only=True)
 
 
 @app.post("/api/lecturer/questions")
