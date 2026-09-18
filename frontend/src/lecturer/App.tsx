@@ -444,7 +444,7 @@ export default function App() {
           <a href="index.html" style={{ color: "#cadcfc", fontSize: "0.85rem" }}>
             &larr; Home
           </a>
-          {!LECTURE_ID && (
+          {!LECTURE_ID && !LOBBY_ID && (
             <a href="setup.html" style={{ color: "#cadcfc", fontSize: "0.85rem", marginLeft: "0.75rem" }}>
               Question setup &rarr;
             </a>
