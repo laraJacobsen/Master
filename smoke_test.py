@@ -153,7 +153,77 @@ def fake_post(url, params=None, json=None, headers=None, timeout=None):
     return resp
 
 
+def _run_canonicalize_boundary_checks():
+    """Regression test for the 2026-09-21 _canonicalize() statement-boundary fix.
+
+    Before the fix, tokenize.NEWLINE was dropped with no placeholder, so two
+    adjacent statements on separate lines collapsed into one space-joined token
+    run indistinguishable from a single expression -- e.g. this exact case
+    ("nums = input().split()" + "print(int(nums[0]))") canonicalized to a token
+    stream where the only thing between the two statements was a bare space, which
+    a real Label-step spot-check showed an LLM misreading as a missing-`.`-between-
+    chained-calls bug that was never in the source (see backend/aggregation.py's
+    _canonicalize() docstring). No network/DB needed -- pure function.
+    """
+    from backend import aggregation as agg
+
+    # Exactly the real row-4 spot-check case (see this fix's git history) --
+    # asserted against the full exact expected token stream, not just "a marker
+    # appears somewhere", so a future change that moves the marker to the wrong
+    # join point still fails this.
+    two_statements = agg._canonicalize("nums = input().split()\nprint(int(nums[0]))")
+    assert two_statements == (
+        f"VAR1 = VAR2 ( ) . VAR3 ( ) {agg._STMT_BREAK} VAR4 ( VAR5 ( VAR1 [ 0 ] ) ) {agg._STMT_BREAK}"
+    ), two_statements
+
+    # A single logical statement split across lines by parens (a line continuation,
+    # not a statement boundary -- tokenize.NL, not NEWLINE) must NOT get a spurious
+    # break in the middle -- that would fabricate a false boundary inside one
+    # expression, trading the join-collision bug for the opposite one.
+    one_statement = agg._canonicalize("x = (\n    1 +\n    2\n)")
+    assert one_statement.count(agg._STMT_BREAK) == 1, one_statement  # only the trailing one at EOF
+
+    print("_canonicalize() statement-boundary fix   OK")
+
+
+def _run_internal_token_leak_checks():
+    """Regression test for the 2026-09-21 internal-token-leak backstop.
+
+    After the Label call started receiving reference-solution context, a regex
+    scan of a real 16-row generated batch found 14 rows quoting VARn placeholders
+    directly (plus one quoting STMT_BREAK) -- meaningless to a lecturer who never
+    sees canonicalized code, and far more widespread than a manual read alone had
+    caught (see backend/aggregation.py's _INTERNAL_TOKEN_LEAK_RE docstring). This
+    checks the regex itself catches the real leaked strings and does not
+    false-positive on legitimate role-based phrasing. Pure function, no
+    network/DB needed.
+    """
+    from backend import aggregation as agg
+
+    leaked_examples = [
+        "All student snippets omit the second method call (the .VAR5(...) chain) after VAR4.",
+        "The students' snippets each contain two STMT_BREAK statements.",
+        "Both snippets call VAR4 with only VAR5(VAR2) as an argument.",
+    ]
+    for text in leaked_examples:
+        assert agg._INTERNAL_TOKEN_LEAK_RE.search(text), text
+
+    clean_examples = [
+        "All student snippets define the vowel-checking string as \"aeiouy\" instead of \"aeiou\".",
+        "The students' snippets omit the sort function's keyword argument that appears in the "
+        "reference solution.",
+        "A variable named variable_count is unrelated to this check.",  # "VAR" substring, no digits
+    ]
+    for text in clean_examples:
+        assert not agg._INTERNAL_TOKEN_LEAK_RE.search(text), text
+
+    print("Internal-token-leak backstop regex   OK")
+
+
 def main():
+    _run_canonicalize_boundary_checks()
+    _run_internal_token_leak_checks()
+
     with patch("backend.judge0_client.requests.post", side_effect=fake_post), \
          patch("backend.aggregation.requests.post", side_effect=fake_post):
 
@@ -339,7 +409,9 @@ def _run_checks(client):
             {"id": 9001, "student_name": "Erik", "source_code": "print(1)"},
             {"id": 9002, "student_name": "Frida", "source_code": "print(2)"},
         ]
-        fallback_point = aggregation._subcluster_discussion_point(synthetic_group, student_count=2)
+        fallback_point = aggregation._subcluster_discussion_point(
+            synthetic_group, reference_solution="print(1 + 1)", student_count=2
+        )
         assert fallback_point == hints.discussion_point_for_cluster("wrong_answer", None, 2), fallback_point
         assert len(idun_chat_calls) == 2, "IDUN should not have recorded a call while unreachable"
         print("wrong_answer sub-cluster falls back when IDUN down  OK ->", fallback_point)

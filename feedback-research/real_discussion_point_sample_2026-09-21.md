@@ -40,9 +40,9 @@ VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) + 1 )
 VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) + 1 )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: partial
 
 ## Row 2 -- sum-ints (2 students)
 
@@ -71,9 +71,9 @@ VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) - 1 )
 VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) - 1 )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: partial
 
 ## Row 3 -- sum-ints (4 students)
 
@@ -111,9 +111,9 @@ VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 [ : - 1 
 VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 [ : - 1 ] ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: partial
 
 ## Row 4 -- sum-ints (2 students)
 
@@ -142,9 +142,9 @@ VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR1 [ 0 ] ) )
 VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR1 [ 0 ] ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: n
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: n
 
 ## Row 5 -- sum-ints (2 students)
 
@@ -179,9 +179,9 @@ VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 = 1 for VAR5 in VAR1 : VAR4 *= VAR6 ( VAR5 ) VAR
 VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 = 1 for VAR5 in VAR1 : VAR4 *= VAR6 ( VAR5 ) VAR7 ( VAR4 )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: y
 
 ## Row 6 -- double-it (2 students)
 
@@ -208,9 +208,9 @@ VAR1 ( VAR2 ( VAR3 ( ) ) + 2 )
 VAR1 ( VAR2 ( VAR3 ( ) ) + 2 )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: y
 
 ## Row 7 -- double-it (2 students)
 
@@ -239,9 +239,9 @@ VAR1 = VAR2 ( ) VAR3 ( VAR1 * 2 )
 VAR1 = VAR2 ( ) VAR3 ( VAR1 * 2 )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: n
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: partial
 
 ## Row 8 -- is_palindrome (2 students)
 
@@ -280,9 +280,9 @@ def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( " " , "" ) return VAR3 == VAR3 [ : : - 
 def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( " " , "" ) return VAR3 == VAR3 [ : : - 1 ] VAR2 = VAR5 ( ) VAR6 ( VAR1 ( VAR2 ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: partial
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: partial
 
 ## Row 9 -- is_palindrome (2 students)
 
@@ -321,9 +321,9 @@ def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) return VAR3 == VAR3 [ : : - 1 ] VAR2 
 def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) return VAR3 == VAR3 [ : : - 1 ] VAR2 = VAR5 ( ) VAR6 ( VAR1 ( VAR2 ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: partial
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: partial
 
 ## Row 10 -- is_palindrome (2 students)
 
@@ -370,9 +370,9 @@ def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) . VAR5 ( " " , "" ) VAR6 = VAR7 ( VAR
 def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) . VAR5 ( " " , "" ) VAR6 = VAR7 ( VAR3 ) for VAR8 in VAR9 ( VAR6 // 2 ) : if VAR3 [ VAR8 ] != VAR3 [ VAR6 - VAR8 - 2 ] : return False return True VAR2 = VAR10 ( ) VAR11 ( VAR1 ( VAR2 ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: partial
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: partial
 
 ## Row 11 -- count_vowels (2 students)
 
@@ -419,9 +419,9 @@ def VAR1 ( VAR2 ) : VAR3 = "aeiou" VAR4 = 0 for VAR5 in VAR2 : if VAR5 in VAR3 :
 def VAR1 ( VAR2 ) : VAR3 = "aeiou" VAR4 = 0 for VAR5 in VAR2 : if VAR5 in VAR3 : VAR4 += 1 return VAR4 VAR2 = VAR6 ( ) VAR7 ( VAR1 ( VAR2 ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: partial
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: y
 
 ## Row 12 -- count_vowels (2 students)
 
@@ -470,9 +470,9 @@ def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) VAR5 = "aeiouy" VAR6 = 0 for VAR7 in 
 def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) VAR5 = "aeiouy" VAR6 = 0 for VAR7 in VAR3 : if VAR7 in VAR5 : VAR6 += 1 return VAR6 VAR2 = VAR8 ( ) VAR9 ( VAR1 ( VAR2 ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: partial
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: n
 
 ## Row 13 -- count_vowels (2 students)
 
@@ -521,9 +521,9 @@ def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) VAR5 = "aeiou" VAR6 = 0 for VAR7 in V
 def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) VAR5 = "aeiou" VAR6 = 0 for VAR7 in VAR8 ( VAR9 ( VAR3 ) - 1 ) : if VAR3 [ VAR7 ] in VAR5 : VAR6 += 1 return VAR6 VAR2 = VAR10 ( ) VAR11 ( VAR1 ( VAR2 ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: partial
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: y
 
 ## Row 14 -- second_largest (2 students)
 
@@ -562,9 +562,9 @@ def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR2 , VAR5 = True ) return VAR3 [ 1 ] VAR2 = 
 def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR2 , VAR5 = True ) return VAR3 [ 1 ] VAR2 = [ VAR6 ( VAR7 ) for VAR7 in VAR8 ( ) . VAR9 ( ) ] VAR10 ( VAR1 ( VAR2 ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: partial
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: partial
 
 ## Row 15 -- second_largest (2 students)
 
@@ -603,9 +603,9 @@ def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR5 ( VAR2 ) ) return VAR3 [ 1 ] VAR2 = [ VAR
 def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR5 ( VAR2 ) ) return VAR3 [ 1 ] VAR2 = [ VAR6 ( VAR7 ) for VAR7 in VAR8 ( ) . VAR9 ( ) ] VAR10 ( VAR1 ( VAR2 ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: partial
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: partial
 
 ## Row 16 -- second_largest (2 students)
 
@@ -654,6 +654,6 @@ def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR2 ) VAR5 = None for VAR6 in VAR2 : if VAR6 
 def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR2 ) VAR5 = None for VAR6 in VAR2 : if VAR6 != VAR3 : if VAR5 is None or VAR6 < VAR5 : VAR5 = VAR6 return VAR5 VAR2 = [ VAR7 ( VAR8 ) for VAR8 in VAR9 ( ) . VAR10 ( ) ] VAR11 ( VAR1 ( VAR2 ) )
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: partial
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: n

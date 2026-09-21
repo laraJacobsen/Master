@@ -212,13 +212,27 @@ WRONG_ANSWER_SUBCLUSTER_PROMPT = (
     "of students whose code produced the wrong output on the same exercise. You are given "
     "2-3 anonymized code snippets -- every variable, function, and parameter name has "
     "been replaced with VAR1, VAR2, etc. in order of first appearance in each snippet, so "
-    "you cannot know what anything is actually called or what the exercise even is.\n"
+    "you cannot know what anything is actually called or what the exercise even is. You "
+    "may also be given the exercise's own reference (correct) solution, anonymized the "
+    "same way -- it is for context only, never one of the snippets to describe.\n"
     "Describe, in ONE short factual sentence, only the pattern that is visibly shared "
-    "across ALL of the given snippets -- e.g. a specific operator, an off-by-one style "
-    "adjustment, a missing or extra call, a particular loop or condition shape. Do not "
-    "name or guess a specific bug, variable purpose, or root cause unless it is literally "
-    "visible in every snippet shown. If the snippets don't share an obvious concrete "
-    "pattern, say plainly that they don't rather than inventing one.\n"
+    "across ALL of the given snippets AND, when a reference solution is shown, is "
+    "actually DIFFERENT from it -- e.g. a specific operator, an off-by-one style "
+    "adjustment, a missing or extra call, a particular loop or condition shape. Code the "
+    "snippets share with the reference solution is normal, correct code, not the bug -- "
+    "never describe it as if it were the shared pattern, even if it looks distinctive. Do "
+    "not name or guess a specific bug, variable purpose, or root cause unless it is "
+    "literally visible in every snippet shown. If the snippets don't share an obvious "
+    "concrete pattern that differs from the reference, say plainly that they don't rather "
+    "than inventing one.\n"
+    "The lecturer reading this has NEVER seen the anonymized code and does not know what "
+    "VAR1, VAR2, etc. or STMT_BREAK mean -- never write one of those placeholder tokens "
+    "in your answer, even to refer to it. Instead describe the ROLE the differing code "
+    "plays -- e.g. 'the string comparison method call', 'the loop's stopping condition', "
+    "'the sort function's keyword argument', 'the vowel-checking string literal' -- using "
+    "only what it does, never its placeholder name. Actual string literals, numbers, and "
+    "operators (e.g. \"aeiou\", 0, +, ==) are real code content, not anonymized "
+    "identifiers, and are fine to quote directly.\n"
     "Write in third person, for the lecturer, about the students -- never 'you' or "
     "'your'.\n"
     "Respond with ONLY a JSON object with exactly this key:\n"
@@ -231,6 +245,27 @@ _SECOND_PERSON_RE = re.compile(r"\byou\b|\byour\b|\byou're\b|\byours\b", re.IGNO
 _discussion_cache = {}  # (question_id, exec_verdict, error_type) -> str or None
 _subcluster_discussion_cache = {}  # frozenset(submission ids) -> str or None
 
+# Placeholder for a stripped tokenize.NEWLINE (end of a logical statement) -- see
+# _canonicalize()'s docstring for why this can't just be dropped like NL/INDENT/
+# DEDENT/etc. are. Unambiguous against real Python tokens (not a valid identifier
+# or operator), so it can't collide with anything _canonicalize() also emits.
+_STMT_BREAK = "STMT_BREAK"
+
+# Deterministic backstop, same discipline as _SECOND_PERSON_RE above: matches any
+# internal placeholder token (VAR1, VAR2, ..., or STMT_BREAK) that could leak
+# verbatim into lecturer-facing text. Found 2026-09-21: after adding reference-
+# solution context to the Label call (a prompt-only instruction not to name
+# placeholders), a plain regex scan of that round's 16 real generated rows found
+# 14 of 16 quoting VARn directly, plus the STMT_BREAK token appearing once -- far
+# more widespread than the handful a manual read had caught. Root cause:
+# canonicalization strips the only real name a variable ever had, so without an
+# explicit instruction to describe its ROLE instead (see
+# WRONG_ANSWER_SUBCLUSTER_PROMPT) the model had nothing else to call it by, and
+# that instruction alone did not reliably hold. This regex is the backstop for
+# when it still doesn't -- caller retries/falls back to the generic line, same as
+# any other validation failure.
+_INTERNAL_TOKEN_LEAK_RE = re.compile(r"\bVAR\d+\b|\b" + re.escape(_STMT_BREAK) + r"\b")
+
 
 def _canonicalize(source_code: str) -> str:
     """Renames every non-keyword identifier to VAR1/VAR2/... in order of first
@@ -239,6 +274,24 @@ def _canonicalize(source_code: str) -> str:
     to the raw source if it can't be tokenized -- defensive only, since wrong_answer
     by definition means the code ran without crashing, so a tokenize failure here
     would be unexpected.
+
+    Every tokenize.NEWLINE (end of a logical statement) becomes a literal
+    _STMT_BREAK token rather than being dropped silently. Found 2026-09-21 via a
+    real Label-step spot-check: dropping NEWLINE with no placeholder means two
+    adjacent statements on separate lines collapse into one space-joined token run
+    indistinguishable from a single expression -- e.g. "nums = input().split()" +
+    "print(int(nums[0]))" canonicalizes (without this marker) to a token stream
+    where the only thing between the two statements is a bare space, the exact same
+    shape a real missing-`.`-between-two-chained-calls bug would produce. The LLM
+    Label call, given only that token stream, fabricated exactly that: a "space
+    instead of a dot" / "two calls on the same line" bug that was never in the
+    source, on two separate real generated-sample rows (independently, same root
+    cause). NL (a non-logical newline -- blank lines, comments, or line
+    continuations inside brackets) is deliberately NOT marked: unlike NEWLINE, NL
+    can occur in the *middle* of one still-open logical statement (see
+    tokenize's own behavior on e.g. "x = (\\n    1 +\\n    2\\n)"), so marking it
+    would fabricate a false statement boundary inside a single expression --
+    trading one join-collision bug for the opposite one.
     """
     mapping = {}
     next_id = 1
@@ -250,8 +303,10 @@ def _canonicalize(source_code: str) -> str:
                     mapping[tok.string] = f"VAR{next_id}"
                     next_id += 1
                 out.append(mapping[tok.string])
+            elif tok.type == tokenize.NEWLINE:
+                out.append(_STMT_BREAK)
             elif tok.type in (
-                tokenize.NEWLINE, tokenize.NL, tokenize.INDENT, tokenize.DEDENT,
+                tokenize.NL, tokenize.INDENT, tokenize.DEDENT,
                 tokenize.ENCODING, tokenize.ENDMARKER, tokenize.COMMENT,
             ):
                 continue
@@ -343,15 +398,38 @@ def _idun_available() -> bool:
     return bool(IDUN_API_KEY)
 
 
-def _call_idun_subcluster_pattern(snippets: list) -> str:
+def _call_idun_subcluster_pattern(snippets: list, reference_canonical: str = None) -> str:
     """One JSON-mode call given 2-3 canonicalized snippets from one similarity
     sub-cluster, via IDUN's OpenAI-compatible chat-completions endpoint. Raises on
     network failure, invalid JSON, a response that doesn't satisfy the schema, or
     second-person phrasing -- caller retries/falls back to the generic wrong_answer
-    line."""
-    prompt = "Snippets:\n\n" + "\n\n---\n\n".join(snippets) + (
-        "\n\nRespond with the JSON object described in the system prompt."
-    )
+    line.
+
+    `reference_canonical` -- the exercise's own reference solution, canonicalized
+    the same way as `snippets` -- is optional context, not a snippet to describe
+    (see WRONG_ANSWER_SUBCLUSTER_PROMPT). Added 2026-09-21 after a real spot-check
+    found the model repeatedly restating structure the submissions share with the
+    CORRECT solution as if it were the shared bug (e.g. "both compare a variable to
+    its reversed slice" on an is_palindrome case where that comparison is also in
+    the reference solution -- the actual bug was a missing .lower() call). Without
+    ever seeing the reference, the model had no way to tell normal/correct code from
+    the actual divergence. Deliberately NOT the diff-tokens representation
+    _cluster_by_similarity() already computes for clustering: that representation
+    numbers variables independently per snippet, so a single real difference before
+    a shared call cascades into a run of spurious DEL/INS pairs from pure
+    renumbering -- fine for a TF-IDF vectorizer (order/coherence don't matter to
+    it), unreadable as a prompt. Showing the model the full reference and
+    submission text and asking it to compare them itself uses the model's own
+    comparison ability instead of a token-level diff built for a different
+    consumer."""
+    parts = []
+    if reference_canonical:
+        parts.append(
+            "Reference (correct) solution, anonymized the same way -- for context "
+            "only, not one of the snippets to describe:\n\n" + reference_canonical
+        )
+    parts.append("Snippets:\n\n" + "\n\n---\n\n".join(snippets))
+    prompt = "\n\n".join(parts) + "\n\nRespond with the JSON object described in the system prompt."
     resp = requests.post(
         f"{IDUN_BASE_URL}/chat/completions",
         headers={"Authorization": f"Bearer {IDUN_API_KEY}"},
@@ -373,10 +451,18 @@ def _call_idun_subcluster_pattern(snippets: list) -> str:
     point = point.strip()
     if _SECOND_PERSON_RE.search(point):
         raise ValueError(f"discussion_point addressed the student, not the lecturer: {point!r}")
+    if _INTERNAL_TOKEN_LEAK_RE.search(point):
+        raise ValueError(f"discussion_point leaked an internal placeholder token: {point!r}")
     return point
 
 
-def _subcluster_discussion_point(group: list, student_count: int):
+def _subcluster_discussion_point(group: list, reference_solution: str, student_count: int):
+    """`reference_solution` -- the exercise's raw (not yet canonicalized) reference
+    solution, or None/empty if unavailable -- is canonicalized here and passed as
+    context to the IDUN call (see _call_idun_subcluster_pattern's docstring for
+    why). None is a legitimate value, not an error: it just means the call falls
+    back to the pre-2026-09-21 behavior of describing the snippets with no
+    reference-relative context."""
     if student_count < MIN_STUDENTS_FOR_DISCUSSION:
         return None
 
@@ -387,12 +473,13 @@ def _subcluster_discussion_point(group: list, student_count: int):
     fallback = hints.discussion_point_for_cluster("wrong_answer", None, student_count)
     result = fallback
     snippets = _representative_snippets(group)
+    reference_canonical = _canonicalize(reference_solution) if reference_solution else None
     trivial = any(len(s.split()) < _MIN_TOKENS_FOR_PATTERN_CALL for s in snippets)
     if len(snippets) >= 2 and not trivial and _idun_available():
         t0 = time.monotonic()
         for _attempt in (1, 2):
             try:
-                result = _call_idun_subcluster_pattern(snippets)
+                result = _call_idun_subcluster_pattern(snippets, reference_canonical)
                 break
             except Exception:
                 continue
@@ -422,7 +509,7 @@ def _distinct_student_submission_ids(rows: list) -> list:
 
 def _generate_subcluster_labels(groups_with_counts: list) -> list:
     """Returns one discussion_point (or None, below MIN_STUDENTS_FOR_DISCUSSION) per
-    (group, student_count) in `groups_with_counts`, same order in.
+    (group, reference_solution, student_count) in `groups_with_counts`, same order in.
 
     Sub-clusters are independent of each other -- often from different questions
     entirely, and even within one question a bug shape in one sub-cluster has
@@ -438,8 +525,8 @@ def _generate_subcluster_labels(groups_with_counts: list) -> list:
     """
     results = [None] * len(groups_with_counts)
     pending = {
-        i: (group, student_count)
-        for i, (group, student_count) in enumerate(groups_with_counts)
+        i: (group, reference_solution, student_count)
+        for i, (group, reference_solution, student_count) in enumerate(groups_with_counts)
         if student_count >= MIN_STUDENTS_FOR_DISCUSSION
     }
     if not pending:
@@ -448,8 +535,8 @@ def _generate_subcluster_labels(groups_with_counts: list) -> list:
     t0 = time.monotonic()
     with ThreadPoolExecutor(max_workers=min(len(pending), _MAX_PARALLEL_LABEL_CALLS)) as pool:
         futures = {
-            pool.submit(_subcluster_discussion_point, group, student_count): i
-            for i, (group, student_count) in pending.items()
+            pool.submit(_subcluster_discussion_point, group, reference_solution, student_count): i
+            for i, (group, reference_solution, student_count) in pending.items()
         }
         for future in as_completed(futures):
             results[futures[future]] = future.result()
@@ -498,15 +585,16 @@ def _wrong_answer_subclusters(members: list) -> list:
                 "wrong_answer diff+cluster: question=%s, %d submissions -> %d groups, %.3fs",
                 question_id, len(rows), len(groups), time.monotonic() - t0,
             )
-        all_groups.extend(groups)
+        all_groups.extend((group, reference_solution) for group in groups)
 
     groups_with_counts = [
-        (group, len({m["student_name"] for m in group})) for group in all_groups
+        (group, reference_solution, len({m["student_name"] for m in group}))
+        for group, reference_solution in all_groups
     ]
     labels = _generate_subcluster_labels(groups_with_counts)
 
     result = []
-    for group, (_group_again, student_count), discussion_point in zip(all_groups, groups_with_counts, labels):
+    for (group, _reference_solution, student_count), discussion_point in zip(groups_with_counts, labels):
         example = group[0]
         result.append(
             {

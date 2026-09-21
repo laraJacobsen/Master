@@ -5,11 +5,36 @@ production pipeline (diff-against-reference clustering, see backend/aggregation.
 
 This is NOT the ground-truth labeling sample (subcluster_ground_truth_sample.csv):
 that one exists to score the CLUSTERING step against hand-labeled bug groups and
-never calls an LLM at all. This script exercises the LABEL step -- the thing that
-still hasn't had a human look at its real output since the Ollama->IDUN migration
-(backend/aggregation.py's 2026-09-21 docstring entry says the Label prompt itself is
-"UNCHANGED" by that migration, but the endpoint, model, and every real generated
-string are new).
+never calls an LLM at all. This script exercises the LABEL step.
+
+ROUND 3 (this run, DATE_TAG below unchanged throughout on purpose -- see OUT
+filenames, which carry a round-specific suffix so no run ever overwrites an earlier
+round's already-recorded human ratings):
+
+- Round 1 (real_discussion_point_sample_2026-09-21.csv/.md) found most partial/
+  failing rows restated code the submission shares with the exercise's own CORRECT
+  solution, or otherwise couldn't name what's missing, because the Label call never
+  saw the reference solution at all -- only the submission's own canonicalized code.
+- Round 2 (_round2 suffix) re-ran with two fixes: _canonicalize() now marks
+  statement boundaries explicitly (STMT_BREAK) instead of silently dropping them
+  (root-caused two outright fabrications in round 1 to a canonicalization artifact,
+  not a reasoning failure), and the Label call now also receives the reference
+  solution, canonicalized the same way, as explicit context (see
+  _call_idun_subcluster_pattern's docstring for why this is the reference text
+  itself, not the diff-tokens representation clustering uses -- that
+  representation's independent per-snippet VAR-numbering makes it unreadable as a
+  prompt). Grounding improved sharply, but a regex scan (not caught by a manual
+  read alone) found 14 of 16 rows quoting VARn/STMT_BREAK placeholders directly --
+  meaningless to a lecturer who never sees canonicalized code.
+- Round 3 (this run, _round3 suffix): the Label prompt now explicitly tells the
+  model to describe the ROLE of what changed (e.g. "the string comparison method
+  call") rather than naming any placeholder token, and a deterministic regex
+  backstop (_INTERNAL_TOKEN_LEAK_RE) rejects and retries any response that still
+  leaks one, same discipline as the existing second-person backstop. This batch
+  re-generates labels with all three fixes in place, same real data sources, for a
+  third independent spot-check round -- and this script's own output is
+  regex-scanned for leaks below before being written, so a regression here fails
+  loudly rather than silently shipping another leaky batch.
 
 Real data sources (no fabricated bugs anywhere):
 
@@ -96,9 +121,11 @@ if not agg.IDUN_API_KEY:
 
 OUT_DIR = Path(__file__).resolve().parent
 DATE_TAG = "2026-09-21"
-CSV_PATH = OUT_DIR / f"real_discussion_point_sample_{DATE_TAG}.csv"
-MD_PATH = OUT_DIR / f"real_discussion_point_sample_{DATE_TAG}.md"
-LATENCY_PATH = OUT_DIR / f"real_discussion_point_sample_latency_{DATE_TAG}.md"
+# _round3 suffix so this run can never overwrite an earlier round's files -- those
+# already carry Lara's recorded spot-check ratings (is_grounded_y_n etc.).
+CSV_PATH = OUT_DIR / f"real_discussion_point_sample_{DATE_TAG}_round3.csv"
+MD_PATH = OUT_DIR / f"real_discussion_point_sample_{DATE_TAG}_round3.md"
+LATENCY_PATH = OUT_DIR / f"real_discussion_point_sample_latency_{DATE_TAG}_round3.md"
 
 # --- Source 1: sum-ints -- see module docstring for why placeholder names replace
 # the originally-dropped real tester identities, in the same counts per bug.
@@ -205,7 +232,7 @@ def main():
         cluster_seconds = time.monotonic() - t0
 
         groups_with_counts = [
-            (group, len({m["student_name"] for m in group})) for group in groups
+            (group, reference_solution, len({m["student_name"] for m in group})) for group in groups
         ]
 
         t0 = time.monotonic()
@@ -214,11 +241,12 @@ def main():
 
         exercise_results.append((exercise, len(rows), groups_with_counts, labels, cluster_seconds, label_seconds))
 
-        for (group, student_count), discussion_point in zip(groups_with_counts, labels):
+        for (group, _reference_solution, student_count), discussion_point in zip(groups_with_counts, labels):
             if discussion_point is None:
                 continue  # below MIN_STUDENTS_FOR_DISCUSSION -- no Label call was made
             row_id += 1
             raw_snippets = agg._representative_snippets(group)  # canonicalized, what the model saw
+            reference_canonical = agg._canonicalize(reference_solution) if reference_solution else ""
             seen = set()
             raw_code_snippets = []
             for m in group:
@@ -235,6 +263,7 @@ def main():
                     "student_count": student_count,
                     "raw_code_snippets": "\n\n---\n\n".join(raw_code_snippets),
                     "canonicalized_snippets_shown_to_model": "\n\n---\n\n".join(raw_snippets),
+                    "reference_solution_shown_to_model": reference_canonical,
                     "discussion_point": discussion_point,
                     "is_grounded_y_n": "",
                     "is_lecturer_facing_y_n": "",
@@ -244,25 +273,44 @@ def main():
 
     logging.getLogger("backend.aggregation").removeHandler(capture)
 
+    # Round 2 shipped 14/16 rows leaking VARn/STMT_BREAK before anyone looked --
+    # a manual read alone hadn't caught most of them. Scan every generated label
+    # here, in the script that produces the spot-check material, so a regression
+    # in the prompt/backstop fails loudly before this ever reaches a human rater,
+    # rather than relying on the rater to notice it again.
+    leaked_rows = [row["id"] for row in csv_rows if agg._INTERNAL_TOKEN_LEAK_RE.search(row["discussion_point"])]
+    if leaked_rows:
+        sys.exit(
+            f"Internal token leak detected in generated rows {leaked_rows} -- refusing to write "
+            "the spot-check sample. This should have been caught by _call_idun_subcluster_pattern's "
+            "own backstop already (see aggregation.py); if it wasn't, that backstop itself needs "
+            "fixing before generating anything for review."
+        )
+    print(f"Leak scan: clean across all {len(csv_rows)} generated rows.")
+
     with CSV_PATH.open("w", newline="") as f:
         writer = csv.DictWriter(
             f,
             fieldnames=[
                 "id", "exercise", "student_count", "raw_code_snippets",
-                "canonicalized_snippets_shown_to_model", "discussion_point",
-                "is_grounded_y_n", "is_lecturer_facing_y_n", "is_actionable_y_n",
+                "canonicalized_snippets_shown_to_model", "reference_solution_shown_to_model",
+                "discussion_point", "is_grounded_y_n", "is_lecturer_facing_y_n", "is_actionable_y_n",
             ],
         )
         writer.writeheader()
         writer.writerows(csv_rows)
 
     md_lines = [
-        "# Real discussion-point Label sample -- human/expert spot-check",
+        "# Real discussion-point Label sample -- human/expert spot-check (ROUND 3)",
         "",
-        f"Generated {DATE_TAG} against the live IDUN endpoint, current production pipeline "
-        "(diff-against-reference clustering -> Label call). See "
-        "generate_real_discussion_point_sample.py's module docstring for exactly which real "
-        "data went in and why.",
+        f"Generated {DATE_TAG} against the live IDUN endpoint, after three fixes made across "
+        "rounds 1-2's findings: _canonicalize() marks statement boundaries explicitly, the "
+        "Label call receives the exercise's reference solution as context (shown below each "
+        "row, when present), and the prompt now requires describing the ROLE of what changed "
+        "(never a raw VARn/STMT_BREAK placeholder), backstopped by a regex that rejects and "
+        "retries any response that still leaks one -- this batch was scanned clean before "
+        "being written (see generate_real_discussion_point_sample.py's module docstring for "
+        "the full history and why).",
         "",
         "For each row: does the discussion point only state something true of every snippet "
         "shown (not a broader claim than the evidence supports), is it third-person/"
@@ -289,6 +337,15 @@ def main():
         ]
         for snippet in row["canonicalized_snippets_shown_to_model"].split("\n\n---\n\n"):
             md_lines += ["```", snippet, "```", ""]
+        if row["reference_solution_shown_to_model"]:
+            md_lines += [
+                "**Reference (correct) solution shown to the model, same canonicalization:**",
+                "",
+                "```",
+                row["reference_solution_shown_to_model"],
+                "```",
+                "",
+            ]
         md_lines += [
             "- is_grounded_y_n: ______",
             "- is_lecturer_facing_y_n: ______",
