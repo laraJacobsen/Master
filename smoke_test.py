@@ -633,6 +633,12 @@ def _run_lecture_dashboard_checks(client):
     assert r.json()["lecture_id"] == new_lecture["id"], r.json()
     print("Starting a question after the lobby opens   OK")
 
+    # Once a question's gone live, delete is refused -- there's real
+    # history now, so archive is the only way to hide it.
+    r = client.delete(f"/api/lecturer/lectures/{new_lecture['id']}")
+    assert r.status_code == 409, r.text
+    print("DELETE refused once a question has started   OK -> 409")
+
     # Archive hides a lecture from the default list without touching its
     # data, and can be undone.
     r = client.post(f"/api/lecturer/lectures/{seeded_lecture_id}/archive")

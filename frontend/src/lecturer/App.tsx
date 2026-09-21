@@ -9,7 +9,6 @@ import type {
   ValidationTestResult,
 } from "../shared/types";
 import {
-  deleteLecture,
   fetchActiveLecture,
   fetchClusters,
   fetchJoinedCount,
@@ -174,8 +173,6 @@ export default function App() {
   const [lobbyError, setLobbyError] = useState<string | null>(null);
   const [startingLecture, setStartingLecture] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
-  const [deletingLecture, setDeletingLecture] = useState(false);
-  const [deleteLectureError, setDeleteLectureError] = useState<string | null>(null);
 
   // Historical mode (?lecture_id=): fetch that lecture's summary once and
   // stop -- no polling, since a past lecture has nothing new to arrive.
@@ -387,22 +384,6 @@ export default function App() {
     }
   }
 
-  // Only offered here because nothing's live yet -- once a question
-  // starts, the backend itself refuses this (see api_lecturer_delete_lecture
-  // in main.py), and archive becomes the right tool instead.
-  async function handleDeleteLecture() {
-    if (!lobbyLecture) return;
-    if (!window.confirm(`Delete "${lobbyLecture.display_label}"? This can't be undone.`)) return;
-    setDeletingLecture(true);
-    setDeleteLectureError(null);
-    try {
-      await deleteLecture(lobbyLecture.id);
-      window.location.href = "index.html";
-    } catch (e) {
-      setDeleteLectureError(e instanceof Error ? e.message : "Could not delete this lecture.");
-      setDeletingLecture(false);
-    }
-  }
 
   function toggleExpanded(subId: number) {
     setExpandedSubIds((prev) => {
@@ -512,23 +493,10 @@ export default function App() {
                   <button onClick={handleStartLecture} disabled={startingLecture}>
                     {startingLecture ? "Starting..." : "Start lecture (earliest question)"}
                   </button>
-                  <button
-                    className="danger"
-                    style={{ marginLeft: "0.6rem" }}
-                    onClick={handleDeleteLecture}
-                    disabled={deletingLecture}
-                  >
-                    {deletingLecture ? "Deleting..." : "Delete lecture"}
-                  </button>
                 </div>
                 {startError && (
                   <div className="summary-status summary-error" style={{ textAlign: "center", marginTop: "0.6rem" }}>
                     {startError}
-                  </div>
-                )}
-                {deleteLectureError && (
-                  <div className="summary-status summary-error" style={{ textAlign: "center", marginTop: "0.6rem" }}>
-                    {deleteLectureError}
                   </div>
                 )}
               </>

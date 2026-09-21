@@ -3,6 +3,7 @@ import type { MouseEvent } from "react";
 import type { LectureRow, QuestionRow, QuestionStatus, ValidationTestResult } from "../shared/types";
 import {
   createQuestion,
+  deleteLecture as deleteLectureApi,
   deleteQuestion as deleteQuestionApi,
   fetchActiveLecture,
   fetchQuestionList,
@@ -61,6 +62,8 @@ export default function App() {
   const [liveQuestionId, setLiveQuestionId] = useState<string | null>(null);
   const [openingLobby, setOpeningLobby] = useState(false);
   const [lobbyError, setLobbyError] = useState<string | null>(null);
+  const [deletingLecture, setDeletingLecture] = useState(false);
+  const [deleteLectureError, setDeleteLectureError] = useState<string | null>(null);
   const [addingTestQuestions, setAddingTestQuestions] = useState(false);
 
   const locked = currentStatus === "live";
@@ -99,6 +102,24 @@ export default function App() {
     } catch (e) {
       setLobbyError(e instanceof Error ? e.message : "Could not open the lobby.");
       setOpeningLobby(false);
+    }
+  }
+
+  // Only offered while nothing's live yet (see the JSX below) -- once a
+  // question starts, the backend itself refuses this (see
+  // api_lecturer_delete_lecture in main.py), and archive is the right tool
+  // instead.
+  async function handleDeleteLecture() {
+    if (!activeLecture) return;
+    if (!window.confirm(`Delete "${activeLecture.display_label}"? This can't be undone.`)) return;
+    setDeletingLecture(true);
+    setDeleteLectureError(null);
+    try {
+      await deleteLectureApi(activeLecture.id);
+      window.location.href = "index.html";
+    } catch (e) {
+      setDeleteLectureError(e instanceof Error ? e.message : "Could not delete this lecture.");
+      setDeletingLecture(false);
     }
   }
 
@@ -363,6 +384,16 @@ export default function App() {
                 </button>
                 {lobbyError && <div style={{ color: "var(--bad)", marginTop: "0.5rem" }}>{lobbyError}</div>}
               </>
+            )}
+            {!liveQuestionId && (
+              <div style={{ marginTop: "0.9rem" }}>
+                <button className="danger" onClick={handleDeleteLecture} disabled={deletingLecture}>
+                  {deletingLecture ? "Deleting..." : "Delete lecture"}
+                </button>
+                {deleteLectureError && (
+                  <div style={{ color: "var(--bad)", marginTop: "0.5rem" }}>{deleteLectureError}</div>
+                )}
+              </div>
             )}
           </div>
         )}
