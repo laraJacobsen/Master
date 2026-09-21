@@ -42,7 +42,10 @@ export function NavBar() {
 
   const action = activeLectureAction(active);
   const showHome = !isCurrentPage("index.html");
-  const showCta = !isCurrentPage(action.href);
+  // "Resume lobby" is left off the nav bar's shortcut on purpose -- the home
+  // page's own card already surfaces the join code for that state, and a
+  // nav-bar link would just duplicate it without that context.
+  const showCta = !isCurrentPage(action.href) && action.label !== "Resume lobby";
 
   return (
     <nav className="top-nav">
