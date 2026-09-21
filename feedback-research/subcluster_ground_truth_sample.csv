@@ -1,0 +1,76 @@
+submission_id,exercise,source,code,bug_group
+SI-01,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums[:-1]))",missing-last-element
+SI-02,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)",multiply
+SI-03,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums[1:]))",missing-first-element
+SI-04,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums) - 1)",one-less
+SI-05,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)",multiply
+SI-06,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(int(nums[0]))",first-num-only
+SI-07,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums) - 1)",one-less
+SI-08,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums) + 1)",one-more
+SI-09,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums[:-1]))",missing-last-element
+SI-10,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums) + 1)",one-more
+SI-11,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums) + 1)",one-more
+SI-12,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(int(nums[0]))",first-num-only
+SI-13,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums) + 1)",one-more
+SI-14,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums) + 1)",one-more
+SI-15,sum-ints,live_pipeline_run_2026-09-16,"nums = input().split()
+print(sum(int(n) for n in nums[:-1]))",missing-last-element
+DI-01,double-it,dev_db_prototype.db,"int = input()
+print(int*2)",prints-twice
+DI-02,double-it,dev_db_prototype.db,"int = input()
+print(int*2)",prints-twice
+DI-03,double-it,dev_db_prototype.db,print(int(input()) + 2),adds-two
+DI-04,double-it,dev_db_prototype.db,print(int(input()) + 2),adds-two
+DI-05,double-it,dev_db_prototype.db,print(input()*2),prints-twice
+DI-06,double-it,dev_db_prototype.db,print(int(input()) + 2),adds-two
+DI-07,double-it,dev_db_prototype.db,print(int(input()*2)),prints-twice
+DI-08,double-it,dev_db_prototype.db,print(int(input()) + 2),adds-two
+DI-09,double-it,dev_db_prototype.db,print(int(input()) + 2),adds-two
+DI-10,double-it,dev_db_prototype.db,print(int(input()) + 2),adds-two
+DI-11,double-it,dev_db_prototype.db,"n = int(input())
+print(n + n + 1)",one-more
+PAL-01,is_palindrome,corpus.py_handwritten,"def is_palindrome(s):
+    t = s.replace("" "", """")  # forgot to lowercase
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+",missing-lowercase
+PAL-02,is_palindrome,corpus.py_handwritten,"def is_palindrome(s):
+    t = s.lower()  # forgot to strip spaces
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+",forgot-strip
+PAL-03,is_palindrome,corpus.py_handwritten,"def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:  # off-by-one: should be n - i - 1
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+",off-by-one

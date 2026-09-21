@@ -110,8 +110,51 @@ mitigated, still unvalidated overall.
 
 None of this replaces the human/expert checkpoint -- it removes two concrete, reproduced
 failure modes, not the general risk the checkpoint exists to catch.
+
+2026-09-21, signal swap based on labeled ground truth (see feedback-research/
+subcluster_ground_truth_sample.csv -- 29 real wrong_answer submissions across 3
+exercises, hand-labeled into bug groups -- and feedback-research/run_tfidf_baseline.py/
+run_diff_baseline.py, which score any clustering against it with adjusted Rand index +
+pairwise precision/recall). Per the module docstring above, WRONG_ANSWER_SUBCLUSTER_DISTANCE
+was always a first guess, not tuned against labeled data -- this is the first real score:
+at the threshold above (0.05), raw-canonicalized-code TF-IDF scored mean ARI 0.579, and
+is_palindrome specifically scored 0.000 (two genuinely different bugs -- missing .lower(),
+missing space-stripping -- still merged into one cluster, in production, today).
+
+Root cause isn't the threshold: TF-IDF over raw canonicalized code is measuring code
+*shape*, but the ground truth is grouped by code *behavior* (what's actually wrong), and a
+short exercise's shared boilerplate (the function signature, the input()/print() shell)
+dominates the vector regardless of threshold -- this is the same boilerplate-dominance
+problem the 2026-09-16 finding above already diagnosed, just not fully solved by retuning
+alone. Swapped the input representation instead: each submission is now represented by its
+diff against the exercise's own reference_solution (both sides canonicalized first, same
+_canonicalize() as before, so identifier naming still doesn't matter), rather than by its
+own raw canonicalized code. Boilerplate shared with the reference solution -- which is most
+of a short exercise -- now contributes exactly zero signal, by construction, instead of
+merely being down-weighted by TF-IDF's document-frequency term.
+
+Rescored against the same ground truth at the same threshold (0.05): mean ARI 0.579 -> 0.899,
+is_palindrome 0.000 -> 1.000, with no regression on the other two exercises. This was a
+one-variable change -- WRONG_ANSWER_SUBCLUSTER_DISTANCE, linkage, and token_pattern are all
+unchanged from the 2026-09-16 retune, only _cluster_by_similarity()'s input representation
+differs. See feedback-research/run_diff_baseline.py for the full threshold-sweep results this
+was chosen from (diff-against-reference stays well above the TF-IDF baseline across
+0.02-0.30, not just at 0.05).
+
+This does NOT close every gap: feedback-research/double-it-shape-vs-behavior-limitation-2026-09-21.md
+documents a case (three structurally different one-line edits that all diverge from the
+reference *differently* but happen to print identical output) that no code-similarity or
+code-diff signal can group correctly -- doing so would require an output/behavior-based
+signal (actually running submissions against sample inputs) instead. Treated as a documented
+methodological limitation, not an open bug to chase with this signal.
+
+Discussion-point generation (_subcluster_discussion_point() / the IDUN call below) is
+UNCHANGED by this: it still shows the LLM raw canonicalized code snippets, not diff tokens --
+that step's own known issues (see the fabrication/over-generalization findings above) are
+tracked separately and weren't touched here.
 """
 
+import difflib
 import io
 import json
 import keyword
@@ -212,17 +255,45 @@ def _canonicalize(source_code: str) -> str:
         return source_code
 
 
-def _cluster_by_similarity(rows: list) -> list:
-    """Groups submissions by code similarity: canonicalize identifiers, TF-IDF the
-    result, agglomerative-cluster on cosine distance with no fixed k. Returns a list
-    of groups (each a list of rows); a group of size 1 is a natural outlier, not an
-    error."""
+def _diff_tokens(reference_solution: str, source_code: str) -> str:
+    """Tagged, space-joined sequence of the tokens that differ between
+    `source_code` and `reference_solution`, both canonicalized first via
+    _canonicalize() -- so identifier naming doesn't matter on either side, same as
+    the raw-code TF-IDF this replaced. Tokens common to both (shared boilerplate --
+    the function signature, the input()/print() shell) are dropped entirely rather
+    than merely down-weighted; the rest are tagged DEL: (present in the reference,
+    missing from the submission) or INS: (present in the submission, not in the
+    reference) so a deletion and an insertion of the same token don't collide. See
+    the 2026-09-21 finding in the module docstring for why this replaced diffing
+    against nothing (i.e. plain TF-IDF over the submission's own code)."""
+    ref_tokens = _canonicalize(reference_solution).split()
+    sub_tokens = _canonicalize(source_code).split()
+    matcher = difflib.SequenceMatcher(None, ref_tokens, sub_tokens, autojunk=False)
+
+    parts = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if tag in ("delete", "replace"):
+            parts.extend(f"DEL:{t}" for t in ref_tokens[i1:i2])
+        if tag in ("insert", "replace"):
+            parts.extend(f"INS:{t}" for t in sub_tokens[j1:j2])
+    return " ".join(parts)
+
+
+def _cluster_by_similarity(rows: list, reference_solution: str) -> list:
+    """Groups submissions by how they diverge from the exercise's reference
+    solution (see the 2026-09-21 finding in the module docstring for why this
+    replaced clustering on each submission's own raw code): represent each row by
+    its diff-against-reference tokens (_diff_tokens()), TF-IDF that, agglomerative-
+    cluster on cosine distance with no fixed k. Returns a list of groups (each a
+    list of rows); a group of size 1 is a natural outlier, not an error."""
     if len(rows) < 2:
         return [[r] for r in rows]
 
-    canon = [_canonicalize(r["source_code"]) for r in rows]
+    diffs = [_diff_tokens(reference_solution, r["source_code"]) for r in rows]
     try:
-        matrix = TfidfVectorizer(token_pattern=_TOKEN_PATTERN).fit_transform(canon)
+        matrix = TfidfVectorizer(token_pattern=_TOKEN_PATTERN).fit_transform(diffs)
     except ValueError:
         return [[r] for r in rows]  # empty vocabulary -- nothing to compare on
     if matrix.shape[1] == 0:
@@ -343,22 +414,37 @@ def _distinct_student_submission_ids(rows: list) -> list:
 
 
 def _wrong_answer_subclusters(members: list) -> list:
-    """Sub-clusters one exec_verdict=="wrong_answer" bucket by code similarity, scoped
-    per question_id first -- comparing code across different exercises would be
-    meaningless. Returns cluster dicts in the same shape cluster_submissions() uses
-    for every other category."""
+    """Sub-clusters one exec_verdict=="wrong_answer" bucket by divergence from the
+    exercise's own reference solution, scoped per question_id first -- comparing
+    code across different exercises would be meaningless, and each question_id has
+    its own reference_solution to diff against. Returns cluster dicts in the same
+    shape cluster_submissions() uses for every other category."""
     result = []
     by_question = defaultdict(list)
     for row in members:
         by_question[row["question_id"]].append(row)
 
     for question_id, rows in by_question.items():
-        t0 = time.monotonic()
-        groups = _cluster_by_similarity(rows)
-        logger.info(
-            "wrong_answer canonicalize+cluster: question=%s, %d submissions -> %d groups, %.3fs",
-            question_id, len(rows), len(groups), time.monotonic() - t0,
-        )
+        question = store.get_question_row(question_id)
+        reference_solution = question.get("reference_solution") if question else None
+        if not reference_solution:
+            # Shouldn't happen in practice -- a question can't reach 'live' (and
+            # therefore can't have wrong_answer submissions at all) without a
+            # reference_solution; validate() in main.py refuses without one. Falls
+            # back to singletons rather than diffing every submission against
+            # nothing if this invariant is ever violated by a data anomaly.
+            logger.warning(
+                "wrong_answer sub-clustering: question=%s has no reference_solution, "
+                "skipping diff-based clustering", question_id,
+            )
+            groups = [[r] for r in rows]
+        else:
+            t0 = time.monotonic()
+            groups = _cluster_by_similarity(rows, reference_solution)
+            logger.info(
+                "wrong_answer diff+cluster: question=%s, %d submissions -> %d groups, %.3fs",
+                question_id, len(rows), len(groups), time.monotonic() - t0,
+            )
         for group in groups:
             student_count = len({m["student_name"] for m in group})
             example = group[0]
