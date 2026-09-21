@@ -3,6 +3,7 @@ import type { MouseEvent } from "react";
 import type { LectureRow, QuestionRow, QuestionStatus, ValidationTestResult } from "../shared/types";
 import {
   createQuestion,
+  deleteLecture as deleteLectureApi,
   deleteQuestion as deleteQuestionApi,
   fetchActiveLecture,
   fetchQuestionList,
@@ -11,7 +12,8 @@ import {
   updateQuestion,
   validateQuestion as validateQuestionApi,
 } from "../shared/api";
-import { HeaderNavLink } from "../shared/HeaderNavLink";
+import { NavBar } from "../shared/NavBar";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 interface TestCaseDraft {
   stdin: string;
@@ -61,7 +63,11 @@ export default function App() {
   const [liveQuestionId, setLiveQuestionId] = useState<string | null>(null);
   const [openingLobby, setOpeningLobby] = useState(false);
   const [lobbyError, setLobbyError] = useState<string | null>(null);
+  const [deletingLecture, setDeletingLecture] = useState(false);
+  const [deleteLectureError, setDeleteLectureError] = useState<string | null>(null);
   const [addingTestQuestions, setAddingTestQuestions] = useState(false);
+  const [confirmDeleteLectureOpen, setConfirmDeleteLectureOpen] = useState(false);
+  const [questionPendingDelete, setQuestionPendingDelete] = useState<QuestionRow | null>(null);
 
   const locked = currentStatus === "live";
 
@@ -102,9 +108,33 @@ export default function App() {
     }
   }
 
-  async function handleDeleteQuestion(q: QuestionRow, e: MouseEvent) {
+  // Only offered while nothing's live yet (see the JSX below) -- once a
+  // question starts, the backend itself refuses this (see
+  // api_lecturer_delete_lecture in main.py), and archive is the right tool
+  // instead.
+  async function confirmDeleteLecture() {
+    setConfirmDeleteLectureOpen(false);
+    if (!activeLecture) return;
+    setDeletingLecture(true);
+    setDeleteLectureError(null);
+    try {
+      await deleteLectureApi(activeLecture.id);
+      window.location.href = "index.html";
+    } catch (e) {
+      setDeleteLectureError(e instanceof Error ? e.message : "Could not delete this lecture.");
+      setDeletingLecture(false);
+    }
+  }
+
+  function handleDeleteQuestion(q: QuestionRow, e: MouseEvent) {
     e.stopPropagation(); // don't also trigger the row's own onClick (load into form)
-    if (!window.confirm(`Delete "${q.title}"? This can't be undone.`)) return;
+    setQuestionPendingDelete(q);
+  }
+
+  async function confirmDeleteQuestion() {
+    const q = questionPendingDelete;
+    setQuestionPendingDelete(null);
+    if (!q) return;
     try {
       await deleteQuestionApi(q.id);
       if (currentId === q.id) resetForm();
@@ -321,12 +351,10 @@ export default function App() {
 
   return (
     <>
+      <NavBar />
       <header>
-        <h1>Lecturer -- Question Setup</h1>
+        <h1>Question Setup</h1>
         <p>Author a question, set its grading config, validate it against a known-correct solution, then start it.</p>
-        <p>
-          <HeaderNavLink href="index.html">&larr; Home</HeaderNavLink>
-        </p>
       </header>
       <main>
         {activeLecture && (
@@ -357,7 +385,7 @@ export default function App() {
               <>
                 <h2>Ready for class?</h2>
                 <p className="hint" style={{ marginBottom: "0.6rem" }}>
-                  Prepare as many questions as you like first -- nothing is joinable and no timer starts until you
+                  Prepare as many questions as you like first. Nothing is joinable and no timer starts until you
                   open the lobby.
                 </p>
                 <button type="button" onClick={handleOpenLobby} disabled={openingLobby}>
@@ -366,13 +394,27 @@ export default function App() {
                 {lobbyError && <div style={{ color: "var(--bad)", marginTop: "0.5rem" }}>{lobbyError}</div>}
               </>
             )}
+            {!liveQuestionId && (
+              <div style={{ marginTop: "0.9rem" }}>
+                <button
+                  className="danger"
+                  onClick={() => setConfirmDeleteLectureOpen(true)}
+                  disabled={deletingLecture}
+                >
+                  {deletingLecture ? "Deleting..." : "Delete lecture"}
+                </button>
+                {deleteLectureError && (
+                  <div style={{ color: "var(--bad)", marginTop: "0.5rem" }}>{deleteLectureError}</div>
+                )}
+              </div>
+            )}
           </div>
         )}
         <div className="grid">
           <div className="card">
             <h2>Questions</h2>
             <div id="empty-list" style={{ display: questions.length === 0 ? "block" : "none" }}>
-              No questions yet -- create one on the right.
+              No questions yet. Create one on the right.
             </div>
             <ul id="question-list" style={{ display: questions.length === 0 ? "none" : "block" }}>
               {questions.map((q) => (
@@ -425,7 +467,7 @@ export default function App() {
               style={{ marginTop: "0.9rem" }}
               onClick={addTestQuestions}
               disabled={addingTestQuestions}
-              title="Dev convenience -- adds 3 real, pre-validated questions so you don't have to type one in by hand to test the flow."
+              title="Dev convenience: adds 3 real, pre-validated questions so you don't have to type one in by hand to test the flow."
             >
               {addingTestQuestions ? "Adding..." : "+ Add 3 test questions"}
             </button>
@@ -434,7 +476,7 @@ export default function App() {
           <div className="card">
             <h2 id="form-heading">{formHeading}</h2>
             <div id="locked-banner" style={{ display: locked ? "block" : "none" }}>
-              This question is live -- its config is locked. Create a new question to change anything.
+              This question is live. Its config is locked. Create a new question to change anything.
             </div>
 
             <label htmlFor="f-title">Title</label>
@@ -448,7 +490,7 @@ export default function App() {
             />
 
             <label htmlFor="f-prompt">
-              Prompt <span className="hint">-- shown to students</span>
+              Prompt <span className="hint">(shown to students)</span>
             </label>
             <textarea
               id="f-prompt"
@@ -466,7 +508,7 @@ export default function App() {
             </select>
 
             <h3>
-              Test cases <span className="hint">-- first one is shown to students as a worked example</span>
+              Test cases <span className="hint">(the first one is shown to students as a worked example)</span>
             </h3>
             <div id="test-cases">
               {testCases.map((tc, i) => (
@@ -562,7 +604,7 @@ export default function App() {
             <h3>Class</h3>
             <label htmlFor="f-expected">
               Expected number of students{" "}
-              <span className="hint">optional -- powers the live "X/N submitted" counter on the dashboard</span>
+              <span className="hint">optional, powers the live "X/N submitted" counter on the dashboard</span>
             </label>
             <input
               type="number"
@@ -578,7 +620,7 @@ export default function App() {
             <label htmlFor="f-duration">
               Time limit for students (minutes){" "}
               <span className="hint">
-                countdown shown on the student page -- their code auto-submits when it hits zero
+                countdown shown on the student page; their code auto-submits when it hits zero
               </span>
             </label>
             <input
@@ -592,7 +634,7 @@ export default function App() {
             />
 
             <h3>
-              Reference solution <span className="hint">-- a known-correct solution, used only for the validation preview below</span>
+              Reference solution <span className="hint">(a known-correct solution, used only for the validation preview below)</span>
             </h3>
             <textarea
               id="f-reference"
@@ -624,12 +666,12 @@ export default function App() {
                   "All test cases passed against the reference solution. Ready to start."
                 ) : (
                   <>
-                    The reference solution did not pass every test case -- fix the rubric or the solution before
+                    The reference solution did not pass every test case. Fix the rubric or the solution before
                     starting:
                     <ul>
                       {validationResult.failing.map((r, i) => (
                         <li key={i}>
-                          stdin <code>{r.stdin}</code> -- expected <code>{r.expected_stdout}</code>, got{" "}
+                          stdin <code>{r.stdin}</code>, expected <code>{r.expected_stdout}</code>, got{" "}
                           <code>{(r.stdout || "").trim()}</code>
                         </li>
                       ))}
@@ -641,6 +683,20 @@ export default function App() {
           </div>
         </div>
       </main>
+      <ConfirmDialog
+        open={confirmDeleteLectureOpen}
+        title="Delete lecture?"
+        message={`Delete "${activeLecture?.display_label ?? ""}"? This can't be undone.`}
+        onConfirm={confirmDeleteLecture}
+        onCancel={() => setConfirmDeleteLectureOpen(false)}
+      />
+      <ConfirmDialog
+        open={questionPendingDelete != null}
+        title="Delete question?"
+        message={`Delete "${questionPendingDelete?.title ?? ""}"? This can't be undone.`}
+        onConfirm={confirmDeleteQuestion}
+        onCancel={() => setQuestionPendingDelete(null)}
+      />
     </>
   );
 }

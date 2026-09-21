@@ -532,6 +532,20 @@ def _run_lecture_dashboard_checks(client):
     assert new_lecture["lobby_opened_at"] is None, new_lecture  # not open yet -- just created
     print("POST /api/lecturer/lectures (New lecture)   OK ->", new_lecture)
 
+    # Delete-while-not-started: a freshly created lecture with no question
+    # ever tied to it (lobby not even opened yet) is safe to remove outright,
+    # not just archive -- "created it, changed my mind before starting."
+    r = client.delete(f"/api/lecturer/lectures/{new_lecture['id']}")
+    assert r.status_code == 200 and r.json() == {"deleted": True}, r.text
+    all_ids = {lec["id"] for lec in client.get("/api/lecturer/lectures?include_archived=true").json()}
+    assert new_lecture["id"] not in all_ids, all_ids  # gone entirely, not just hidden
+    assert client.get("/api/lecturer/lectures/active").json() == {"lecture": None, "live_question_id": None}
+    print("DELETE not-yet-started lecture   OK -> gone entirely")
+
+    r = client.post("/api/lecturer/lectures", json={"label": "Week 3 -- Recursion"})
+    assert r.status_code == 200, r.text
+    new_lecture = r.json()
+
     # A draft can be authored/validated before the lobby even opens (prep
     # ahead of class), but starting it is refused until the lobby is open --
     # and the right join code is refused too, for the same reason.
@@ -618,6 +632,12 @@ def _run_lecture_dashboard_checks(client):
     assert r.status_code == 200, r.text
     assert r.json()["lecture_id"] == new_lecture["id"], r.json()
     print("Starting a question after the lobby opens   OK")
+
+    # Once a question's gone live, delete is refused -- there's real
+    # history now, so archive is the only way to hide it.
+    r = client.delete(f"/api/lecturer/lectures/{new_lecture['id']}")
+    assert r.status_code == 409, r.text
+    print("DELETE refused once a question has started   OK -> 409")
 
     # Archive hides a lecture from the default list without touching its
     # data, and can be undone.

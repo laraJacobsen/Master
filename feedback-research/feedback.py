@@ -19,99 +19,99 @@ _RUNTIME_FAMILIES = {
         ceiling=4,
         tiers=[
             "Your program crashed before producing output.",
-            "NameError -- Python doesn't recognize a name you used.",
+            "NameError: Python doesn't recognize a name you used.",
             "Read the last line of the traceback: which name is it saying isn't defined? Is that "
             "a function you meant to write, or a typo for one you did write?",
-            "You're calling a name you never defined -- define it, or fix the typo against the "
+            "You're calling a name you never defined. Define it, or fix the typo against the "
             "name you did define.",
         ],
-        discussion="NameError -- check the traceback's last line for the name it flags: a typo, "
+        discussion="NameError. Check the traceback's last line for the name it flags: a typo, "
         "or a name never defined.",
     ),
     "AttributeError": dict(
         ceiling=4,
         tiers=[
             "Your program crashed before producing output.",
-            "AttributeError -- you called a method that doesn't exist on that object.",
-            "Check the exact spelling of the method name against Python's string methods -- is it "
+            "AttributeError: you called a method that doesn't exist on that object.",
+            "Check the exact spelling of the method name against Python's string methods. Is it "
             "spelled exactly the way you'd find it in the docs?",
             "Fix the misspelled method name so it matches an actual method on that type.",
         ],
-        discussion="AttributeError -- check the exact method name against the real API; likely "
+        discussion="AttributeError: check the exact method name against the real API. Likely "
         "a small misspelling.",
     ),
     "RecursionError": dict(
         ceiling=4,
         tiers=[
             "Your program crashed before producing output.",
-            "RecursionError -- your function called itself too many times without stopping.",
+            "RecursionError: your function called itself too many times without stopping.",
             "What condition should make your function return without calling itself again? Does "
             "your function currently have one?",
             "Add a base case that returns directly once the input is small enough, instead of "
             "always recursing.",
         ],
-        discussion="RecursionError -- check whether the function has a base case that stops the "
+        discussion="RecursionError: check whether the function has a base case that stops the "
         "recursion.",
     ),
     "TypeError": dict(
         ceiling=4,
         tiers=[
             "Your program crashed before producing output.",
-            "TypeError -- an operation was used on a value of the wrong type, or a function call "
+            "TypeError: an operation was used on a value of the wrong type, or a function call "
             "didn't match its definition.",
-            "Look at the operation or call on the line named in the traceback -- do the types (or "
+            "Look at the operation or call on the line named in the traceback. Do the types (or "
             "number of arguments) actually match what it expects?",
             "Fix the mismatched type or argument count on that line so it matches what the "
             "operation or function expects.",
         ],
-        discussion="TypeError -- check the types or argument count on the flagged line against "
+        discussion="TypeError: check the types or argument count on the flagged line against "
         "what's expected.",
     ),
     "IndexError": dict(
         ceiling=4,
         tiers=[
             "Your program crashed before producing output.",
-            "IndexError -- you tried to access a position in a sequence that doesn't exist.",
+            "IndexError: you tried to access a position in a sequence that doesn't exist.",
             "Check the index you're using against the actual valid range for that sequence's "
-            "length -- what's the last valid index?",
+            "length. What's the last valid index?",
             "Adjust the index so it stays inside the valid range for the sequence's length.",
         ],
-        discussion="IndexError -- check the index against the sequence's actual valid range.",
+        discussion="IndexError: check the index against the sequence's actual valid range.",
     ),
     "KeyError": dict(
         ceiling=4,
         tiers=[
             "Your program crashed before producing output.",
-            "KeyError -- you looked up a key that isn't in the dictionary.",
+            "KeyError: you looked up a key that isn't in the dictionary.",
             "Where does that key get added to the dictionary in your code? Is that happening "
             "before you look it up?",
             "Populate the dictionary with that key before you look it up, or use a lookup that "
             "doesn't require it to already exist.",
         ],
-        discussion="KeyError -- check whether the key was added to the dictionary before it's "
+        discussion="KeyError: check whether the key was added to the dictionary before it's "
         "looked up.",
     ),
     "ModuleNotFoundError": dict(
         ceiling=4,
         tiers=[
             "Your program crashed before producing output.",
-            "ModuleNotFoundError -- you imported something that isn't available.",
-            "This exercise only needs the standard string operations covered in lecture -- do you "
+            "ModuleNotFoundError: you imported something that isn't available.",
+            "This exercise only needs the standard string operations covered in lecture. Do you "
             "need that import at all?",
             "Remove the import and rewrite the line to use only standard string operations.",
         ],
-        discussion="ModuleNotFoundError -- check whether the exercise actually needs that import.",
+        discussion="ModuleNotFoundError: check whether the exercise actually needs that import.",
     ),
     "EOFError": dict(
         ceiling=4,
         tiers=[
             "Your program crashed before producing output.",
-            "EOFError -- your program tried to read input that was never there.",
+            "EOFError: your program tried to read input that was never there.",
             "Count how many times your program calls the input-reading function against how many "
-            "lines of input it's actually given -- do they match?",
+            "lines of input it's actually given. Do they match?",
             "Remove the extra input call, or provide the extra input it's waiting for.",
         ],
-        discussion="EOFError -- check whether the code is reading more input than it's actually "
+        discussion="EOFError: check whether the code is reading more input than it's actually "
         "given.",
     ),
 }
@@ -124,12 +124,12 @@ _RUNTIME_FALLBACK = dict(
     ceiling=3,
     tiers=[
         "Your program crashed before producing output.",
-        "{error_type} -- read the exception name in the traceback; it names the general kind of "
+        "{error_type}: read the exception name in the traceback. It names the general kind of "
         "problem.",
-        "Look at the exact line named at the bottom of the traceback -- what is that line trying "
+        "Look at the exact line named at the bottom of the traceback. What is that line trying "
         "to do, and why might it fail for this input?",
     ],
-    discussion="{error_type} -- worth reading through the traceback together to see exactly "
+    discussion="{error_type}. Worth reading through the traceback together to see exactly "
     "where it crashed.",
 )
 
@@ -139,24 +139,24 @@ _OTHER_FAMILIES = {
         tiers=[
             "Your output didn't match on the test input for this problem.",
             "The mismatch is about how your program processes the input, not about crashing.",
-            "Trace your code by hand on the exact test input, step by step -- where does the "
+            "Trace your code by hand on the exact test input, step by step. Where does the "
             "value it produces first diverge from what you'd expect?",
             "Compare your logic against the problem statement line by line and correct the step "
             "that diverges.",
         ],
-        discussion="Wrong answer -- worth tracing through the test input step by step to see "
+        discussion="Wrong answer. Worth tracing through the test input step by step to see "
         "where the logic diverges.",
     ),
     "syntax_error": dict(
         ceiling=2,
         tiers=[
-            "Your program couldn't even start running -- Python found a problem before your code "
+            "Your program couldn't even start running. Python found a problem before your code "
             "executed at all.",
             "Compare the line the error points to against the syntax pattern from the lecture "
-            "slides for that kind of statement (a function definition, a loop, an if) -- does it "
+            "slides for that kind of statement (a function definition, a loop, an if). Does it "
             "match exactly?",
         ],
-        discussion="Syntax error -- worth comparing the flagged line against the exact pattern "
+        discussion="Syntax error. Worth comparing the flagged line against the exact pattern "
         "from the lecture slides.",
     ),
     "function_not_found": dict(
@@ -166,7 +166,7 @@ _OTHER_FAMILIES = {
             "Check the exact function name you defined against the one the problem statement asks "
             "for.",
         ],
-        discussion="Function not found -- worth double-checking the exact function name the "
+        discussion="Function not found. Worth double-checking the exact function name the "
         "exercise asks for.",
     ),
     # shared family: timeout / oom / output_limit_exceeded -- see hint-taxonomy-draft.md, split
@@ -174,24 +174,24 @@ _OTHER_FAMILIES = {
     "bounded_loop": dict(
         ceiling=4,
         tiers=[
-            "Your program didn't finish -- it was stopped for running too long or using too many "
+            "Your program didn't finish. It was stopped for running too long or using too many "
             "resources.",
             "This usually means a loop that never reaches its stopping condition.",
-            "Find the loop responsible and check the variable its condition depends on -- does "
+            "Find the loop responsible and check the variable its condition depends on. Does "
             "anything inside the loop body actually change it?",
             "Add the missing update (increment, append-then-check, or similar) so the loop's "
             "condition can eventually become false.",
         ],
-        discussion="Didn't finish -- worth checking what should update the loop's stopping "
+        discussion="Didn't finish. Worth checking what should update the loop's stopping "
         "condition.",
     ),
     "rejected": dict(
         ceiling=1,
         tiers=[
-            "Your submission couldn't be graded as-is -- it's empty, or over the allowed size "
+            "Your submission couldn't be graded as-is. It's empty, or over the allowed size "
             "limit.",
         ],
-        discussion="Rejected submissions -- worth a reminder on what counts as a valid "
+        discussion="Rejected submissions. Worth a reminder on what counts as a valid "
         "submission.",
     ),
 }

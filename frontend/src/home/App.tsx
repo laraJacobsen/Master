@@ -3,11 +3,15 @@ import type { ActiveLectureResponse, LectureHistoryRow, LectureTotals } from "..
 import {
   archiveLecture,
   createLecture,
+  deleteLecture,
   fetchActiveLecture,
   fetchLectureHistory,
   fetchLectureTotals,
   unarchiveLecture,
 } from "../shared/api";
+import { activeLectureAction } from "../shared/lectureNav";
+import { NavBar } from "../shared/NavBar";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 // A short, aggregate-only snapshot -- total distinct-student submissions and
 // a correct-count, never a per-student breakdown (see the product decision
@@ -15,7 +19,7 @@ import {
 function statsSnapshot(row: LectureHistoryRow): string {
   if (row.submitted_total === 0) return "No submissions.";
   const correct = row.verdict_counts.correct || 0;
-  return `${row.submitted_total} submission${row.submitted_total === 1 ? "" : "s"} -- ${correct} correct`;
+  return `${row.submitted_total} submission${row.submitted_total === 1 ? "" : "s"}, ${correct} correct`;
 }
 
 function formatDate(isoLike: string): string {
@@ -37,6 +41,9 @@ export default function App() {
   const [archiving, setArchiving] = useState<number | null>(null);
 
   const [totals, setTotals] = useState<LectureTotals | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   function loadActive() {
     setActiveLoading(true);
@@ -82,24 +89,29 @@ export default function App() {
     }
   }
 
+  // Same logic NavBar's own shortcut uses -- kept in one place
+  // (shared/lectureNav.ts) so the two can't drift apart.
   function handleResume() {
-    if (active?.live_question_id) {
-      window.location.href = `lecturer.html?question_id=${encodeURIComponent(active.live_question_id)}`;
-    } else if (active?.lecture?.lobby_opened_at) {
-      // Lobby's open but nothing's live yet (right after "Open lobby", or
-      // between "Next task" clicks with no drafts left) -- back to the lobby,
-      // not setup, since students may already be sitting in it.
-      window.location.href = `lecturer.html?lobby=${active.lecture.id}`;
-    } else {
-      // Lecture exists but the lobby was never opened -- still prepping.
-      window.location.href = "setup.html";
-    }
+    window.location.href = activeLectureAction(active).href;
   }
 
-  function resumeLabel(): string {
-    if (active?.live_question_id) return "Resume live lecture";
-    if (active?.lecture?.lobby_opened_at) return "Back to lobby";
-    return "Continue setup";
+  // Only ever offered before anything's started (see the JSX below) --
+  // once a question's gone live there's real history, and the backend
+  // itself refuses the delete at that point anyway (see
+  // api_lecturer_delete_lecture in main.py).
+  async function confirmDeleteLecture() {
+    setConfirmDeleteOpen(false);
+    if (!active?.lecture) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteLecture(active.lecture.id);
+      loadActive();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Could not delete this lecture.");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function handleArchiveToggle(row: LectureHistoryRow) {
@@ -117,19 +129,20 @@ export default function App() {
 
   return (
     <>
-      <header>
-        <h1>Interactive Lecture -- Home</h1>
+      <NavBar />
+      <header className="hero">
+        <h1>Interactive Lecture</h1>
         <p>Start a new lecture, resume one in progress, or browse past ones.</p>
       </header>
       <main>
-        <div className="card" id="start-card">
+        <div className="card fade-in-up" id="start-card">
           {activeLoading ? (
             <div className="muted-note">Loading...</div>
           ) : hasActive ? (
             <>
               <h2>Lecture in progress</h2>
               <p className="muted-note">
-                {active!.lecture!.display_label} is currently active -- this backend supports one lecture at a
+                {active!.lecture!.display_label} is currently active. This backend supports one lecture at a
                 time, so finish it before starting another.
               </p>
               {active!.lecture!.lobby_opened_at ? (
@@ -142,22 +155,28 @@ export default function App() {
                 )
               ) : (
                 <p className="muted-note">
-                  Still being prepared -- nothing is joinable yet. Add your questions on setup, then open the
+                  Still being prepared. Nothing is joinable yet, so add your questions on setup, then open the
                   lobby when you're ready for students to join.
                 </p>
               )}
-              <button onClick={handleResume}>{resumeLabel()}</button>
+              <button onClick={handleResume}>{activeLectureAction(active).label}</button>
+              {!active!.live_question_id && (
+                <button className="danger" onClick={() => setConfirmDeleteOpen(true)} disabled={deleting}>
+                  {deleting ? "Deleting..." : "Delete lecture"}
+                </button>
+              )}
+              {deleteError && <div className="form-error">{deleteError}</div>}
             </>
           ) : (
             <>
               <h2>Start a new lecture</h2>
               <label htmlFor="f-label">
-                Label <span className="hint">optional -- defaults to today's date if left blank</span>
+                Label <span className="hint">(optional, defaults to today's date if left blank)</span>
               </label>
               <input
                 type="text"
                 id="f-label"
-                placeholder="e.g. Week 3 -- Recursion"
+                placeholder="e.g. Week 3: Recursion"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
               />
@@ -170,13 +189,13 @@ export default function App() {
         </div>
 
         {totals && (
-          <div id="totals-line">
-            {totals.lectures_run} lecture{totals.lectures_run === 1 ? "" : "s"} run -- {totals.total_submissions}{" "}
+          <div id="totals-line" className="fade-in-up" style={{ animationDelay: "0.08s" }}>
+            {totals.lectures_run} lecture{totals.lectures_run === 1 ? "" : "s"} run, {totals.total_submissions}{" "}
             total submission{totals.total_submissions === 1 ? "" : "s"}
           </div>
         )}
 
-        <div className="card" id="history-card">
+        <div className="card fade-in-up" id="history-card" style={{ animationDelay: "0.15s" }}>
           <div className="history-header">
             <h2>Lecture history</h2>
             <label className="archived-toggle">
@@ -189,7 +208,7 @@ export default function App() {
             </label>
           </div>
           {history && history.length === 0 && (
-            <div className="muted-note">No lectures yet -- start one above.</div>
+            <div className="muted-note">No lectures yet. Start one above.</div>
           )}
           {history && history.length > 0 && (
             <ul id="lecture-list">
@@ -199,9 +218,8 @@ export default function App() {
                     <div className="lecture-row-main">
                       <div className="lecture-title">{row.display_label}</div>
                       <div className="lecture-meta">
-                        {formatDate(row.started_at)} -- {row.task_count} task{row.task_count === 1 ? "" : "s"}
-                        {" -- "}
-                        {statsSnapshot(row)}
+                        {formatDate(row.started_at)} &middot; {row.task_count} task
+                        {row.task_count === 1 ? "" : "s"} &middot; {statsSnapshot(row)}
                       </div>
                     </div>
                   </a>
@@ -218,6 +236,13 @@ export default function App() {
           )}
         </div>
       </main>
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title="Delete lecture?"
+        message={`Delete "${active?.lecture?.display_label ?? ""}"? This can't be undone.`}
+        onConfirm={confirmDeleteLecture}
+        onCancel={() => setConfirmDeleteOpen(false)}
+      />
     </>
   );
 }

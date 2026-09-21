@@ -21,6 +21,7 @@ import {
   nextTask,
 } from "../shared/api";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
+import { NavBar } from "../shared/NavBar";
 
 const POLL_MS = 3000;
 
@@ -79,7 +80,7 @@ function clusterLabel(c: ClusterRow) {
 }
 
 function ExampleBlock({ sub }: { sub: SubmissionRow }) {
-  const meta = `${sub.student_name} -- attempt ${sub.attempt_number} -- ${sub.tests_passed}/${sub.tests_total} passed`;
+  const meta = `${sub.student_name}, attempt ${sub.attempt_number}, ${sub.tests_passed}/${sub.tests_total} passed`;
 
   const results: ValidationTestResult[] = JSON.parse(sub.raw_test_results || "[]");
   const failing = results.find((r) => !r.passed);
@@ -122,7 +123,7 @@ interface InspectorState {
 }
 
 export default function App() {
-  const [pageTitle, setPageTitle] = useState("Interactive Lecture -- Lecturer View");
+  const [pageTitle, setPageTitle] = useState("Lecturer Dashboard");
 
   // Rows from the last successful poll, kept around so toggling a student's
   // code open/closed can re-render instantly without waiting on (or
@@ -182,7 +183,7 @@ export default function App() {
     fetchLectureSummary(Number(LECTURE_ID))
       .then((s) => {
         setSummary(s);
-        setPageTitle(`Lecturer View -- ${s.lecture_label}`);
+        setPageTitle(`${s.lecture_label} summary`);
       })
       .catch((e) => {
         setSummaryError(e instanceof Error ? e.message : "Could not load this lecture's summary.");
@@ -212,7 +213,7 @@ export default function App() {
           return;
         }
         setLobbyLecture(a.lecture);
-        setPageTitle(`Lecturer View -- ${a.lecture.display_label} (lobby)`);
+        setPageTitle(`${a.lecture.display_label} lobby`);
       })
       .catch((e) => setLobbyError(e instanceof Error ? e.message : "Could not load this lecture."));
 
@@ -234,7 +235,7 @@ export default function App() {
     if (QUESTION_ID) {
       fetchQuestionDetail(QUESTION_ID)
         .then((q) => {
-          setPageTitle(`Lecturer View -- ${q.title}`);
+          setPageTitle(q.title);
           setQuestion(q);
         })
         .catch(() => {
@@ -331,7 +332,7 @@ export default function App() {
       if (res.started) {
         window.location.href = `lecturer.html?question_id=${encodeURIComponent(res.started.id)}`;
       } else {
-        setAdvanceMessage("No more tasks left to start -- click \"Finish lecture\" to end.");
+        setAdvanceMessage("No more tasks left to start. Click \"Finish lecture\" to end.");
         setAdvancing(false);
       }
     } catch (e) {
@@ -374,7 +375,7 @@ export default function App() {
       if (res.started) {
         window.location.href = `lecturer.html?question_id=${encodeURIComponent(res.started.id)}`;
       } else {
-        setStartError("No questions ready to start yet -- add and validate one on setup first.");
+        setStartError("No questions ready to start yet. Add and validate one on setup first.");
         setStartingLecture(false);
       }
     } catch (e) {
@@ -382,6 +383,7 @@ export default function App() {
       setStartingLecture(false);
     }
   }
+
 
   function toggleExpanded(subId: number) {
     setExpandedSubIds((prev) => {
@@ -446,6 +448,7 @@ export default function App() {
 
   return (
     <>
+      <NavBar />
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <h1 id="page-title">{pageTitle}</h1>
@@ -454,11 +457,8 @@ export default function App() {
           <div id="stats">
             {!LECTURE_ID && !LOBBY_ID && `${subRows.length} submission${subRows.length === 1 ? "" : "s"}`}
           </div>
-          <HeaderNavLink href="index.html" style={{ fontSize: "0.85rem" }}>
-            &larr; Home
-          </HeaderNavLink>
           {!LECTURE_ID && !LOBBY_ID && (
-            <HeaderNavLink href="setup.html" style={{ fontSize: "0.85rem", marginLeft: "0.75rem" }}>
+            <HeaderNavLink href="setup.html" style={{ fontSize: "0.85rem" }}>
               Question setup &rarr;
             </HeaderNavLink>
           )}
@@ -754,7 +754,7 @@ export default function App() {
             <div className="card" id="carry-forward-card">
               <h2>Carry-forward discussion points</h2>
               <div className="hint" style={{ marginBottom: "0.75rem" }}>
-                Issues that came up on more than one task this lecture -- worth revisiting next time.
+                Issues that came up on more than one task this lecture, worth revisiting next time.
               </div>
               {summary && summary.carry_forward_discussion_points.length === 0 && (
                 <div className="summary-status">Nothing recurred across tasks.</div>

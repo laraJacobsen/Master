@@ -324,6 +324,25 @@ def api_lecturer_unarchive_lecture(lecture_id: int):
     return store.get_lecture_row(lecture_id)
 
 
+@app.delete("/api/lecturer/lectures/{lecture_id}")
+def api_lecturer_delete_lecture(lecture_id: int):
+    """Removes a lecture outright, for "created it, changed my mind before
+    starting it" -- distinct from archive, which is for a lecture that DID
+    happen and you just want out of the default view. Refused once any
+    question has gone live under it (same status-based rule delete_question
+    uses): at that point there's real history worth keeping, and archive is
+    the right tool instead."""
+    if not store.get_lecture_row(lecture_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    if store.questions_for_lecture(lecture_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a lecture once a question has started. Archive it instead.",
+        )
+    store.delete_lecture(lecture_id)
+    return {"deleted": True}
+
+
 @app.get("/api/lecturer/stats/totals")
 def api_lecturer_totals():
     """All-time totals line on the home dashboard: lectures run + total
@@ -464,7 +483,7 @@ def api_lecture_join(req: LectureJoinRequest):
         raise HTTPException(status_code=404, detail="No lecture is live right now.")
     if not active.get("lobby_opened_at"):
         raise HTTPException(
-            status_code=403, detail="This lecture hasn't been opened for joining yet -- check with your lecturer."
+            status_code=403, detail="This lecture hasn't been opened for joining yet. Check with your lecturer."
         )
     lecture = store.check_join_code(req.code)
     if not lecture:

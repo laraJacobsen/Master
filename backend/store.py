@@ -423,7 +423,7 @@ def start_question(question_id: str) -> None:
         ).fetchone()
         if not active:
             conn.close()
-            raise ValueError("No active lecture -- start one from the home dashboard first.")
+            raise ValueError("No active lecture. Start one from the home dashboard first.")
         if not active["lobby_opened_at"]:
             conn.close()
             raise ValueError("Open the lobby before starting the lecture.")
@@ -476,7 +476,7 @@ def _lecture_display_label(row: dict) -> str:
     if row.get("label"):
         return row["label"]
     started = datetime.strptime(row["started_at"], "%Y-%m-%d %H:%M:%S")
-    return f"Lecture -- {started.strftime('%b %d, %Y')}"
+    return f"Lecture on {started.strftime('%b %d, %Y')}"
 
 
 def _serialize_lecture(row: dict) -> dict:
@@ -646,6 +646,23 @@ def set_lecture_archived(lecture_id: int, value: bool) -> None:
     with _lock:
         conn = _connect()
         conn.execute("UPDATE lectures SET archived = ? WHERE id = ?", (1 if value else 0, lecture_id))
+        conn.commit()
+        conn.close()
+
+
+def delete_lecture(lecture_id: int) -> None:
+    """Removes a lecture outright -- callers (see main.py) are responsible
+    for confirming no question has ever gone live under it first, the same
+    division of responsibility as delete_question(). Safe as a hard delete
+    under that condition: a question only ever gets tagged with a
+    lecture_id at start_question() time, so no started question means no
+    submissions and nothing else in the app references this lecture. Also
+    clears its lecture_joins rows -- there's no submission data behind a
+    join, just "someone entered the lobby.\""""
+    with _lock:
+        conn = _connect()
+        conn.execute("DELETE FROM lecture_joins WHERE lecture_id = ?", (lecture_id,))
+        conn.execute("DELETE FROM lectures WHERE id = ?", (lecture_id,))
         conn.commit()
         conn.close()
 
