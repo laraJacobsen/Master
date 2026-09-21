@@ -27,15 +27,19 @@ to act on. That bucket gets sub-clustered by actual code similarity instead:
      (distance_threshold instead of n_clusters), so genuinely different bugs fall out as
      their own group -- including singletons -- rather than being forced into a fixed
      number of buckets.
-  3. Sub-clusters that clear MIN_STUDENTS_FOR_DISCUSSION get a live Ollama call, but a
-     narrowly scoped one: given 2-3 representative *canonicalized* snippets (never full
-     original source, never real names) from that one sub-cluster, and explicitly told to
-     describe only the pattern visible in ALL of them, never invent a cause true of less
-     than all. This is a different risk shape than the lecturer discussion-point call this
-     project removed twice before (see pedagogical-feedback-design-decision.md) -- that one
-     asked a model to explain a cause from a bare label with no evidence, which is exactly
-     what it couldn't do reliably. Here the model is shown real (anonymized) evidence and
-     asked to describe only what's shared across it, with a hard fallback to the generic
+  3. Sub-clusters that clear MIN_STUDENTS_FOR_DISCUSSION get a live LLM call (IDUN's
+     OpenAI-compatible gateway -- see https://www.hpc.ntnu.no/idun/documentation/
+     ai-coding-assistant-and-large-language-models-llms-on-idun/ -- rather than local
+     Ollama, so this doesn't sit on the laptop-latency/memory ceiling measured in
+     pedagogical-feedback-design-decision.md), but a narrowly scoped one: given 2-3
+     representative *canonicalized* snippets (never full original source, never real
+     names) from that one sub-cluster, and explicitly told to describe only the pattern
+     visible in ALL of them, never invent a cause true of less than all. This is a
+     different risk shape than the lecturer discussion-point call this project removed
+     twice before (see pedagogical-feedback-design-decision.md) -- that one asked a model
+     to explain a cause from a bare label with no evidence, which is exactly what it
+     couldn't do reliably. Here the model is shown real (anonymized) evidence and asked
+     to describe only what's shared across it, with a hard fallback to the generic
      wrong_answer line if it fails or won't hold the audience distinction either.
 
 This is genuinely unvalidated: the distance threshold below is a first guess, not tuned
@@ -144,8 +148,14 @@ WRONG_ANSWER_SUBCLUSTER_DISTANCE = 0.05
 # from -- see the 2026-09-16 fabrication finding in the module docstring.
 _MIN_TOKENS_FOR_PATTERN_CALL = 4
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+# IDUN's OpenAI-compatible LLM gateway (NTNU network/VPN required) -- see
+# https://www.hpc.ntnu.no/idun/documentation/ai-coding-assistant-and-large-language-models-llms-on-idun/.
+# Replaces the local-Ollama call this project started with: same evidence-grounded,
+# narrowly-scoped prompt (see the module docstring), just off the laptop-latency/
+# memory ceiling that motivated moving it off local Ollama in the first place.
+IDUN_BASE_URL = os.environ.get("IDUN_BASE_URL", "https://llm.hpc.ntnu.no/v1")
+IDUN_API_KEY = os.environ.get("IDUN_API_KEY")
+IDUN_MODEL = os.environ.get("IDUN_MODEL", "openai/gpt-oss-120b")
 
 WRONG_ANSWER_SUBCLUSTER_PROMPT = (
     "You are writing a short, factual note for a lecturer's own dashboard about a group "
@@ -247,32 +257,29 @@ def _representative_snippets(group: list, max_n: int = 3) -> list:
     return picked
 
 
-def _ollama_available() -> bool:
-    if not OLLAMA_MODEL:
-        return False
-    try:
-        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
-        resp.raise_for_status()
-        available = [m["name"] for m in resp.json().get("models", [])]
-    except Exception:
-        return False
-    return OLLAMA_MODEL in available
+def _idun_available() -> bool:
+    """No cheap unauthenticated health check like Ollama's /api/tags exists on the
+    IDUN gateway, so this just checks a key is configured -- an actual bad key or
+    unreachable network (off NTNU network/VPN) still surfaces as a request failure,
+    caught by _call_idun_subcluster_pattern's caller same as any other failure mode."""
+    return bool(IDUN_API_KEY)
 
 
-def _call_ollama_subcluster_pattern(snippets: list) -> str:
+def _call_idun_subcluster_pattern(snippets: list) -> str:
     """One JSON-mode call given 2-3 canonicalized snippets from one similarity
-    sub-cluster. Raises on network failure, invalid JSON, a response that doesn't
-    satisfy the schema, or second-person phrasing -- caller retries/falls back to
-    the generic wrong_answer line."""
+    sub-cluster, via IDUN's OpenAI-compatible chat-completions endpoint. Raises on
+    network failure, invalid JSON, a response that doesn't satisfy the schema, or
+    second-person phrasing -- caller retries/falls back to the generic wrong_answer
+    line."""
     prompt = "Snippets:\n\n" + "\n\n---\n\n".join(snippets) + (
         "\n\nRespond with the JSON object described in the system prompt."
     )
     resp = requests.post(
-        f"{OLLAMA_URL}/api/chat",
+        f"{IDUN_BASE_URL}/chat/completions",
+        headers={"Authorization": f"Bearer {IDUN_API_KEY}"},
         json={
-            "model": OLLAMA_MODEL,
-            "stream": False,
-            "format": "json",
+            "model": IDUN_MODEL,
+            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": WRONG_ANSWER_SUBCLUSTER_PROMPT},
                 {"role": "user", "content": prompt},
@@ -281,10 +288,10 @@ def _call_ollama_subcluster_pattern(snippets: list) -> str:
         timeout=60,
     )
     resp.raise_for_status()
-    parsed = json.loads(resp.json()["message"]["content"])
+    parsed = json.loads(resp.json()["choices"][0]["message"]["content"])
     point = parsed.get("discussion_point")
     if not isinstance(point, str) or not point.strip():
-        raise ValueError(f"missing discussion_point in Ollama response: {parsed!r}")
+        raise ValueError(f"missing discussion_point in IDUN response: {parsed!r}")
     point = point.strip()
     if _SECOND_PERSON_RE.search(point):
         raise ValueError(f"discussion_point addressed the student, not the lecturer: {point!r}")
@@ -303,16 +310,16 @@ def _subcluster_discussion_point(group: list, student_count: int):
     result = fallback
     snippets = _representative_snippets(group)
     trivial = any(len(s.split()) < _MIN_TOKENS_FOR_PATTERN_CALL for s in snippets)
-    if len(snippets) >= 2 and not trivial and _ollama_available():
+    if len(snippets) >= 2 and not trivial and _idun_available():
         t0 = time.monotonic()
         for _attempt in (1, 2):
             try:
-                result = _call_ollama_subcluster_pattern(snippets)
+                result = _call_idun_subcluster_pattern(snippets)
                 break
             except Exception:
                 continue
         logger.info(
-            "wrong_answer sub-cluster Ollama call: %d snippets, %.3fs, used_model=%s",
+            "wrong_answer sub-cluster IDUN call: %d snippets, %.3fs, used_model=%s",
             len(snippets), time.monotonic() - t0, result is not fallback,
         )
 
