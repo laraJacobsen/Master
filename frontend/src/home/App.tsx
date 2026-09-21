@@ -11,6 +11,7 @@ import {
 } from "../shared/api";
 import { activeLectureAction } from "../shared/lectureNav";
 import { NavBar } from "../shared/NavBar";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 // A short, aggregate-only snapshot -- total distinct-student submissions and
 // a correct-count, never a per-student breakdown (see the product decision
@@ -42,6 +43,7 @@ export default function App() {
   const [totals, setTotals] = useState<LectureTotals | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   function loadActive() {
     setActiveLoading(true);
@@ -97,9 +99,9 @@ export default function App() {
   // once a question's gone live there's real history, and the backend
   // itself refuses the delete at that point anyway (see
   // api_lecturer_delete_lecture in main.py).
-  async function handleDeleteLecture() {
+  async function confirmDeleteLecture() {
+    setConfirmDeleteOpen(false);
     if (!active?.lecture) return;
-    if (!window.confirm(`Delete "${active.lecture.display_label}"? This can't be undone.`)) return;
     setDeleting(true);
     setDeleteError(null);
     try {
@@ -159,7 +161,7 @@ export default function App() {
               )}
               <button onClick={handleResume}>{activeLectureAction(active).label}</button>
               {!active!.live_question_id && (
-                <button className="danger" onClick={handleDeleteLecture} disabled={deleting}>
+                <button className="danger" onClick={() => setConfirmDeleteOpen(true)} disabled={deleting}>
                   {deleting ? "Deleting..." : "Delete lecture"}
                 </button>
               )}
@@ -234,6 +236,13 @@ export default function App() {
           )}
         </div>
       </main>
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title="Delete lecture?"
+        message={`Delete "${active?.lecture?.display_label ?? ""}"? This can't be undone.`}
+        onConfirm={confirmDeleteLecture}
+        onCancel={() => setConfirmDeleteOpen(false)}
+      />
     </>
   );
 }

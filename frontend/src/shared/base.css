@@ -109,6 +109,37 @@ button.danger { background: var(--bad); }
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 /* Reusable entrance animation for cards -- stack with an inline
    animation-delay for a staggered effect where it's worth it. */
 .fade-in-up { animation: fade-in-up 0.45s ease-out both; }
+
+/* Confirm dialog (see shared/ConfirmDialog.tsx) -- replaces window.confirm()
+   on destructive actions (delete lecture/question) so it matches the rest
+   of the app instead of the browser's own unstyled prompt. */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 23, 45, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 100;
+  animation: fade-in 0.15s ease-out;
+}
+.confirm-dialog {
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  padding: 1.5rem;
+  max-width: 380px;
+  width: 100%;
+  animation: fade-in-up 0.2s ease-out both;
+}
+.confirm-dialog h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }
+.confirm-dialog p { margin: 0 0 1.25rem; color: var(--muted); font-size: 0.92rem; }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 0.6rem; }

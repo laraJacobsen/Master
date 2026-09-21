@@ -13,6 +13,7 @@ import {
   validateQuestion as validateQuestionApi,
 } from "../shared/api";
 import { NavBar } from "../shared/NavBar";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 interface TestCaseDraft {
   stdin: string;
@@ -65,6 +66,8 @@ export default function App() {
   const [deletingLecture, setDeletingLecture] = useState(false);
   const [deleteLectureError, setDeleteLectureError] = useState<string | null>(null);
   const [addingTestQuestions, setAddingTestQuestions] = useState(false);
+  const [confirmDeleteLectureOpen, setConfirmDeleteLectureOpen] = useState(false);
+  const [questionPendingDelete, setQuestionPendingDelete] = useState<QuestionRow | null>(null);
 
   const locked = currentStatus === "live";
 
@@ -109,9 +112,9 @@ export default function App() {
   // question starts, the backend itself refuses this (see
   // api_lecturer_delete_lecture in main.py), and archive is the right tool
   // instead.
-  async function handleDeleteLecture() {
+  async function confirmDeleteLecture() {
+    setConfirmDeleteLectureOpen(false);
     if (!activeLecture) return;
-    if (!window.confirm(`Delete "${activeLecture.display_label}"? This can't be undone.`)) return;
     setDeletingLecture(true);
     setDeleteLectureError(null);
     try {
@@ -123,9 +126,15 @@ export default function App() {
     }
   }
 
-  async function handleDeleteQuestion(q: QuestionRow, e: MouseEvent) {
+  function handleDeleteQuestion(q: QuestionRow, e: MouseEvent) {
     e.stopPropagation(); // don't also trigger the row's own onClick (load into form)
-    if (!window.confirm(`Delete "${q.title}"? This can't be undone.`)) return;
+    setQuestionPendingDelete(q);
+  }
+
+  async function confirmDeleteQuestion() {
+    const q = questionPendingDelete;
+    setQuestionPendingDelete(null);
+    if (!q) return;
     try {
       await deleteQuestionApi(q.id);
       if (currentId === q.id) resetForm();
@@ -387,7 +396,11 @@ export default function App() {
             )}
             {!liveQuestionId && (
               <div style={{ marginTop: "0.9rem" }}>
-                <button className="danger" onClick={handleDeleteLecture} disabled={deletingLecture}>
+                <button
+                  className="danger"
+                  onClick={() => setConfirmDeleteLectureOpen(true)}
+                  disabled={deletingLecture}
+                >
                   {deletingLecture ? "Deleting..." : "Delete lecture"}
                 </button>
                 {deleteLectureError && (
@@ -670,6 +683,20 @@ export default function App() {
           </div>
         </div>
       </main>
+      <ConfirmDialog
+        open={confirmDeleteLectureOpen}
+        title="Delete lecture?"
+        message={`Delete "${activeLecture?.display_label ?? ""}"? This can't be undone.`}
+        onConfirm={confirmDeleteLecture}
+        onCancel={() => setConfirmDeleteLectureOpen(false)}
+      />
+      <ConfirmDialog
+        open={questionPendingDelete != null}
+        title="Delete question?"
+        message={`Delete "${questionPendingDelete?.title ?? ""}"? This can't be undone.`}
+        onConfirm={confirmDeleteQuestion}
+        onCancel={() => setQuestionPendingDelete(null)}
+      />
     </>
   );
 }
