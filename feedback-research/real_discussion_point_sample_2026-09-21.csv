@@ -1,0 +1,335 @@
+id,exercise,student_count,raw_code_snippets,canonicalized_snippets_shown_to_model,discussion_point,is_grounded_y_n,is_lecturer_facing_y_n,is_actionable_y_n
+1,sum-ints,5,"nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)","VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) + 1 )
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) + 1 )
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) + 1 )","All snippets add ""+ 1"" to the result of the VAR5(...) call (i.e., they end with "") + 1"").",,,
+2,sum-ints,2,"nums = input().split()
+print(sum(int(n) for n in nums) - 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) - 1)","VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) - 1 )
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) - 1 )",All snippets subtract 1 from the result of VAR5(...).,,,
+3,sum-ints,4,"nums = input().split()
+print(sum(int(n) for n in nums[1:]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))","VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 [ 1 : ] ) )
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 [ : - 1 ] ) )
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 [ : - 1 ] ) )",All snippets apply a slice to VAR1 within a generator expression passed to VAR5.,,,
+4,sum-ints,2,"nums = input().split()
+print(int(nums[0]))
+
+---
+
+nums = input().split()
+print(int(nums[0]))","VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR1 [ 0 ] ) )
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 ( VAR5 ( VAR1 [ 0 ] ) )",The students' snippets both contain a space instead of a dot between the call to VAR3() and the subsequent call to VAR4(...).,,,
+5,sum-ints,2,"nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)
+
+---
+
+nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)","VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 = 1 for VAR5 in VAR1 : VAR4 *= VAR6 ( VAR5 ) VAR7 ( VAR4 )
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) VAR4 = 1 for VAR5 in VAR1 : VAR4 *= VAR6 ( VAR5 ) VAR7 ( VAR4 )",Both snippets contain a for-loop that updates VAR4 with the '*=' operator using the result of VAR6(VAR5).,,,
+6,double-it,2,"print(int(input()) + 2)
+
+---
+
+print(int(input()) + 2)","VAR1 ( VAR2 ( VAR3 ( ) ) + 2 )
+
+---
+
+VAR1 ( VAR2 ( VAR3 ( ) ) + 2 )",Both snippets add a literal +2 to the result of VAR2(VAR3()) within the call to VAR1.,,,
+7,double-it,2,"int = input()
+print(int*2)
+
+---
+
+int = input()
+print(int*2)","VAR1 = VAR2 ( ) VAR3 ( VAR1 * 2 )
+
+---
+
+VAR1 = VAR2 ( ) VAR3 ( VAR1 * 2 )","Both snippets place two function calls sequentially on the same line, separated only by a space and no operator or delimiter.",,,
+8,is_palindrome,2,"def is_palindrome(s):
+    t = s.replace("" "", """")  # forgot to lowercase
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.replace("" "", """")  # forgot to lowercase
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+","def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( "" "" , """" ) return VAR3 == VAR3 [ : : - 1 ] VAR2 = VAR5 ( ) VAR6 ( VAR1 ( VAR2 ) )
+
+---
+
+def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( "" "" , """" ) return VAR3 == VAR3 [ : : - 1 ] VAR2 = VAR5 ( ) VAR6 ( VAR1 ( VAR2 ) )","Both snippets include a return statement that compares a variable to its slice with a negative step (e.g., VAR3 == VAR3[:: -1]).",,,
+9,is_palindrome,2,"def is_palindrome(s):
+    t = s.lower()  # forgot to strip spaces
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.lower()  # forgot to strip spaces
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+","def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) return VAR3 == VAR3 [ : : - 1 ] VAR2 = VAR5 ( ) VAR6 ( VAR1 ( VAR2 ) )
+
+---
+
+def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) return VAR3 == VAR3 [ : : - 1 ] VAR2 = VAR5 ( ) VAR6 ( VAR1 ( VAR2 ) )","All snippets contain a return statement that compares a variable to its slice with a step of -1 (e.g., VAR3 == VAR3[:: -1]).",,,
+10,is_palindrome,2,"def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:  # off-by-one: should be n - i - 1
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:  # off-by-one: should be n - i - 1
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+","def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) . VAR5 ( "" "" , """" ) VAR6 = VAR7 ( VAR3 ) for VAR8 in VAR9 ( VAR6 // 2 ) : if VAR3 [ VAR8 ] != VAR3 [ VAR6 - VAR8 - 2 ] : return False return True VAR2 = VAR10 ( ) VAR11 ( VAR1 ( VAR2 ) )
+
+---
+
+def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) . VAR5 ( "" "" , """" ) VAR6 = VAR7 ( VAR3 ) for VAR8 in VAR9 ( VAR6 // 2 ) : if VAR3 [ VAR8 ] != VAR3 [ VAR6 - VAR8 - 2 ] : return False return True VAR2 = VAR10 ( ) VAR11 ( VAR1 ( VAR2 ) )",Both snippets iterate over VAR9(VAR6 // 2) and compare VAR3[VAR8] with VAR3[VAR6 - VAR8 - 2] inside the loop.,,,
+11,count_vowels,2,"def count_vowels(s):
+    vowels = ""aeiou""  # forgot to lowercase s first
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    vowels = ""aeiou""  # forgot to lowercase s first
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def VAR1 ( VAR2 ) : VAR3 = ""aeiou"" VAR4 = 0 for VAR5 in VAR2 : if VAR5 in VAR3 : VAR4 += 1 return VAR4 VAR2 = VAR6 ( ) VAR7 ( VAR1 ( VAR2 ) )
+
+---
+
+def VAR1 ( VAR2 ) : VAR3 = ""aeiou"" VAR4 = 0 for VAR5 in VAR2 : if VAR5 in VAR3 : VAR4 += 1 return VAR4 VAR2 = VAR6 ( ) VAR7 ( VAR1 ( VAR2 ) )","Both snippets contain a for-loop iterating over VAR2 with an if-statement checking whether the loop variable is in the string ""aeiou"".",,,
+12,count_vowels,2,"def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""  # bug: y isn't a vowel
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""  # bug: y isn't a vowel
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) VAR5 = ""aeiouy"" VAR6 = 0 for VAR7 in VAR3 : if VAR7 in VAR5 : VAR6 += 1 return VAR6 VAR2 = VAR8 ( ) VAR9 ( VAR1 ( VAR2 ) )
+
+---
+
+def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) VAR5 = ""aeiouy"" VAR6 = 0 for VAR7 in VAR3 : if VAR7 in VAR5 : VAR6 += 1 return VAR6 VAR2 = VAR8 ( ) VAR9 ( VAR1 ( VAR2 ) )",Both snippets contain a for loop that iterates over VAR3 and increments VAR6 whenever an element is found in the string VAR5 ('aeiouy').,,,
+13,count_vowels,2,"def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):  # off-by-one: skips the last character
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):  # off-by-one: skips the last character
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) VAR5 = ""aeiou"" VAR6 = 0 for VAR7 in VAR8 ( VAR9 ( VAR3 ) - 1 ) : if VAR3 [ VAR7 ] in VAR5 : VAR6 += 1 return VAR6 VAR2 = VAR10 ( ) VAR11 ( VAR1 ( VAR2 ) )
+
+---
+
+def VAR1 ( VAR2 ) : VAR3 = VAR2 . VAR4 ( ) VAR5 = ""aeiou"" VAR6 = 0 for VAR7 in VAR8 ( VAR9 ( VAR3 ) - 1 ) : if VAR3 [ VAR7 ] in VAR5 : VAR6 += 1 return VAR6 VAR2 = VAR10 ( ) VAR11 ( VAR1 ( VAR2 ) )",All snippets contain a for loop that iterates over VAR8(VAR9(VAR3) - 1).,,,
+14,second_largest,2,"def second_largest(nums):
+    s = sorted(nums, reverse=True)  # no dedup: picks second position, not second distinct value
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    s = sorted(nums, reverse=True)  # no dedup: picks second position, not second distinct value
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR2 , VAR5 = True ) return VAR3 [ 1 ] VAR2 = [ VAR6 ( VAR7 ) for VAR7 in VAR8 ( ) . VAR9 ( ) ] VAR10 ( VAR1 ( VAR2 ) )
+
+---
+
+def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR2 , VAR5 = True ) return VAR3 [ 1 ] VAR2 = [ VAR6 ( VAR7 ) for VAR7 in VAR8 ( ) . VAR9 ( ) ] VAR10 ( VAR1 ( VAR2 ) )",Each snippet calls VAR4 with the keyword argument VAR5 set to True.,,,
+15,second_largest,2,"def second_largest(nums):
+    s = sorted(set(nums))  # ascending, not descending
+    return s[1]  # grabs second-smallest distinct instead of second-largest
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    s = sorted(set(nums))  # ascending, not descending
+    return s[1]  # grabs second-smallest distinct instead of second-largest
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR5 ( VAR2 ) ) return VAR3 [ 1 ] VAR2 = [ VAR6 ( VAR7 ) for VAR7 in VAR8 ( ) . VAR9 ( ) ] VAR10 ( VAR1 ( VAR2 ) )
+
+---
+
+def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR5 ( VAR2 ) ) return VAR3 [ 1 ] VAR2 = [ VAR6 ( VAR7 ) for VAR7 in VAR8 ( ) . VAR9 ( ) ] VAR10 ( VAR1 ( VAR2 ) )",The students' snippets both return the element at index 1 of VAR3.,,,
+16,second_largest,2,"def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:  # bug: should be n > second
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:  # bug: should be n > second
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR2 ) VAR5 = None for VAR6 in VAR2 : if VAR6 != VAR3 : if VAR5 is None or VAR6 < VAR5 : VAR5 = VAR6 return VAR5 VAR2 = [ VAR7 ( VAR8 ) for VAR8 in VAR9 ( ) . VAR10 ( ) ] VAR11 ( VAR1 ( VAR2 ) )
+
+---
+
+def VAR1 ( VAR2 ) : VAR3 = VAR4 ( VAR2 ) VAR5 = None for VAR6 in VAR2 : if VAR6 != VAR3 : if VAR5 is None or VAR6 < VAR5 : VAR5 = VAR6 return VAR5 VAR2 = [ VAR7 ( VAR8 ) for VAR8 in VAR9 ( ) . VAR10 ( ) ] VAR11 ( VAR1 ( VAR2 ) )",Both snippets initialize VAR5 to None before iterating over VAR2 in a for‑loop.,,,

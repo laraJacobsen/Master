@@ -164,6 +164,7 @@ import re
 import time
 import tokenize
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from sklearn.cluster import AgglomerativeClustering
@@ -190,6 +191,12 @@ WRONG_ANSWER_SUBCLUSTER_DISTANCE = 0.05
 # Below this many canonicalized tokens there's nothing real to describe a pattern
 # from -- see the 2026-09-16 fabrication finding in the module docstring.
 _MIN_TOKENS_FOR_PATTERN_CALL = 4
+
+# Per-sub-cluster Label (IDUN) calls are independent of each other -- see
+# _generate_subcluster_labels() -- so they're run concurrently rather than one at a
+# time. Capped rather than unbounded so a lecture with many simultaneous sub-clusters
+# doesn't fire an unbounded burst of requests at the gateway at once.
+_MAX_PARALLEL_LABEL_CALLS = 8
 
 # IDUN's OpenAI-compatible LLM gateway (NTNU network/VPN required) -- see
 # https://www.hpc.ntnu.no/idun/documentation/ai-coding-assistant-and-large-language-models-llms-on-idun/.
@@ -413,17 +420,63 @@ def _distinct_student_submission_ids(rows: list) -> list:
     return ids
 
 
+def _generate_subcluster_labels(groups_with_counts: list) -> list:
+    """Returns one discussion_point (or None, below MIN_STUDENTS_FOR_DISCUSSION) per
+    (group, student_count) in `groups_with_counts`, same order in.
+
+    Sub-clusters are independent of each other -- often from different questions
+    entirely, and even within one question a bug shape in one sub-cluster has
+    nothing to do with another's -- so their Label (IDUN) calls have no reason to
+    wait on each other. Earlier this was a plain sequential loop, one IDUN call
+    at a time; on a question with several sub-clusters clearing the discussion
+    threshold at once, that serialized N single-call latencies (each a real,
+    multi-second network round trip -- see the module docstring's latency
+    measurements) into one N-times-longer wait before a lecturer's dashboard could
+    show any of them. Below-threshold groups cost nothing extra here --
+    _subcluster_discussion_point() returns None immediately without a thread or a
+    network call.
+    """
+    results = [None] * len(groups_with_counts)
+    pending = {
+        i: (group, student_count)
+        for i, (group, student_count) in enumerate(groups_with_counts)
+        if student_count >= MIN_STUDENTS_FOR_DISCUSSION
+    }
+    if not pending:
+        return results
+
+    t0 = time.monotonic()
+    with ThreadPoolExecutor(max_workers=min(len(pending), _MAX_PARALLEL_LABEL_CALLS)) as pool:
+        futures = {
+            pool.submit(_subcluster_discussion_point, group, student_count): i
+            for i, (group, student_count) in pending.items()
+        }
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()
+    logger.info(
+        "wrong_answer sub-cluster Label calls: %d sub-cluster(s), %.3fs wall-clock "
+        "(parallel, max_workers=%d)",
+        len(pending), time.monotonic() - t0, min(len(pending), _MAX_PARALLEL_LABEL_CALLS),
+    )
+    return results
+
+
 def _wrong_answer_subclusters(members: list) -> list:
     """Sub-clusters one exec_verdict=="wrong_answer" bucket by divergence from the
     exercise's own reference solution, scoped per question_id first -- comparing
     code across different exercises would be meaningless, and each question_id has
     its own reference_solution to diff against. Returns cluster dicts in the same
-    shape cluster_submissions() uses for every other category."""
-    result = []
+    shape cluster_submissions() uses for every other category.
+
+    Clustering itself stays per-question (a diff-against-reference signal is
+    meaningless across different exercises), but the resulting sub-clusters' Label
+    calls are gathered across ALL questions in `members` and dispatched together via
+    _generate_subcluster_labels() -- see that function's docstring for why."""
     by_question = defaultdict(list)
     for row in members:
         by_question[row["question_id"]].append(row)
 
+    all_groups = []
     for question_id, rows in by_question.items():
         question = store.get_question_row(question_id)
         reference_solution = question.get("reference_solution") if question else None
@@ -445,19 +498,26 @@ def _wrong_answer_subclusters(members: list) -> list:
                 "wrong_answer diff+cluster: question=%s, %d submissions -> %d groups, %.3fs",
                 question_id, len(rows), len(groups), time.monotonic() - t0,
             )
-        for group in groups:
-            student_count = len({m["student_name"] for m in group})
-            example = group[0]
-            result.append(
-                {
-                    "exec_verdict": "wrong_answer",
-                    "error_type": None,
-                    "count": student_count,
-                    "example_submission_id": example["id"],
-                    "submission_ids": _distinct_student_submission_ids(group),
-                    "discussion_point": _subcluster_discussion_point(group, student_count),
-                }
-            )
+        all_groups.extend(groups)
+
+    groups_with_counts = [
+        (group, len({m["student_name"] for m in group})) for group in all_groups
+    ]
+    labels = _generate_subcluster_labels(groups_with_counts)
+
+    result = []
+    for group, (_group_again, student_count), discussion_point in zip(all_groups, groups_with_counts, labels):
+        example = group[0]
+        result.append(
+            {
+                "exec_verdict": "wrong_answer",
+                "error_type": None,
+                "count": student_count,
+                "example_submission_id": example["id"],
+                "submission_ids": _distinct_student_submission_ids(group),
+                "discussion_point": discussion_point,
+            }
+        )
     return result
 
 
