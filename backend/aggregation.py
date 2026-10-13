@@ -27,15 +27,19 @@ to act on. That bucket gets sub-clustered by actual code similarity instead:
      (distance_threshold instead of n_clusters), so genuinely different bugs fall out as
      their own group -- including singletons -- rather than being forced into a fixed
      number of buckets.
-  3. Sub-clusters that clear MIN_STUDENTS_FOR_DISCUSSION get a live Ollama call, but a
-     narrowly scoped one: given 2-3 representative *canonicalized* snippets (never full
-     original source, never real names) from that one sub-cluster, and explicitly told to
-     describe only the pattern visible in ALL of them, never invent a cause true of less
-     than all. This is a different risk shape than the lecturer discussion-point call this
-     project removed twice before (see pedagogical-feedback-design-decision.md) -- that one
-     asked a model to explain a cause from a bare label with no evidence, which is exactly
-     what it couldn't do reliably. Here the model is shown real (anonymized) evidence and
-     asked to describe only what's shared across it, with a hard fallback to the generic
+  3. Sub-clusters that clear MIN_STUDENTS_FOR_DISCUSSION get a live LLM call (IDUN's
+     OpenAI-compatible gateway -- see https://www.hpc.ntnu.no/idun/documentation/
+     ai-coding-assistant-and-large-language-models-llms-on-idun/ -- rather than local
+     Ollama, so this doesn't sit on the laptop-latency/memory ceiling measured in
+     pedagogical-feedback-design-decision.md), but a narrowly scoped one: given 2-3
+     representative snippets (comments stripped, never student names -- canonicalized
+     VARn form until 2026-10-13, see the entry at the end) from that one sub-cluster, and explicitly told to describe only the pattern
+     visible in ALL of them, never invent a cause true of less than all. This is a
+     different risk shape than the lecturer discussion-point call this project removed
+     twice before (see pedagogical-feedback-design-decision.md) -- that one asked a model
+     to explain a cause from a bare label with no evidence, which is exactly what it
+     couldn't do reliably. Here the model is shown real (anonymized) evidence and asked
+     to describe only what's shared across it, with a hard fallback to the generic
      wrong_answer line if it fails or won't hold the audience distinction either.
 
 This is genuinely unvalidated: the distance threshold below is a first guess, not tuned
@@ -106,8 +110,61 @@ mitigated, still unvalidated overall.
 
 None of this replaces the human/expert checkpoint -- it removes two concrete, reproduced
 failure modes, not the general risk the checkpoint exists to catch.
+
+2026-09-21, signal swap based on labeled ground truth (see feedback-research/
+subcluster_ground_truth_sample.csv -- 29 real wrong_answer submissions across 3
+exercises, hand-labeled into bug groups -- and feedback-research/run_tfidf_baseline.py/
+run_diff_baseline.py, which score any clustering against it with adjusted Rand index +
+pairwise precision/recall). Per the module docstring above, WRONG_ANSWER_SUBCLUSTER_DISTANCE
+was always a first guess, not tuned against labeled data -- this is the first real score:
+at the threshold above (0.05), raw-canonicalized-code TF-IDF scored mean ARI 0.579, and
+is_palindrome specifically scored 0.000 (two genuinely different bugs -- missing .lower(),
+missing space-stripping -- still merged into one cluster, in production, today).
+
+Root cause isn't the threshold: TF-IDF over raw canonicalized code is measuring code
+*shape*, but the ground truth is grouped by code *behavior* (what's actually wrong), and a
+short exercise's shared boilerplate (the function signature, the input()/print() shell)
+dominates the vector regardless of threshold -- this is the same boilerplate-dominance
+problem the 2026-09-16 finding above already diagnosed, just not fully solved by retuning
+alone. Swapped the input representation instead: each submission is now represented by its
+diff against the exercise's own reference_solution (both sides canonicalized first, same
+_canonicalize() as before, so identifier naming still doesn't matter), rather than by its
+own raw canonicalized code. Boilerplate shared with the reference solution -- which is most
+of a short exercise -- now contributes exactly zero signal, by construction, instead of
+merely being down-weighted by TF-IDF's document-frequency term.
+
+Rescored against the same ground truth at the same threshold (0.05): mean ARI 0.579 -> 0.899,
+is_palindrome 0.000 -> 1.000, with no regression on the other two exercises. This was a
+one-variable change -- WRONG_ANSWER_SUBCLUSTER_DISTANCE, linkage, and token_pattern are all
+unchanged from the 2026-09-16 retune, only _cluster_by_similarity()'s input representation
+differs. See feedback-research/run_diff_baseline.py for the full threshold-sweep results this
+was chosen from (diff-against-reference stays well above the TF-IDF baseline across
+0.02-0.30, not just at 0.05).
+
+This does NOT close every gap: feedback-research/double-it-shape-vs-behavior-limitation-2026-09-21.md
+documents a case (three structurally different one-line edits that all diverge from the
+reference *differently* but happen to print identical output) that no code-similarity or
+code-diff signal can group correctly -- doing so would require an output/behavior-based
+signal (actually running submissions against sample inputs) instead. Treated as a documented
+methodological limitation, not an open bug to chase with this signal.
+
+Discussion-point generation (_subcluster_discussion_point() / the IDUN call below) is
+UNCHANGED by this: it still shows the LLM raw canonicalized code snippets, not diff tokens --
+that step's own known issues (see the fabrication/over-generalization findings above) are
+tracked separately and weren't touched here.
+
+2026-10-13, Label call shown real code instead of canonicalized code. Round 3 of the real
+discussion-point spot-check (feedback-research/real_discussion_point_sample_2026-09-21_round3.csv)
+rated all 16 rows lecturer-facing, but 9 only partially grounded -- every one of them because
+_canonicalize() renames builtins and methods along with the students' own names, so the model
+could only describe a missing .replace(" ", "") as "the subsequent method call that takes the
+two string literals". The Label call now gets each snippet and the reference solution as written
+by the student, minus comments (_strip_comments()). Clustering is untouched: it still diffs
+canonicalized code, which is where name-independence actually matters. The VARn/STMT_BREAK leak
+backstop added in round 3 was removed along with the placeholders it guarded against.
 """
 
+import difflib
 import io
 import json
 import keyword
@@ -117,6 +174,7 @@ import re
 import time
 import tokenize
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from sklearn.cluster import AgglomerativeClustering
@@ -144,21 +202,42 @@ WRONG_ANSWER_SUBCLUSTER_DISTANCE = 0.05
 # from -- see the 2026-09-16 fabrication finding in the module docstring.
 _MIN_TOKENS_FOR_PATTERN_CALL = 4
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+# Per-sub-cluster Label (IDUN) calls are independent of each other -- see
+# _generate_subcluster_labels() -- so they're run concurrently rather than one at a
+# time. Capped rather than unbounded so a lecture with many simultaneous sub-clusters
+# doesn't fire an unbounded burst of requests at the gateway at once.
+_MAX_PARALLEL_LABEL_CALLS = 8
+
+# IDUN's OpenAI-compatible LLM gateway (NTNU network/VPN required) -- see
+# https://www.hpc.ntnu.no/idun/documentation/ai-coding-assistant-and-large-language-models-llms-on-idun/.
+# Replaces the local-Ollama call this project started with: same evidence-grounded,
+# narrowly-scoped prompt (see the module docstring), just off the laptop-latency/
+# memory ceiling that motivated moving it off local Ollama in the first place.
+IDUN_BASE_URL = os.environ.get("IDUN_BASE_URL", "https://llm.hpc.ntnu.no/v1")
+IDUN_API_KEY = os.environ.get("IDUN_API_KEY")
+IDUN_MODEL = os.environ.get("IDUN_MODEL", "openai/gpt-oss-120b")
 
 WRONG_ANSWER_SUBCLUSTER_PROMPT = (
     "You are writing a short, factual note for a lecturer's own dashboard about a group "
     "of students whose code produced the wrong output on the same exercise. You are given "
-    "2-3 anonymized code snippets -- every variable, function, and parameter name has "
-    "been replaced with VAR1, VAR2, etc. in order of first appearance in each snippet, so "
-    "you cannot know what anything is actually called or what the exercise even is.\n"
+    "2-3 of those students' code snippets (comments removed). Different students may use "
+    "different variable names for the same thing. You may also be given the exercise's own "
+    "reference (correct) solution -- it is for context only, never one of the snippets to "
+    "describe.\n"
     "Describe, in ONE short factual sentence, only the pattern that is visibly shared "
-    "across ALL of the given snippets -- e.g. a specific operator, an off-by-one style "
-    "adjustment, a missing or extra call, a particular loop or condition shape. Do not "
-    "name or guess a specific bug, variable purpose, or root cause unless it is literally "
-    "visible in every snippet shown. If the snippets don't share an obvious concrete "
-    "pattern, say plainly that they don't rather than inventing one.\n"
+    "across ALL of the given snippets AND, when a reference solution is shown, is "
+    "actually DIFFERENT from it -- e.g. a specific operator, an off-by-one style "
+    "adjustment, a missing or extra call, a particular loop or condition shape. Code the "
+    "snippets share with the reference solution is normal, correct code, not the bug -- "
+    "never describe it as if it were the shared pattern, even if it looks distinctive. "
+    "Name the specific function, method, argument, literal, or operator involved (e.g. "
+    "'call .lower()', 'pass reverse=True to sorted()', 'use range(len(t) - 1)') rather than "
+    "describing it abstractly. Do not guess a root cause or what the students intended "
+    "unless it is literally visible in every snippet shown. If the snippets don't share an "
+    "obvious concrete pattern that differs from the reference, say plainly that they don't "
+    "rather than inventing one.\n"
+    "Only refer to a variable by name if every snippet uses that same name; otherwise "
+    "describe what it holds (e.g. 'the lowercased string').\n"
     "Write in third person, for the lecturer, about the students -- never 'you' or "
     "'your'.\n"
     "Respond with ONLY a JSON object with exactly this key:\n"
@@ -171,6 +250,11 @@ _SECOND_PERSON_RE = re.compile(r"\byou\b|\byour\b|\byou're\b|\byours\b", re.IGNO
 _discussion_cache = {}  # (question_id, exec_verdict, error_type) -> str or None
 _subcluster_discussion_cache = {}  # frozenset(submission ids) -> str or None
 
+# Placeholder for a stripped tokenize.NEWLINE (end of a logical statement) -- see
+# _canonicalize()'s docstring for why this can't just be dropped like NL/INDENT/
+# DEDENT/etc. are. Unambiguous against real Python tokens (not a valid identifier
+# or operator), so it can't collide with anything _canonicalize() also emits.
+_STMT_BREAK = "STMT_BREAK"
 
 def _canonicalize(source_code: str) -> str:
     """Renames every non-keyword identifier to VAR1/VAR2/... in order of first
@@ -179,6 +263,24 @@ def _canonicalize(source_code: str) -> str:
     to the raw source if it can't be tokenized -- defensive only, since wrong_answer
     by definition means the code ran without crashing, so a tokenize failure here
     would be unexpected.
+
+    Every tokenize.NEWLINE (end of a logical statement) becomes a literal
+    _STMT_BREAK token rather than being dropped silently. Found 2026-09-21 via a
+    real Label-step spot-check: dropping NEWLINE with no placeholder means two
+    adjacent statements on separate lines collapse into one space-joined token run
+    indistinguishable from a single expression -- e.g. "nums = input().split()" +
+    "print(int(nums[0]))" canonicalizes (without this marker) to a token stream
+    where the only thing between the two statements is a bare space, the exact same
+    shape a real missing-`.`-between-two-chained-calls bug would produce. The LLM
+    Label call, given only that token stream, fabricated exactly that: a "space
+    instead of a dot" / "two calls on the same line" bug that was never in the
+    source, on two separate real generated-sample rows (independently, same root
+    cause). NL (a non-logical newline -- blank lines, comments, or line
+    continuations inside brackets) is deliberately NOT marked: unlike NEWLINE, NL
+    can occur in the *middle* of one still-open logical statement (see
+    tokenize's own behavior on e.g. "x = (\\n    1 +\\n    2\\n)"), so marking it
+    would fabricate a false statement boundary inside a single expression --
+    trading one join-collision bug for the opposite one.
     """
     mapping = {}
     next_id = 1
@@ -190,8 +292,10 @@ def _canonicalize(source_code: str) -> str:
                     mapping[tok.string] = f"VAR{next_id}"
                     next_id += 1
                 out.append(mapping[tok.string])
+            elif tok.type == tokenize.NEWLINE:
+                out.append(_STMT_BREAK)
             elif tok.type in (
-                tokenize.NEWLINE, tokenize.NL, tokenize.INDENT, tokenize.DEDENT,
+                tokenize.NL, tokenize.INDENT, tokenize.DEDENT,
                 tokenize.ENCODING, tokenize.ENDMARKER, tokenize.COMMENT,
             ):
                 continue
@@ -202,17 +306,71 @@ def _canonicalize(source_code: str) -> str:
         return source_code
 
 
-def _cluster_by_similarity(rows: list) -> list:
-    """Groups submissions by code similarity: canonicalize identifiers, TF-IDF the
-    result, agglomerative-cluster on cosine distance with no fixed k. Returns a list
-    of groups (each a list of rows); a group of size 1 is a natural outlier, not an
-    error."""
+def _strip_comments(source_code: str) -> str:
+    """The student's own code, minus comments -- what the Label call is shown
+    (see _call_idun_subcluster_pattern's docstring for why that's no longer the
+    _canonicalize() form). Comments are dropped because they can state the bug
+    outright (the research corpora's "# forgot to lowercase" annotations would hand
+    the model the answer) and are the one free-text field in a submission that
+    could carry anything personal. Lines left empty by removing a whole-line comment
+    are dropped too; everything else -- names, layout, indentation -- is unchanged.
+    Falls back to the raw source if it can't be tokenized, same as _canonicalize()."""
+    try:
+        comments = [
+            tok for tok in tokenize.generate_tokens(io.StringIO(source_code).readline)
+            if tok.type == tokenize.COMMENT
+        ]
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return source_code
+    lines = source_code.splitlines()
+    comment_only = set()
+    for tok in comments:
+        row, col = tok.start[0] - 1, tok.start[1]
+        lines[row] = lines[row][:col].rstrip()
+        if not lines[row].strip():
+            comment_only.add(row)
+    return "\n".join(line for i, line in enumerate(lines) if i not in comment_only)
+
+
+def _diff_tokens(reference_solution: str, source_code: str) -> str:
+    """Tagged, space-joined sequence of the tokens that differ between
+    `source_code` and `reference_solution`, both canonicalized first via
+    _canonicalize() -- so identifier naming doesn't matter on either side, same as
+    the raw-code TF-IDF this replaced. Tokens common to both (shared boilerplate --
+    the function signature, the input()/print() shell) are dropped entirely rather
+    than merely down-weighted; the rest are tagged DEL: (present in the reference,
+    missing from the submission) or INS: (present in the submission, not in the
+    reference) so a deletion and an insertion of the same token don't collide. See
+    the 2026-09-21 finding in the module docstring for why this replaced diffing
+    against nothing (i.e. plain TF-IDF over the submission's own code)."""
+    ref_tokens = _canonicalize(reference_solution).split()
+    sub_tokens = _canonicalize(source_code).split()
+    matcher = difflib.SequenceMatcher(None, ref_tokens, sub_tokens, autojunk=False)
+
+    parts = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if tag in ("delete", "replace"):
+            parts.extend(f"DEL:{t}" for t in ref_tokens[i1:i2])
+        if tag in ("insert", "replace"):
+            parts.extend(f"INS:{t}" for t in sub_tokens[j1:j2])
+    return " ".join(parts)
+
+
+def _cluster_by_similarity(rows: list, reference_solution: str) -> list:
+    """Groups submissions by how they diverge from the exercise's reference
+    solution (see the 2026-09-21 finding in the module docstring for why this
+    replaced clustering on each submission's own raw code): represent each row by
+    its diff-against-reference tokens (_diff_tokens()), TF-IDF that, agglomerative-
+    cluster on cosine distance with no fixed k. Returns a list of groups (each a
+    list of rows); a group of size 1 is a natural outlier, not an error."""
     if len(rows) < 2:
         return [[r] for r in rows]
 
-    canon = [_canonicalize(r["source_code"]) for r in rows]
+    diffs = [_diff_tokens(reference_solution, r["source_code"]) for r in rows]
     try:
-        matrix = TfidfVectorizer(token_pattern=_TOKEN_PATTERN).fit_transform(canon)
+        matrix = TfidfVectorizer(token_pattern=_TOKEN_PATTERN).fit_transform(diffs)
     except ValueError:
         return [[r] for r in rows]  # empty vocabulary -- nothing to compare on
     if matrix.shape[1] == 0:
@@ -232,47 +390,75 @@ def _cluster_by_similarity(rows: list) -> list:
 
 
 def _representative_snippets(group: list, max_n: int = 3) -> list:
-    """Up to max_n canonicalized snippets from distinct students in this group, for
-    the Ollama call -- never the full group (keeps the call cheap and the model from
-    over-indexing on one student's resubmissions)."""
+    """Up to max_n comment-stripped snippets (_strip_comments()) from distinct
+    students in this group, for the Label call -- never the full group (keeps the
+    call cheap and the model from over-indexing on one student's resubmissions)."""
     seen_students = set()
     picked = []
     for row in group:
         if row["student_name"] in seen_students:
             continue
         seen_students.add(row["student_name"])
-        picked.append(_canonicalize(row["source_code"]))
+        picked.append(_strip_comments(row["source_code"]))
         if len(picked) >= max_n:
             break
     return picked
 
 
-def _ollama_available() -> bool:
-    if not OLLAMA_MODEL:
-        return False
-    try:
-        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
-        resp.raise_for_status()
-        available = [m["name"] for m in resp.json().get("models", [])]
-    except Exception:
-        return False
-    return OLLAMA_MODEL in available
+def _idun_available() -> bool:
+    """No cheap unauthenticated health check like Ollama's /api/tags exists on the
+    IDUN gateway, so this just checks a key is configured -- an actual bad key or
+    unreachable network (off NTNU network/VPN) still surfaces as a request failure,
+    caught by _call_idun_subcluster_pattern's caller same as any other failure mode."""
+    return bool(IDUN_API_KEY)
 
 
-def _call_ollama_subcluster_pattern(snippets: list) -> str:
-    """One JSON-mode call given 2-3 canonicalized snippets from one similarity
-    sub-cluster. Raises on network failure, invalid JSON, a response that doesn't
-    satisfy the schema, or second-person phrasing -- caller retries/falls back to
-    the generic wrong_answer line."""
-    prompt = "Snippets:\n\n" + "\n\n---\n\n".join(snippets) + (
-        "\n\nRespond with the JSON object described in the system prompt."
-    )
+def _call_idun_subcluster_pattern(snippets: list, reference_solution: str = None) -> str:
+    """One JSON-mode call given 2-3 comment-stripped snippets from one similarity
+    sub-cluster, via IDUN's OpenAI-compatible chat-completions endpoint. Raises on
+    network failure, invalid JSON, a response that doesn't satisfy the schema, or
+    second-person phrasing -- caller retries/falls back to the generic wrong_answer
+    line.
+
+    `reference_solution` -- the exercise's own reference solution, comment-stripped
+    the same way as `snippets` -- is optional context, not a snippet to describe
+    (see WRONG_ANSWER_SUBCLUSTER_PROMPT). Added 2026-09-21 after a real spot-check
+    found the model repeatedly restating structure the submissions share with the
+    CORRECT solution as if it were the shared bug (e.g. "both compare a variable to
+    its reversed slice" on an is_palindrome case where that comparison is also in
+    the reference solution -- the actual bug was a missing .lower() call). Without
+    ever seeing the reference, the model had no way to tell normal/correct code from
+    the actual divergence. Deliberately NOT the diff-tokens representation
+    _cluster_by_similarity() already computes for clustering: that representation
+    numbers variables independently per snippet, so a single real difference before
+    a shared call cascades into a run of spurious DEL/INS pairs from pure
+    renumbering -- fine for a TF-IDF vectorizer (order/coherence don't matter to
+    it), unreadable as a prompt.
+
+    Changed 2026-10-13: snippets and reference are the students' real code (comments
+    stripped), no longer _canonicalize()'s VARn token stream. Round 3's spot-check
+    rated 9 of 16 rows only partially grounded, all for one reason: canonicalization
+    renames builtins and methods too (lower, replace, sorted, reverse, int), so the
+    model could see THAT something differed but not WHAT -- "omits the subsequent
+    method call that takes the two string literals" for a missing .replace(" ", ""),
+    "without the keyword argument set to True" for a missing reverse=True. Anonymizing
+    names is what clustering needs (two students' different variable names mustn't
+    split identical code); it was never a requirement of the Label call, just
+    inherited from reusing the clustering input. Student names are still never sent."""
+    parts = []
+    if reference_solution:
+        parts.append(
+            "Reference (correct) solution -- for context only, not one of the "
+            "snippets to describe:\n\n" + reference_solution
+        )
+    parts.append("Snippets:\n\n" + "\n\n---\n\n".join(snippets))
+    prompt = "\n\n".join(parts) + "\n\nRespond with the JSON object described in the system prompt."
     resp = requests.post(
-        f"{OLLAMA_URL}/api/chat",
+        f"{IDUN_BASE_URL}/chat/completions",
+        headers={"Authorization": f"Bearer {IDUN_API_KEY}"},
         json={
-            "model": OLLAMA_MODEL,
-            "stream": False,
-            "format": "json",
+            "model": IDUN_MODEL,
+            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": WRONG_ANSWER_SUBCLUSTER_PROMPT},
                 {"role": "user", "content": prompt},
@@ -281,17 +467,23 @@ def _call_ollama_subcluster_pattern(snippets: list) -> str:
         timeout=60,
     )
     resp.raise_for_status()
-    parsed = json.loads(resp.json()["message"]["content"])
+    parsed = json.loads(resp.json()["choices"][0]["message"]["content"])
     point = parsed.get("discussion_point")
     if not isinstance(point, str) or not point.strip():
-        raise ValueError(f"missing discussion_point in Ollama response: {parsed!r}")
+        raise ValueError(f"missing discussion_point in IDUN response: {parsed!r}")
     point = point.strip()
     if _SECOND_PERSON_RE.search(point):
         raise ValueError(f"discussion_point addressed the student, not the lecturer: {point!r}")
     return point
 
 
-def _subcluster_discussion_point(group: list, student_count: int):
+def _subcluster_discussion_point(group: list, reference_solution: str, student_count: int):
+    """`reference_solution` -- the exercise's raw (not yet canonicalized) reference
+    solution, or None/empty if unavailable -- is comment-stripped here and passed as
+    context to the IDUN call (see _call_idun_subcluster_pattern's docstring for
+    why). None is a legitimate value, not an error: it just means the call falls
+    back to the pre-2026-09-21 behavior of describing the snippets with no
+    reference-relative context."""
     if student_count < MIN_STUDENTS_FOR_DISCUSSION:
         return None
 
@@ -302,17 +494,21 @@ def _subcluster_discussion_point(group: list, student_count: int):
     fallback = hints.discussion_point_for_cluster("wrong_answer", None, student_count)
     result = fallback
     snippets = _representative_snippets(group)
-    trivial = any(len(s.split()) < _MIN_TOKENS_FOR_PATTERN_CALL for s in snippets)
-    if len(snippets) >= 2 and not trivial and _ollama_available():
+    reference = _strip_comments(reference_solution) if reference_solution else None
+    # Token count measured on the canonicalized form, same as before the 2026-10-13
+    # switch to showing real code -- this is a "too little code to describe" gate,
+    # independent of what the model is shown.
+    trivial = any(len(_canonicalize(s).split()) < _MIN_TOKENS_FOR_PATTERN_CALL for s in snippets)
+    if len(snippets) >= 2 and not trivial and _idun_available():
         t0 = time.monotonic()
         for _attempt in (1, 2):
             try:
-                result = _call_ollama_subcluster_pattern(snippets)
+                result = _call_idun_subcluster_pattern(snippets, reference)
                 break
             except Exception:
                 continue
         logger.info(
-            "wrong_answer sub-cluster Ollama call: %d snippets, %.3fs, used_model=%s",
+            "wrong_answer sub-cluster IDUN call: %d snippets, %.3fs, used_model=%s",
             len(snippets), time.monotonic() - t0, result is not fallback,
         )
 
@@ -335,36 +531,105 @@ def _distinct_student_submission_ids(rows: list) -> list:
     return ids
 
 
+def _generate_subcluster_labels(groups_with_counts: list) -> list:
+    """Returns one discussion_point (or None, below MIN_STUDENTS_FOR_DISCUSSION) per
+    (group, reference_solution, student_count) in `groups_with_counts`, same order in.
+
+    Sub-clusters are independent of each other -- often from different questions
+    entirely, and even within one question a bug shape in one sub-cluster has
+    nothing to do with another's -- so their Label (IDUN) calls have no reason to
+    wait on each other. Earlier this was a plain sequential loop, one IDUN call
+    at a time; on a question with several sub-clusters clearing the discussion
+    threshold at once, that serialized N single-call latencies (each a real,
+    multi-second network round trip -- see the module docstring's latency
+    measurements) into one N-times-longer wait before a lecturer's dashboard could
+    show any of them. Below-threshold groups cost nothing extra here --
+    _subcluster_discussion_point() returns None immediately without a thread or a
+    network call.
+    """
+    results = [None] * len(groups_with_counts)
+    pending = {
+        i: (group, reference_solution, student_count)
+        for i, (group, reference_solution, student_count) in enumerate(groups_with_counts)
+        if student_count >= MIN_STUDENTS_FOR_DISCUSSION
+    }
+    if not pending:
+        return results
+
+    t0 = time.monotonic()
+    with ThreadPoolExecutor(max_workers=min(len(pending), _MAX_PARALLEL_LABEL_CALLS)) as pool:
+        futures = {
+            pool.submit(_subcluster_discussion_point, group, reference_solution, student_count): i
+            for i, (group, reference_solution, student_count) in pending.items()
+        }
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()
+    logger.info(
+        "wrong_answer sub-cluster Label calls: %d sub-cluster(s), %.3fs wall-clock "
+        "(parallel, max_workers=%d)",
+        len(pending), time.monotonic() - t0, min(len(pending), _MAX_PARALLEL_LABEL_CALLS),
+    )
+    return results
+
+
 def _wrong_answer_subclusters(members: list) -> list:
-    """Sub-clusters one exec_verdict=="wrong_answer" bucket by code similarity, scoped
-    per question_id first -- comparing code across different exercises would be
-    meaningless. Returns cluster dicts in the same shape cluster_submissions() uses
-    for every other category."""
-    result = []
+    """Sub-clusters one exec_verdict=="wrong_answer" bucket by divergence from the
+    exercise's own reference solution, scoped per question_id first -- comparing
+    code across different exercises would be meaningless, and each question_id has
+    its own reference_solution to diff against. Returns cluster dicts in the same
+    shape cluster_submissions() uses for every other category.
+
+    Clustering itself stays per-question (a diff-against-reference signal is
+    meaningless across different exercises), but the resulting sub-clusters' Label
+    calls are gathered across ALL questions in `members` and dispatched together via
+    _generate_subcluster_labels() -- see that function's docstring for why."""
     by_question = defaultdict(list)
     for row in members:
         by_question[row["question_id"]].append(row)
 
+    all_groups = []
     for question_id, rows in by_question.items():
-        t0 = time.monotonic()
-        groups = _cluster_by_similarity(rows)
-        logger.info(
-            "wrong_answer canonicalize+cluster: question=%s, %d submissions -> %d groups, %.3fs",
-            question_id, len(rows), len(groups), time.monotonic() - t0,
-        )
-        for group in groups:
-            student_count = len({m["student_name"] for m in group})
-            example = group[0]
-            result.append(
-                {
-                    "exec_verdict": "wrong_answer",
-                    "error_type": None,
-                    "count": student_count,
-                    "example_submission_id": example["id"],
-                    "submission_ids": _distinct_student_submission_ids(group),
-                    "discussion_point": _subcluster_discussion_point(group, student_count),
-                }
+        question = store.get_question_row(question_id)
+        reference_solution = question.get("reference_solution") if question else None
+        if not reference_solution:
+            # Shouldn't happen in practice -- a question can't reach 'live' (and
+            # therefore can't have wrong_answer submissions at all) without a
+            # reference_solution; validate() in main.py refuses without one. Falls
+            # back to singletons rather than diffing every submission against
+            # nothing if this invariant is ever violated by a data anomaly.
+            logger.warning(
+                "wrong_answer sub-clustering: question=%s has no reference_solution, "
+                "skipping diff-based clustering", question_id,
             )
+            groups = [[r] for r in rows]
+        else:
+            t0 = time.monotonic()
+            groups = _cluster_by_similarity(rows, reference_solution)
+            logger.info(
+                "wrong_answer diff+cluster: question=%s, %d submissions -> %d groups, %.3fs",
+                question_id, len(rows), len(groups), time.monotonic() - t0,
+            )
+        all_groups.extend((group, reference_solution) for group in groups)
+
+    groups_with_counts = [
+        (group, reference_solution, len({m["student_name"] for m in group}))
+        for group, reference_solution in all_groups
+    ]
+    labels = _generate_subcluster_labels(groups_with_counts)
+
+    result = []
+    for (group, _reference_solution, student_count), discussion_point in zip(groups_with_counts, labels):
+        example = group[0]
+        result.append(
+            {
+                "exec_verdict": "wrong_answer",
+                "error_type": None,
+                "count": student_count,
+                "example_submission_id": example["id"],
+                "submission_ids": _distinct_student_submission_ids(group),
+                "discussion_point": discussion_point,
+            }
+        )
     return result
 
 

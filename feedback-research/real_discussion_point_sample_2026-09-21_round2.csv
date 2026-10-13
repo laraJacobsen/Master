@@ -1,0 +1,335 @@
+id,exercise,student_count,raw_code_snippets,canonicalized_snippets_shown_to_model,reference_solution_shown_to_model,discussion_point,is_grounded_y_n,is_lecturer_facing_y_n,is_actionable_y_n
+1,sum-ints,5,"nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)","VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) + 1 ) STMT_BREAK
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) + 1 ) STMT_BREAK
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) + 1 ) STMT_BREAK",VAR1 ( VAR2 ( VAR3 ( VAR4 ) for VAR4 in VAR5 ( ) . VAR6 ( ) ) ) STMT_BREAK,"All student snippets append '+ 1' to the inner comprehension result, a construct not present in the reference solution.",,,
+2,sum-ints,2,"nums = input().split()
+print(sum(int(n) for n in nums) - 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) - 1)","VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) - 1 ) STMT_BREAK
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 ) - 1 ) STMT_BREAK",VAR1 ( VAR2 ( VAR3 ( VAR4 ) for VAR4 in VAR5 ( ) . VAR6 ( ) ) ) STMT_BREAK,"All student snippets subtract 1 from the result of the generator expression, which the reference solution does not include.",,,
+3,sum-ints,4,"nums = input().split()
+print(sum(int(n) for n in nums[1:]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))","VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 [ 1 : ] ) ) STMT_BREAK
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 [ : - 1 ] ) ) STMT_BREAK
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 ( VAR5 ( VAR6 ( VAR7 ) for VAR7 in VAR1 [ : - 1 ] ) ) STMT_BREAK",VAR1 ( VAR2 ( VAR3 ( VAR4 ) for VAR4 in VAR5 ( ) . VAR6 ( ) ) ) STMT_BREAK,"All snippets slice VAR1 inside the comprehension (e.g., VAR1[1:] or VAR1[:-1]), a construct not present in the reference solution.",,,
+4,sum-ints,2,"nums = input().split()
+print(int(nums[0]))
+
+---
+
+nums = input().split()
+print(int(nums[0]))","VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 ( VAR5 ( VAR1 [ 0 ] ) ) STMT_BREAK
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 ( VAR5 ( VAR1 [ 0 ] ) ) STMT_BREAK",VAR1 ( VAR2 ( VAR3 ( VAR4 ) for VAR4 in VAR5 ( ) . VAR6 ( ) ) ) STMT_BREAK,"The students’ snippets each contain two STMT_BREAK statements, whereas the reference solution contains only one.",,,
+5,sum-ints,2,"nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)
+
+---
+
+nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)","VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 = 1 STMT_BREAK for VAR5 in VAR1 : STMT_BREAK VAR4 *= VAR6 ( VAR5 ) STMT_BREAK VAR7 ( VAR4 ) STMT_BREAK
+
+---
+
+VAR1 = VAR2 ( ) . VAR3 ( ) STMT_BREAK VAR4 = 1 STMT_BREAK for VAR5 in VAR1 : STMT_BREAK VAR4 *= VAR6 ( VAR5 ) STMT_BREAK VAR7 ( VAR4 ) STMT_BREAK",VAR1 ( VAR2 ( VAR3 ( VAR4 ) for VAR4 in VAR5 ( ) . VAR6 ( ) ) ) STMT_BREAK,"All student snippets use a '*=' compound multiplication assignment on VAR4 inside the loop, which is absent from the reference solution.",,,
+6,double-it,2,"print(int(input()) + 2)
+
+---
+
+print(int(input()) + 2)","VAR1 ( VAR2 ( VAR3 ( ) ) + 2 ) STMT_BREAK
+
+---
+
+VAR1 ( VAR2 ( VAR3 ( ) ) + 2 ) STMT_BREAK",VAR1 ( VAR2 ( VAR3 ( ) ) * 2 ) STMT_BREAK,"All student snippets add 2 to the inner expression (VAR2(VAR3()) + 2) before the outer call, whereas the reference solution multiplies by 2.",,,
+7,double-it,2,"int = input()
+print(int*2)
+
+---
+
+int = input()
+print(int*2)","VAR1 = VAR2 ( ) STMT_BREAK VAR3 ( VAR1 * 2 ) STMT_BREAK
+
+---
+
+VAR1 = VAR2 ( ) STMT_BREAK VAR3 ( VAR1 * 2 ) STMT_BREAK",VAR1 ( VAR2 ( VAR3 ( ) ) * 2 ) STMT_BREAK,"Both student snippets contain an assignment statement ""VAR1 = VAR2 ( )"" which does not appear in the reference solution.",,,
+8,is_palindrome,2,"def is_palindrome(s):
+    t = s.replace("" "", """")  # forgot to lowercase
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.replace("" "", """")  # forgot to lowercase
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( "" "" , """" ) STMT_BREAK return VAR3 == VAR3 [ : : - 1 ] STMT_BREAK VAR2 = VAR5 ( ) STMT_BREAK VAR6 ( VAR1 ( VAR2 ) ) STMT_BREAK
+
+---
+
+def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( "" "" , """" ) STMT_BREAK return VAR3 == VAR3 [ : : - 1 ] STMT_BREAK VAR2 = VAR5 ( ) STMT_BREAK VAR6 ( VAR1 ( VAR2 ) ) STMT_BREAK","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) . VAR5 ( "" "" , """" ) STMT_BREAK return VAR3 == VAR3 [ : : - 1 ] STMT_BREAK VAR2 = VAR6 ( ) STMT_BREAK VAR7 ( VAR1 ( VAR2 ) ) STMT_BREAK","Both snippets call VAR4 with the two arguments "" "", """" directly, whereas the reference solution calls VAR4 without arguments and then calls VAR5 with those arguments.",,,
+9,is_palindrome,2,"def is_palindrome(s):
+    t = s.lower()  # forgot to strip spaces
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.lower()  # forgot to strip spaces
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) STMT_BREAK return VAR3 == VAR3 [ : : - 1 ] STMT_BREAK VAR2 = VAR5 ( ) STMT_BREAK VAR6 ( VAR1 ( VAR2 ) ) STMT_BREAK
+
+---
+
+def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) STMT_BREAK return VAR3 == VAR3 [ : : - 1 ] STMT_BREAK VAR2 = VAR5 ( ) STMT_BREAK VAR6 ( VAR1 ( VAR2 ) ) STMT_BREAK","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) . VAR5 ( "" "" , """" ) STMT_BREAK return VAR3 == VAR3 [ : : - 1 ] STMT_BREAK VAR2 = VAR6 ( ) STMT_BREAK VAR7 ( VAR1 ( VAR2 ) ) STMT_BREAK","All student snippets omit the second method call (the .VAR5(... ) chain) after VAR4, which is present in the reference solution.",,,
+10,is_palindrome,2,"def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:  # off-by-one: should be n - i - 1
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:  # off-by-one: should be n - i - 1
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) . VAR5 ( "" "" , """" ) STMT_BREAK VAR6 = VAR7 ( VAR3 ) STMT_BREAK for VAR8 in VAR9 ( VAR6 // 2 ) : STMT_BREAK if VAR3 [ VAR8 ] != VAR3 [ VAR6 - VAR8 - 2 ] : STMT_BREAK return False STMT_BREAK return True STMT_BREAK VAR2 = VAR10 ( ) STMT_BREAK VAR11 ( VAR1 ( VAR2 ) ) STMT_BREAK
+
+---
+
+def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) . VAR5 ( "" "" , """" ) STMT_BREAK VAR6 = VAR7 ( VAR3 ) STMT_BREAK for VAR8 in VAR9 ( VAR6 // 2 ) : STMT_BREAK if VAR3 [ VAR8 ] != VAR3 [ VAR6 - VAR8 - 2 ] : STMT_BREAK return False STMT_BREAK return True STMT_BREAK VAR2 = VAR10 ( ) STMT_BREAK VAR11 ( VAR1 ( VAR2 ) ) STMT_BREAK","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) . VAR5 ( "" "" , """" ) STMT_BREAK return VAR3 == VAR3 [ : : - 1 ] STMT_BREAK VAR2 = VAR6 ( ) STMT_BREAK VAR7 ( VAR1 ( VAR2 ) ) STMT_BREAK","The students' snippets all contain a for‑loop over VAR9(VAR6 // 2) with an if‑statement comparing VAR3[VAR8] to VAR3[VAR6‑VAR8‑2] and returning False inside the loop followed by a return True after the loop, which is absent from the reference solution.",,,
+11,count_vowels,2,"def count_vowels(s):
+    vowels = ""aeiou""  # forgot to lowercase s first
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    vowels = ""aeiou""  # forgot to lowercase s first
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = ""aeiou"" STMT_BREAK VAR4 = 0 STMT_BREAK for VAR5 in VAR2 : STMT_BREAK if VAR5 in VAR3 : STMT_BREAK VAR4 += 1 STMT_BREAK return VAR4 STMT_BREAK VAR2 = VAR6 ( ) STMT_BREAK VAR7 ( VAR1 ( VAR2 ) ) STMT_BREAK
+
+---
+
+def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = ""aeiou"" STMT_BREAK VAR4 = 0 STMT_BREAK for VAR5 in VAR2 : STMT_BREAK if VAR5 in VAR3 : STMT_BREAK VAR4 += 1 STMT_BREAK return VAR4 STMT_BREAK VAR2 = VAR6 ( ) STMT_BREAK VAR7 ( VAR1 ( VAR2 ) ) STMT_BREAK","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) STMT_BREAK VAR5 = ""aeiou"" STMT_BREAK VAR6 = 0 STMT_BREAK for VAR7 in VAR3 : STMT_BREAK if VAR7 in VAR5 : STMT_BREAK VAR6 += 1 STMT_BREAK return VAR6 STMT_BREAK VAR2 = VAR8 ( ) STMT_BREAK VAR9 ( VAR1 ( VAR2 ) ) STMT_BREAK","All snippets assign the literal ""aeiou"" to VAR3 and loop over VAR2, whereas the reference solution loops over VAR3 derived from VAR2.",,,
+12,count_vowels,2,"def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""  # bug: y isn't a vowel
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""  # bug: y isn't a vowel
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) STMT_BREAK VAR5 = ""aeiouy"" STMT_BREAK VAR6 = 0 STMT_BREAK for VAR7 in VAR3 : STMT_BREAK if VAR7 in VAR5 : STMT_BREAK VAR6 += 1 STMT_BREAK return VAR6 STMT_BREAK VAR2 = VAR8 ( ) STMT_BREAK VAR9 ( VAR1 ( VAR2 ) ) STMT_BREAK
+
+---
+
+def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) STMT_BREAK VAR5 = ""aeiouy"" STMT_BREAK VAR6 = 0 STMT_BREAK for VAR7 in VAR3 : STMT_BREAK if VAR7 in VAR5 : STMT_BREAK VAR6 += 1 STMT_BREAK return VAR6 STMT_BREAK VAR2 = VAR8 ( ) STMT_BREAK VAR9 ( VAR1 ( VAR2 ) ) STMT_BREAK","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) STMT_BREAK VAR5 = ""aeiou"" STMT_BREAK VAR6 = 0 STMT_BREAK for VAR7 in VAR3 : STMT_BREAK if VAR7 in VAR5 : STMT_BREAK VAR6 += 1 STMT_BREAK return VAR6 STMT_BREAK VAR2 = VAR8 ( ) STMT_BREAK VAR9 ( VAR1 ( VAR2 ) ) STMT_BREAK","All student snippets define VAR5 as the string ""aeiouy"" instead of the reference ""aeiou"".",,,
+13,count_vowels,2,"def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):  # off-by-one: skips the last character
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):  # off-by-one: skips the last character
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) STMT_BREAK VAR5 = ""aeiou"" STMT_BREAK VAR6 = 0 STMT_BREAK for VAR7 in VAR8 ( VAR9 ( VAR3 ) - 1 ) : STMT_BREAK if VAR3 [ VAR7 ] in VAR5 : STMT_BREAK VAR6 += 1 STMT_BREAK return VAR6 STMT_BREAK VAR2 = VAR10 ( ) STMT_BREAK VAR11 ( VAR1 ( VAR2 ) ) STMT_BREAK
+
+---
+
+def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) STMT_BREAK VAR5 = ""aeiou"" STMT_BREAK VAR6 = 0 STMT_BREAK for VAR7 in VAR8 ( VAR9 ( VAR3 ) - 1 ) : STMT_BREAK if VAR3 [ VAR7 ] in VAR5 : STMT_BREAK VAR6 += 1 STMT_BREAK return VAR6 STMT_BREAK VAR2 = VAR10 ( ) STMT_BREAK VAR11 ( VAR1 ( VAR2 ) ) STMT_BREAK","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR2 . VAR4 ( ) STMT_BREAK VAR5 = ""aeiou"" STMT_BREAK VAR6 = 0 STMT_BREAK for VAR7 in VAR3 : STMT_BREAK if VAR7 in VAR5 : STMT_BREAK VAR6 += 1 STMT_BREAK return VAR6 STMT_BREAK VAR2 = VAR8 ( ) STMT_BREAK VAR9 ( VAR1 ( VAR2 ) ) STMT_BREAK","All submitted snippets iterate over VAR8(VAR9(VAR3) - 1) (i.e., a range based on the length of VAR3 minus one) instead of iterating directly over VAR3 as done in the reference solution.",,,
+14,second_largest,2,"def second_largest(nums):
+    s = sorted(nums, reverse=True)  # no dedup: picks second position, not second distinct value
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    s = sorted(nums, reverse=True)  # no dedup: picks second position, not second distinct value
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR4 ( VAR2 , VAR5 = True ) STMT_BREAK return VAR3 [ 1 ] STMT_BREAK VAR2 = [ VAR6 ( VAR7 ) for VAR7 in VAR8 ( ) . VAR9 ( ) ] STMT_BREAK VAR10 ( VAR1 ( VAR2 ) ) STMT_BREAK
+
+---
+
+def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR4 ( VAR2 , VAR5 = True ) STMT_BREAK return VAR3 [ 1 ] STMT_BREAK VAR2 = [ VAR6 ( VAR7 ) for VAR7 in VAR8 ( ) . VAR9 ( ) ] STMT_BREAK VAR10 ( VAR1 ( VAR2 ) ) STMT_BREAK","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR4 ( VAR5 ( VAR2 ) , VAR6 = True ) STMT_BREAK return VAR3 [ 1 ] STMT_BREAK VAR2 = [ VAR7 ( VAR8 ) for VAR8 in VAR9 ( ) . VAR10 ( ) ] STMT_BREAK VAR11 ( VAR1 ( VAR2 ) ) STMT_BREAK","The students’ snippets pass VAR2 directly to VAR4 as the first argument, whereas the reference solution passes VAR5(VAR2).",,,
+15,second_largest,2,"def second_largest(nums):
+    s = sorted(set(nums))  # ascending, not descending
+    return s[1]  # grabs second-smallest distinct instead of second-largest
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    s = sorted(set(nums))  # ascending, not descending
+    return s[1]  # grabs second-smallest distinct instead of second-largest
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR4 ( VAR5 ( VAR2 ) ) STMT_BREAK return VAR3 [ 1 ] STMT_BREAK VAR2 = [ VAR6 ( VAR7 ) for VAR7 in VAR8 ( ) . VAR9 ( ) ] STMT_BREAK VAR10 ( VAR1 ( VAR2 ) ) STMT_BREAK
+
+---
+
+def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR4 ( VAR5 ( VAR2 ) ) STMT_BREAK return VAR3 [ 1 ] STMT_BREAK VAR2 = [ VAR6 ( VAR7 ) for VAR7 in VAR8 ( ) . VAR9 ( ) ] STMT_BREAK VAR10 ( VAR1 ( VAR2 ) ) STMT_BREAK","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR4 ( VAR5 ( VAR2 ) , VAR6 = True ) STMT_BREAK return VAR3 [ 1 ] STMT_BREAK VAR2 = [ VAR7 ( VAR8 ) for VAR8 in VAR9 ( ) . VAR10 ( ) ] STMT_BREAK VAR11 ( VAR1 ( VAR2 ) ) STMT_BREAK","Both snippets call VAR4 with only VAR5(VAR2) as an argument, omitting the keyword argument VAR6=True that appears in the reference solution.",,,
+16,second_largest,2,"def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:  # bug: should be n > second
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:  # bug: should be n > second
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR4 ( VAR2 ) STMT_BREAK VAR5 = None STMT_BREAK for VAR6 in VAR2 : STMT_BREAK if VAR6 != VAR3 : STMT_BREAK if VAR5 is None or VAR6 < VAR5 : STMT_BREAK VAR5 = VAR6 STMT_BREAK return VAR5 STMT_BREAK VAR2 = [ VAR7 ( VAR8 ) for VAR8 in VAR9 ( ) . VAR10 ( ) ] STMT_BREAK VAR11 ( VAR1 ( VAR2 ) ) STMT_BREAK
+
+---
+
+def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR4 ( VAR2 ) STMT_BREAK VAR5 = None STMT_BREAK for VAR6 in VAR2 : STMT_BREAK if VAR6 != VAR3 : STMT_BREAK if VAR5 is None or VAR6 < VAR5 : STMT_BREAK VAR5 = VAR6 STMT_BREAK return VAR5 STMT_BREAK VAR2 = [ VAR7 ( VAR8 ) for VAR8 in VAR9 ( ) . VAR10 ( ) ] STMT_BREAK VAR11 ( VAR1 ( VAR2 ) ) STMT_BREAK","def VAR1 ( VAR2 ) : STMT_BREAK VAR3 = VAR4 ( VAR5 ( VAR2 ) , VAR6 = True ) STMT_BREAK return VAR3 [ 1 ] STMT_BREAK VAR2 = [ VAR7 ( VAR8 ) for VAR8 in VAR9 ( ) . VAR10 ( ) ] STMT_BREAK VAR11 ( VAR1 ( VAR2 ) ) STMT_BREAK","The students' snippets all contain a for‑loop that iterates over VAR2, which is absent from the reference solution.",,,

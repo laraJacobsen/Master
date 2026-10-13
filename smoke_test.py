@@ -1,23 +1,36 @@
 """
 Structural smoke test for the prototype backend.
 
-Mocks Judge0's HTTP API (always) and Ollama's HTTP API (only reached from
-backend/aggregation.py, for describing a shared code pattern inside a wrong_answer
-sub-cluster -- see that module's docstring for the pipeline and why this is a
-different, narrower risk than the lecturer discussion-point call this project
-removed twice before). Both Judge0 and Ollama are reached through the same
-`requests` module object regardless of which file imports it (patch() on either
-module's `requests.post` patches the single shared module in sys.modules), so
-fake_post below MUST dispatch on URL rather than assuming every call is a Judge0
-call -- an earlier version of this file didn't do that, and Ollama calls were
-silently swallowed by the Judge0 mock's `json["source_code"]` lookup raising and
-being caught by the retry loop, masking a real bug as a passing test.
+Mocks Judge0's HTTP API (always) and IDUN's OpenAI-compatible chat-completions API
+(only reached from backend/aggregation.py, for describing a shared code pattern
+inside a wrong_answer sub-cluster -- see that module's docstring for the pipeline
+and why this is a different, narrower risk than the lecturer discussion-point call
+this project removed twice before). Both Judge0 and IDUN are reached through the
+same `requests` module object regardless of which file imports it (patch() on
+either module's `requests.post` patches the single shared module in sys.modules),
+so fake_post below MUST dispatch on URL rather than assuming every call is a
+Judge0 call -- an earlier version of this file didn't do that, and the LLM calls
+were silently swallowed by the Judge0 mock's `json["source_code"]` lookup raising
+and being caught by the retry loop, masking a real bug as a passing test.
+
+IDUN_API_KEY is set below (to a fake test value) BEFORE backend.aggregation is
+ever imported, since that module reads it at import time via `os.environ.get()`
+into a module-level constant -- leaving it unset makes `_idun_available()` return
+False, which skips the mocked call entirely and silently exercises the generic
+fallback line instead. That happened here for real after the Ollama->IDUN
+migration (see backend/aggregation.py's module docstring): this file's mock still
+targeted Ollama's old /api/chat endpoint and shape, which the migrated code never
+calls, so the discussion-point-wording assertion below was exercising nothing
+real. A live IDUN call needs the NTNU network/VPN and a real key, neither of which
+belongs in an offline smoke test -- a test double that matches IDUN's actual
+request/response shape (chat-completions endpoint, Bearer auth, OpenAI-style
+`choices[0].message.content`) is the right fix here, not a real key.
 
 Proves the FastAPI app, SQLite store, and request/response plumbing are wired
 correctly end to end, including that the sub-clustering step actually separates
-differently-shaped bugs and that the narrowed Ollama call it uses stays anonymized.
-Does NOT prove Judge0 execution or real Ollama's actual output quality; those need
-a live Judge0 (see README.md) and a live Ollama.
+differently-shaped bugs and that the narrowed IDUN call it uses never sees student names or comments.
+Does NOT prove Judge0 execution or real IDUN's actual output quality; those need
+a live Judge0 (see README.md) and a live IDUN endpoint.
 
 Run: python3 smoke_test.py   (from /root/prototype)
 """
@@ -34,48 +47,52 @@ os.environ["PROTOTYPE_DB_PATH"] = "/tmp/smoke_prototype.db"
 if os.path.exists(os.environ["PROTOTYPE_DB_PATH"]):
     os.remove(os.environ["PROTOTYPE_DB_PATH"])
 
+# Must be set before `backend.aggregation` is first imported (below, via
+# backend.main) -- it reads this into a module-level constant at import time.
+# A fake value is correct here: this test never reaches the real IDUN endpoint,
+# it only needs `_idun_available()` to return True so the mocked call path below
+# actually runs instead of silently short-circuiting to the fallback line.
+os.environ.setdefault("IDUN_API_KEY", "smoke-test-fake-key")
+
 NAME_ERROR_MARKER = "num = inpt().split()"
 DOUBLE_MARKER = "int(input()) * 2"  # substring fake_post dispatches on
 DOUBLE_MARKER_CODE = f"print({DOUBLE_MARKER})"  # reference solution for the question-setup flow test below
 
 # Two structurally different wrong_answer bugs on the same exercise -- real code, not bare
 # marker strings, so _canonicalize()/TF-IDF has something genuine to tell apart. Each
-# marker is inside a comment, which _canonicalize() strips entirely, so it can't leak into
-# the clustering signal or make the two bugs look artificially similar/different.
+# marker is inside a comment, which _canonicalize() and _strip_comments() both drop, so it
+# can't leak into the clustering signal or the Label prompt.
 BUG_A_CODE = "nums = input().split()\nprint(sum(int(n) for n in nums) + 1)  # bug_a_add_one"
 # Deliberately "count instead of sum" -- guaranteed wrong on every test case (unlike an
 # earlier draft using product, which coincidentally equals the sum for a couple of the
 # real test cases, e.g. the single-number one, giving false partial credit).
 BUG_B_CODE = "nums = input().split()\nprint(len(nums))  # bug_b_count_instead_of_sum"
 
-_ollama_state = {"available": True}
-ollama_chat_calls = []  # request bodies sent to /api/chat, for the no-leakage assertion
+_idun_state = {"available": True}
+idun_chat_calls = []  # request bodies sent to IDUN's /chat/completions, for the no-leakage assertion
 
 
-def fake_get(url, timeout=None):
-    """Stands in for requests.get to Ollama's /api/tags reachability check."""
-    resp = MagicMock()
-    resp.raise_for_status = lambda: None
-    resp.json.return_value = {
-        "models": [{"name": "llama3.2:3b"}] if _ollama_state["available"] else []
-    }
-    return resp
-
-
-def fake_post(url, params=None, json=None, timeout=None):
-    """Stands in for requests.post to either Judge0's /submissions endpoint or Ollama's
-    /api/chat endpoint -- see module docstring for why one fake must dispatch on URL."""
+def fake_post(url, params=None, json=None, headers=None, timeout=None):
+    """Stands in for requests.post to either Judge0's /submissions endpoint or IDUN's
+    /chat/completions endpoint -- see module docstring for why one fake must dispatch
+    on URL."""
     resp = MagicMock()
     resp.raise_for_status = lambda: None
 
-    if url.endswith("/api/chat"):
-        ollama_chat_calls.append(json)
+    if url.endswith("/chat/completions"):
+        if not _idun_state["available"]:
+            raise ConnectionError("simulated IDUN outage")
+        idun_chat_calls.append(json)
         resp.json.return_value = {
-            "message": {
-                "content": json_lib.dumps(
-                    {"discussion_point": "All snippets share the same overall structure."}
-                )
-            }
+            "choices": [
+                {
+                    "message": {
+                        "content": json_lib.dumps(
+                            {"discussion_point": "All snippets share the same overall structure."}
+                        )
+                    }
+                }
+            ]
         }
         return resp
 
@@ -136,10 +153,44 @@ def fake_post(url, params=None, json=None, timeout=None):
     return resp
 
 
+def _run_canonicalize_boundary_checks():
+    """Regression test for the 2026-09-21 _canonicalize() statement-boundary fix.
+
+    Before the fix, tokenize.NEWLINE was dropped with no placeholder, so two
+    adjacent statements on separate lines collapsed into one space-joined token
+    run indistinguishable from a single expression -- e.g. this exact case
+    ("nums = input().split()" + "print(int(nums[0]))") canonicalized to a token
+    stream where the only thing between the two statements was a bare space, which
+    a real Label-step spot-check showed an LLM misreading as a missing-`.`-between-
+    chained-calls bug that was never in the source (see backend/aggregation.py's
+    _canonicalize() docstring). No network/DB needed -- pure function.
+    """
+    from backend import aggregation as agg
+
+    # Exactly the real row-4 spot-check case (see this fix's git history) --
+    # asserted against the full exact expected token stream, not just "a marker
+    # appears somewhere", so a future change that moves the marker to the wrong
+    # join point still fails this.
+    two_statements = agg._canonicalize("nums = input().split()\nprint(int(nums[0]))")
+    assert two_statements == (
+        f"VAR1 = VAR2 ( ) . VAR3 ( ) {agg._STMT_BREAK} VAR4 ( VAR5 ( VAR1 [ 0 ] ) ) {agg._STMT_BREAK}"
+    ), two_statements
+
+    # A single logical statement split across lines by parens (a line continuation,
+    # not a statement boundary -- tokenize.NL, not NEWLINE) must NOT get a spurious
+    # break in the middle -- that would fabricate a false boundary inside one
+    # expression, trading the join-collision bug for the opposite one.
+    one_statement = agg._canonicalize("x = (\n    1 +\n    2\n)")
+    assert one_statement.count(agg._STMT_BREAK) == 1, one_statement  # only the trailing one at EOF
+
+    print("_canonicalize() statement-boundary fix   OK")
+
+
 def main():
+    _run_canonicalize_boundary_checks()
+
     with patch("backend.judge0_client.requests.post", side_effect=fake_post), \
-         patch("backend.aggregation.requests.post", side_effect=fake_post), \
-         patch("backend.aggregation.requests.get", side_effect=fake_get):
+         patch("backend.aggregation.requests.post", side_effect=fake_post):
 
         from fastapi.testclient import TestClient
 
@@ -272,7 +323,7 @@ def _run_checks(client):
         # Two structurally different wrong_answer bugs, two students each. This is the
         # actual point of sub-clustering: they must NOT be merged into one generic
         # wrong_answer bucket -- each shape gets its own cluster entry, each independently
-        # clearing the discussion threshold and getting the mocked Ollama pattern
+        # clearing the discussion threshold and getting the mocked IDUN pattern
         # description (cached per sub-cluster, not per submission).
         for student in ("Carol", "Dave"):
             r = client.post(
@@ -297,34 +348,40 @@ def _run_checks(client):
             assert c["discussion_point"] == "All snippets share the same overall structure.", clusters
         print("wrong_answer sub-clustering separates two bug shapes  OK ->", wrong_answer_clusters)
 
-        # The sub-cluster Ollama call must only ever see canonicalized snippets -- never
-        # student names, never the real identifiers, never the marker comments (which
-        # _canonicalize() strips as comments). Exactly one call per sub-cluster (cached).
-        assert len(ollama_chat_calls) == 2, ollama_chat_calls
-        sent = json_lib.dumps(ollama_chat_calls)
-        for leaked in ("Carol", "Dave", "Kasper", "Vilde", "bug_a_add_one", "bug_b_count_instead_of_sum", "nums"):
+        # The sub-cluster IDUN call sees the students' real code (since 2026-10-13 -- see
+        # backend/aggregation.py's _call_idun_subcluster_pattern docstring) but never
+        # student names and never comments (the marker comments here stand in for e.g.
+        # the research corpora's "# forgot to lowercase" annotations). Exactly one call
+        # per sub-cluster (cached).
+        assert len(idun_chat_calls) == 2, idun_chat_calls
+        sent = json_lib.dumps(idun_chat_calls)
+        for leaked in ("Carol", "Dave", "Kasper", "Vilde", "bug_a_add_one", "bug_b_count_instead_of_sum", "VAR1"):
             assert leaked not in sent, (leaked, sent)
-        assert "VAR1" in sent, sent
-        print("Sub-cluster Ollama call carries no names/code    OK")
+        assert "nums = input().split()" in sent, sent
+        print("Sub-cluster IDUN call: real code, no names/comments  OK")
 
         # Fallback path, tested directly against _subcluster_discussion_point() rather
         # than through another full HTTP round trip: whether a third real submission
         # would land in its own sub-cluster or get folded into an existing one depends
         # on the clustering algorithm's behavior on that specific corpus (a known rough
         # edge of this MVP -- see module docstring), which isn't what this check is
-        # about. This isolates the one thing that matters here: when Ollama is
+        # about. This isolates the one thing that matters here: when IDUN is
         # unreachable, a sub-cluster must fall back to the generic curated line, not
-        # error or go silent.
+        # error or go silent. Unlike the old Ollama path, IDUN has no cheap reachability
+        # precheck (see _idun_available()'s docstring) -- "unreachable" only ever shows
+        # up as the POST call itself failing, so that's what's simulated here.
         from backend import aggregation
-        _ollama_state["available"] = False
+        _idun_state["available"] = False
         synthetic_group = [
             {"id": 9001, "student_name": "Erik", "source_code": "print(1)"},
             {"id": 9002, "student_name": "Frida", "source_code": "print(2)"},
         ]
-        fallback_point = aggregation._subcluster_discussion_point(synthetic_group, student_count=2)
+        fallback_point = aggregation._subcluster_discussion_point(
+            synthetic_group, reference_solution="print(1 + 1)", student_count=2
+        )
         assert fallback_point == hints.discussion_point_for_cluster("wrong_answer", None, 2), fallback_point
-        assert len(ollama_chat_calls) == 2, "Ollama should not have been called while unreachable"
-        print("wrong_answer sub-cluster falls back when Ollama down  OK ->", fallback_point)
+        assert len(idun_chat_calls) == 2, "IDUN should not have recorded a call while unreachable"
+        print("wrong_answer sub-cluster falls back when IDUN down  OK ->", fallback_point)
 
         r = client.post(
             "/api/submit",
