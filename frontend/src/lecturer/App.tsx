@@ -72,54 +72,75 @@ function verdictLabel(v: string) {
   };
   return labels[v] || v;
 }
-function clusterLabel(c: ClusterRow) {
-  if (c.exec_verdict === "rejected") return "Rejected submission";
+function issueTag(c: ClusterRow) {
+  if (c.exec_verdict === "rejected") return "Rejected";
   if (c.exec_verdict === "pass") return "Passing";
   const verdict = (c.exec_verdict || "unknown").replace(/_/g, " ");
-  return c.error_type && c.error_type !== "none" ? `${verdict} (${c.error_type})` : verdict;
+  const label = verdict.charAt(0).toUpperCase() + verdict.slice(1);
+  return c.error_type && c.error_type !== "none" ? `${label} · ${c.error_type}` : label;
 }
 
-function ExampleBlock({ sub }: { sub: SubmissionRow }) {
-  const meta = `${sub.student_name}, attempt ${sub.attempt_number}, ${sub.tests_passed}/${sub.tests_total} passed`;
+// Stable across polls even as students join a cluster (its submission_ids
+// and example_submission_id both change then), so an open issue doesn't
+// snap shut on the next refresh. Sub-clusters of one verdict are told apart
+// by their discussion point, or by their earliest submission when there's
+// no point yet (a single-student sub-cluster).
+function issueKey(c: ClusterRow) {
+  const ids = c.submission_ids && c.submission_ids.length ? c.submission_ids : [c.example_submission_id];
+  return `${c.exec_verdict}|${c.error_type ?? ""}|${c.discussion_point ?? Math.min(...ids)}`;
+}
+
+function issueText(c: ClusterRow) {
+  if (c.exec_verdict === "pass") return "Passed every test.";
+  if (c.discussion_point) return c.discussion_point;
+  return c.count < 2
+    ? "Only one student so far, so no discussion point yet."
+    : "No discussion point for this issue.";
+}
+
+// Students in one cluster often submit character-for-character identical
+// code -- shown once, with everyone who wrote it, instead of N copies.
+function groupByCode(subs: SubmissionRow[]): SubmissionRow[][] {
+  const groups = new Map<string, SubmissionRow[]>();
+  for (const sub of subs) {
+    const key = sub.source_code.trim();
+    groups.set(key, [...(groups.get(key) ?? []), sub]);
+  }
+  return [...groups.values()];
+}
+
+function ExampleBlock({ subs }: { subs: SubmissionRow[] }) {
+  const sub = subs[0];
+  const names = subs.map((s) => s.student_name).join(", ");
+  const meta = `${subs.length > 1 ? `${subs.length} students: ` : ""}${names} · ${sub.tests_passed}/${sub.tests_total} tests passed`;
 
   const results: ValidationTestResult[] = JSON.parse(sub.raw_test_results || "[]");
   const failing = results.find((r) => !r.passed);
 
   return (
-    <div className="inspector-example">
-      <div className="inspector-meta">{meta}</div>
-      <div className="inspector-diff">
-        {failing ? (
-          <>
+    <div className="example">
+      <div className="example-meta">{meta}</div>
+      {failing && (
+        <div className="example-diff">
+          <div>
+            <strong>Input:</strong> <code>{failing.stdin ?? ""}</code>
+          </div>
+          <div>
+            <strong>Expected output:</strong> <code>{failing.expected_stdout ?? ""}</code>
+          </div>
+          <div>
+            <strong>Actual output:</strong> <code>{(failing.stdout || "").trim() || "(none)"}</code>
+          </div>
+          {failing.stderr && (
             <div>
-              <strong>Input:</strong> <code>{failing.stdin ?? ""}</code>
+              <strong>Error output:</strong> <code>{failing.stderr}</code>
             </div>
-            <div>
-              <strong>Expected output:</strong> <code>{failing.expected_stdout ?? ""}</code>
-            </div>
-            <div>
-              <strong>Actual output:</strong> <code>{(failing.stdout || "").trim() || "(none)"}</code>
-            </div>
-            {failing.stderr && (
-              <div>
-                <strong>Error output:</strong> <code>{failing.stderr}</code>
-              </div>
-            )}
-          </>
-        ) : (
-          <em>All test cases passed.</em>
-        )}
-      </div>
-      <code className="inspector-code">{sub.source_code}</code>
+          )}
+        </div>
+      )}
+      <code className="example-code">{sub.source_code}</code>
     </div>
   );
-}
-
-interface InspectorState {
-  title: string;
-  loading: boolean;
-  error: boolean;
-  subs: SubmissionRow[];
 }
 
 export default function App() {
@@ -137,7 +158,11 @@ export default function App() {
 
   const [clusters, setClusters] = useState<ClusterRow[]>([]);
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
-  const [inspector, setInspector] = useState<InspectorState | null>(null);
+  // Issues whose code is expanded inline (by issueKey), plus any submissions
+  // an open issue needed that weren't in the polled list -- see toggleIssue.
+  const [openIssues, setOpenIssues] = useState<Set<string>>(new Set());
+  const [fetchedSubs, setFetchedSubs] = useState<Record<number, SubmissionRow>>({});
+  const [issueLoadError, setIssueLoadError] = useState(false);
 
   // The active lecture's Kahoot-style join code, shown in the Task control
   // card for the whole session -- fetched once (it doesn't change once the
@@ -395,32 +420,45 @@ export default function App() {
   }
 
   // The lecturer shouldn't have to guess what a cluster's talking point
-  // means -- this fetches the actual example submissions (real student code,
-  // real input/expected/actual output for the test case each failed) on
-  // demand, so the discussion point is a starting point to investigate, not
-  // the only evidence. A cluster can span several distinct students, so this
-  // fetches and stacks all of them rather than picking just one.
-  async function showExamples(subIds: number[]) {
-    setInspector({
-      title: subIds.length > 1 ? `Example submissions (${subIds.length})` : "Example submission",
-      loading: true,
-      error: false,
-      subs: [],
+  // means -- each issue expands in place to the actual student code behind
+  // it (with the input/expected/actual output of the test it failed), so the
+  // discussion point is a starting point to investigate, not the only
+  // evidence. The polled submissions list already carries everything shown;
+  // only ids missing from it (none, normally) are fetched individually.
+  function clusterIds(c: ClusterRow) {
+    return c.submission_ids && c.submission_ids.length ? c.submission_ids : [c.example_submission_id];
+  }
+
+  function knownSub(id: number) {
+    return subRows.find((r) => r.id === id) ?? fetchedSubs[id];
+  }
+
+  async function toggleIssue(c: ClusterRow) {
+    const key = issueKey(c);
+    const opening = !openIssues.has(key);
+    setOpenIssues((prev) => {
+      const next = new Set(prev);
+      if (opening) next.add(key);
+      else next.delete(key);
+      return next;
     });
+    if (!opening) return;
+    const missing = clusterIds(c).filter((id) => !knownSub(id));
+    if (missing.length === 0) return;
+    setIssueLoadError(false);
     try {
-      const subs = await Promise.all(subIds.map((id) => fetchSubmissionDetail(id)));
-      setInspector({
-        title: subIds.length > 1 ? `Example submissions (${subIds.length})` : "Example submission",
-        loading: false,
-        error: false,
-        subs,
-      });
+      const subs = await Promise.all(missing.map((id) => fetchSubmissionDetail(id)));
+      setFetchedSubs((prev) => ({ ...prev, ...Object.fromEntries(subs.map((sub) => [sub.id, sub])) }));
     } catch {
-      setInspector((prev) => (prev ? { ...prev, loading: false, error: true } : prev));
+      setIssueLoadError(true);
     }
   }
 
-  const discussionPoints = clusters.filter((c) => c.discussion_point).map((c) => c.discussion_point as string);
+  // Passing last: it's context ("how many got there"), not an issue to discuss.
+  const issueRows = [
+    ...clusters.filter((c) => c.exec_verdict !== "pass"),
+    ...clusters.filter((c) => c.exec_verdict === "pass"),
+  ];
 
   const progressPct =
     progress && progress.expected != null && progress.expected > 0
@@ -586,6 +624,50 @@ export default function App() {
           </div>
         </div>
         <div className="grid">
+          <div className="card" id="issues-card">
+            <h2>
+              Common issues
+              {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
+            </h2>
+            {issueRows.length === 0 ? (
+              <div className="card-empty">Nothing yet.</div>
+            ) : (
+              <ul className="issue-list">
+                {issueRows.map((c) => {
+                  const key = issueKey(c);
+                  const open = openIssues.has(key);
+                  const subs = clusterIds(c)
+                    .map(knownSub)
+                    .filter((sub): sub is SubmissionRow => !!sub);
+                  return (
+                    <li key={key} className={c.exec_verdict === "pass" ? "issue issue-pass" : "issue"}>
+                      <div className="issue-head">
+                        <span className="issue-count">
+                          {c.count} {c.count === 1 ? "student" : "students"}
+                        </span>
+                        <span className="issue-tag">{issueTag(c)}</span>
+                      </div>
+                      <p className={c.discussion_point ? "issue-point" : "issue-point issue-point-muted"}>
+                        {issueText(c)}
+                      </p>
+                      <button className="view-example-btn" aria-expanded={open} onClick={() => toggleIssue(c)}>
+                        {open ? "Hide code" : "View code"}
+                      </button>
+                      {open && (
+                        <div className="issue-examples">
+                          {subs.length > 0
+                            ? groupByCode(subs).map((group) => <ExampleBlock key={group[0].id} subs={group} />)
+                            : issueLoadError
+                            ? "Could not load these submissions."
+                            : "Loading..."}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
           <div className="card">
             <h2>
               {QUESTION_ID && settled ? "Submissions" : "Submissions (live)"}
@@ -637,63 +719,6 @@ export default function App() {
                 })}
               </tbody>
             </table>
-          </div>
-          <div className="card">
-            <h2>
-              Discussion points for the class
-              {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
-            </h2>
-            <ul id="discussion-list">
-              {discussionPoints.length === 0 ? (
-                <li style={{ color: "#5a6072" }}>Nothing yet.</li>
-              ) : (
-                discussionPoints.map((d, i) => <li key={i}>{d}</li>)
-              )}
-            </ul>
-          </div>
-          <div className="card">
-            <h2>Common issues (by count)</h2>
-            <table id="cluster-table" style={{ display: clusters.length === 0 ? "none" : "table" }}>
-              <thead>
-                <tr>
-                  <th>Issue</th>
-                  <th>Count</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="cluster-body">
-                {clusters.map((c, i) => {
-                  const ids =
-                    c.submission_ids && c.submission_ids.length ? c.submission_ids : [c.example_submission_id];
-                  const label = ids.length > 1 ? `View all (${ids.length})` : "View code";
-                  return (
-                    <tr key={i}>
-                      <td>{clusterLabel(c)}</td>
-                      <td>{c.count}</td>
-                      <td>
-                        <button className="view-example-btn" onClick={() => showExamples(ids)}>
-                          {label}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <div id="cluster-empty" style={{ color: "#5a6072", fontSize: "0.9rem", display: clusters.length === 0 ? "block" : "none" }}>
-              Nothing yet.
-            </div>
-          </div>
-          <div className="card" id="inspector-card" style={{ display: inspector ? "block" : "none" }}>
-            <h2 id="inspector-title">{inspector ? inspector.title : "Example submission"}</h2>
-            <div id="inspector-body">
-              {inspector &&
-                (inspector.loading
-                  ? "Loading..."
-                  : inspector.error
-                  ? "Could not load one or more of these submissions."
-                  : inspector.subs.map((sub) => <ExampleBlock key={sub.id} sub={sub} />))}
-            </div>
           </div>
         </div>
         </>
