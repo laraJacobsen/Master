@@ -60,6 +60,26 @@ th { color: var(--muted); font-weight: bold; font-size: 0.8rem; text-transform: 
 .issue-point { margin: 0 0 0.55rem; font-size: 0.95rem; line-height: 1.45; }
 .issue-point-muted { color: var(--muted); font-size: 0.88rem; }
 .issue-pass .issue-count { color: var(--ok); }
+.issue-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.issue-actions .view-example-btn:disabled { background: none; color: var(--muted); cursor: wait; }
+.issue-raised {
+  background: #f1f5fe;
+  border-left: 3px solid var(--navy);
+  border-radius: 6px;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+.issue-raised:first-child { padding-top: 0.85rem; }
+.issue-raised-badge {
+  font-size: 0.72rem;
+  font-weight: bold;
+  color: white;
+  background: var(--navy);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+}
+.issue-error { color: var(--bad); font-size: 0.85rem; margin-bottom: 0.6rem; }
 .issue-examples { margin-top: 0.75rem; padding-left: 0.75rem; border-left: 3px solid var(--ice); font-size: 0.85rem; }
 .card-empty { color: var(--muted); font-size: 0.9rem; }
 

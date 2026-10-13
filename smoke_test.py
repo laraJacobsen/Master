@@ -67,6 +67,9 @@ BUG_A_CODE = "nums = input().split()\nprint(sum(int(n) for n in nums) + 1)  # bu
 # earlier draft using product, which coincidentally equals the sum for a couple of the
 # real test cases, e.g. the single-number one, giving false partial credit).
 BUG_B_CODE = "nums = input().split()\nprint(len(nums))  # bug_b_count_instead_of_sum"
+# One student only, for the "Raise in class" check -- a third shape, so it lands in
+# its own single-student sub-cluster.
+BUG_C_CODE = "nums = input().split()\nprint(sum(int(n) for n in nums) - 1)  # bug_c_subtract_one"
 
 _idun_state = {"available": True}
 idun_chat_calls = []  # request bodies sent to IDUN's /chat/completions, for the no-leakage assertion
@@ -382,6 +385,52 @@ def _run_checks(client):
         assert fallback_point == hints.discussion_point_for_cluster("wrong_answer", None, 2), fallback_point
         assert len(idun_chat_calls) == 2, "IDUN should not have recorded a call while unreachable"
         print("wrong_answer sub-cluster falls back when IDUN down  OK ->", fallback_point)
+
+        # "Show to students": a one-student issue gets no discussion point by default
+        # (MIN_STUDENTS_FOR_DISCUSSION), but once the lecturer raises it, it gets one
+        # -- labeled from its single snippet -- sorts above bigger issues, and its
+        # example (code without comments, no name) is queued for the students'
+        # waiting screen. Unraising undoes all of it. See aggregation.raise_issue().
+        _idun_state["available"] = True
+        r = client.post(
+            "/api/submit",
+            json={"student_name": "Lise", "question_id": "sum-ints", "source_code": BUG_C_CODE},
+        )
+        assert r.status_code == 200 and r.json()["verdict"] == "incorrect", r.json()
+
+        def lise_cluster(clusters):
+            return next(c for c in clusters if r.json()["submission_id"] in c["submission_ids"])
+
+        clusters = client.get("/api/lecturer/clusters", params={"question_id": "sum-ints"}).json()
+        single = lise_cluster(clusters)
+        assert single["count"] == 1 and single["discussion_point"] is None and not single["raised"], single
+
+        raise_body = {
+            "question_id": "sum-ints",
+            "exec_verdict": single["exec_verdict"],
+            "error_type": single["error_type"],
+            "submission_ids": single["submission_ids"],
+        }
+        clusters = client.post("/api/lecturer/clusters/raise", json=raise_body).json()
+        single = lise_cluster(clusters)
+        assert single["raised"] and single["discussion_point"] == "All snippets share the same overall structure.", single
+        assert r.json()["submission_id"] in clusters[0]["submission_ids"], f"raised issue should sort first: {clusters}"
+        assert len(idun_chat_calls) == 3, "one new single-snippet Label call"
+        assert "Lise" not in json_lib.dumps(idun_chat_calls[-1]), idun_chat_calls[-1]
+        from backend import aggregation as agg_mod
+        shown = agg_mod.shown_examples("sum-ints")
+        assert len(shown) == 1 and shown[0]["source_code"].endswith("- 1)"), shown
+        assert "Lise" not in json_lib.dumps(shown) and "bug_c" not in json_lib.dumps(shown), shown
+        assert shown[0]["failing_test"]["expected_stdout"] != shown[0]["failing_test"]["stdout"].strip(), shown
+
+        clusters = client.post("/api/lecturer/clusters/raise", json={**raise_body, "raised": False}).json()
+        single = lise_cluster(clusters)
+        assert not single["raised"] and single["discussion_point"] is None, single
+        assert agg_mod.shown_examples("sum-ints") == [], "unraised example must leave the students' screen"
+
+        r = client.post("/api/lecturer/clusters/raise", json={**raise_body, "submission_ids": [999999]})
+        assert r.status_code == 404, r.text
+        print("Show to students: singleton raised, example queued  OK")
 
         r = client.post(
             "/api/submit",

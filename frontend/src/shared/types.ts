@@ -30,6 +30,21 @@ export interface LiveQuestion extends PublicQuestion {
 export interface LectureStatus {
   finished: boolean;
   question: LiveQuestion | null;
+  // Examples the lecturer is showing the class -- only sent once the task's
+  // time is up. See aggregation.raise_issue() / shown_examples().
+  shown_examples: SharedExample[];
+}
+
+// One anonymized submission the lecturer put on every student's screen:
+// code (comments stripped) and the first test it failed, no name.
+export interface SharedExample {
+  source_code: string;
+  failing_test: {
+    stdin: string;
+    expected_stdout: string;
+    stdout: string;
+    stderr: string;
+  } | null;
 }
 
 // POST /api/lecture/join -- the Kahoot-style entry gate on the student page.
@@ -174,6 +189,10 @@ export interface ClusterRow {
   example_submission_id: number;
   submission_ids: number[];
   discussion_point: string | null;
+  // Shown to the students by the lecturer -- sorted first, gets a discussion
+  // point even with a single student, and its example is on the students'
+  // waiting screen. See aggregation.raise_issue().
+  raised: boolean;
 }
 
 // GET /api/lecturer/questions/{id}/progress

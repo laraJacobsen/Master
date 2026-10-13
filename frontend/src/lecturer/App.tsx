@@ -19,6 +19,7 @@ import {
   fetchSubmissions,
   finishLecture,
   nextTask,
+  raiseIssue,
 } from "../shared/api";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
@@ -94,7 +95,7 @@ function issueText(c: ClusterRow) {
   if (c.exec_verdict === "pass") return "Passed every test.";
   if (c.discussion_point) return c.discussion_point;
   return c.count < 2
-    ? "Only one student so far, so no discussion point yet."
+    ? "Only one student so far. Show it to the students if it's worth going over anyway."
     : "No discussion point for this issue.";
 }
 
@@ -163,6 +164,8 @@ export default function App() {
   const [openIssues, setOpenIssues] = useState<Set<string>>(new Set());
   const [fetchedSubs, setFetchedSubs] = useState<Record<number, SubmissionRow>>({});
   const [issueLoadError, setIssueLoadError] = useState(false);
+  const [raisingKey, setRaisingKey] = useState<string | null>(null);
+  const [raiseError, setRaiseError] = useState<string | null>(null);
 
   // The active lecture's Kahoot-style join code, shown in the Task control
   // card for the whole session -- fetched once (it doesn't change once the
@@ -454,6 +457,25 @@ export default function App() {
     }
   }
 
+  // "Show to students" -- the lecturer's call that an issue is worth going
+  // over with the class, even if only one student hit it: its example goes to
+  // every student's waiting screen once time is up (see
+  // aggregation.raise_issue()). Raising a wrong_answer issue waits on a live
+  // Label call, hence the busy state.
+  async function toggleRaised(c: ClusterRow) {
+    if (!QUESTION_ID) return;
+    const key = issueKey(c);
+    setRaisingKey(key);
+    setRaiseError(null);
+    try {
+      setClusters(await raiseIssue(QUESTION_ID, c, !c.raised));
+    } catch (e) {
+      setRaiseError(e instanceof Error ? e.message : "Could not update this issue.");
+    } finally {
+      setRaisingKey(null);
+    }
+  }
+
   // Passing last: it's context ("how many got there"), not an issue to discuss.
   const issueRows = [
     ...clusters.filter((c) => c.exec_verdict !== "pass"),
@@ -629,6 +651,7 @@ export default function App() {
               Common issues
               {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
             </h2>
+            {raiseError && <div className="issue-error">{raiseError}</div>}
             {issueRows.length === 0 ? (
               <div className="card-empty">Nothing yet.</div>
             ) : (
@@ -639,20 +662,38 @@ export default function App() {
                   const subs = clusterIds(c)
                     .map(knownSub)
                     .filter((sub): sub is SubmissionRow => !!sub);
+                  const isPass = c.exec_verdict === "pass";
+                  const raising = raisingKey === key;
                   return (
-                    <li key={key} className={c.exec_verdict === "pass" ? "issue issue-pass" : "issue"}>
+                    <li
+                      key={key}
+                      className={["issue", isPass && "issue-pass", c.raised && "issue-raised"].filter(Boolean).join(" ")}
+                    >
                       <div className="issue-head">
                         <span className="issue-count">
                           {c.count} {c.count === 1 ? "student" : "students"}
                         </span>
                         <span className="issue-tag">{issueTag(c)}</span>
+                        {c.raised && <span className="issue-raised-badge">Showing to students</span>}
                       </div>
                       <p className={c.discussion_point ? "issue-point" : "issue-point issue-point-muted"}>
                         {issueText(c)}
                       </p>
-                      <button className="view-example-btn" aria-expanded={open} onClick={() => toggleIssue(c)}>
-                        {open ? "Hide code" : "View code"}
-                      </button>
+                      <div className="issue-actions">
+                        <button className="view-example-btn" aria-expanded={open} onClick={() => toggleIssue(c)}>
+                          {open ? "Hide code" : "View code"}
+                        </button>
+                        {!isPass && QUESTION_ID && (
+                          <button
+                            className="view-example-btn"
+                            aria-pressed={c.raised}
+                            disabled={raisingKey !== null}
+                            onClick={() => toggleRaised(c)}
+                          >
+                            {raising ? (c.raised ? "Removing..." : "Sharing...") : c.raised ? "Stop showing" : "Show to students"}
+                          </button>
+                        )}
+                      </div>
                       {open && (
                         <div className="issue-examples">
                           {subs.length > 0

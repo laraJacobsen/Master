@@ -262,3 +262,22 @@ button:disabled { background: #9aa0b5; cursor: not-allowed; }
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+#shown-examples-card h2 { margin: 0 0 0.3rem; font-size: 1.05rem; }
+.shown-examples-note { margin: 0 0 0.8rem; color: var(--muted); font-size: 0.85rem; }
+.shown-example + .shown-example { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.shown-example-label { font-weight: bold; font-size: 0.85rem; margin-bottom: 0.4rem; }
+.shown-example-code {
+  background: var(--bg);
+  border: 1px solid #d0d3dc;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin: 0 0 0.6rem;
+  font-family: "Courier New", Consolas, monospace;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.shown-example-test { font-size: 0.85rem; }
+.shown-example-test div { margin-bottom: 0.2rem; }
+.shown-example-test code { font-family: "Courier New", Consolas, monospace; white-space: pre-wrap; }

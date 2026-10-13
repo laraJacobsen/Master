@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { LectureStatus, StudentRecap, SubmissionRow, SubmitResponse, TestCase, Verdict } from "../shared/types";
+import type {
+  LectureStatus,
+  SharedExample,
+  StudentRecap,
+  SubmissionRow,
+  SubmitResponse,
+  TestCase,
+  Verdict,
+} from "../shared/types";
 import {
   fetchLectureStatus,
   fetchStudentRecap,
@@ -105,6 +113,9 @@ export default function App() {
   const [wasAutoSubmitted, setWasAutoSubmitted] = useState(false);
 
   const [history, setHistory] = useState<SubmissionRow[] | null>(null);
+  // What the lecturer is going over with the class right now -- see the
+  // "On your lecturer's screen" card below.
+  const [shownExamples, setShownExamples] = useState<SharedExample[]>([]);
 
   const questionIdRef = useRef<string | null>(null);
   const phaseRef = useRef<Phase>("loading");
@@ -210,6 +221,7 @@ export default function App() {
   }
 
   function applyStatus(status: LectureStatus) {
+    setShownExamples(status.shown_examples ?? []);
     if (status.finished) {
       questionIdRef.current = null;
       setQuestionId(null);
@@ -564,6 +576,41 @@ export default function App() {
         </div>
 
         <div className="col-right">
+          {isWaiting && shownExamples.length > 0 && (
+            <div className="card accent-navy" id="shown-examples-card">
+              <h2>Let's look at this together</h2>
+              <p className="shown-examples-note">
+                {shownExamples.length > 1
+                  ? "Your lecturer picked these attempts from the class to go over."
+                  : "Your lecturer picked this attempt from the class to go over."}
+              </p>
+              {shownExamples.map((ex, i) => (
+                <div className="shown-example" key={i}>
+                  {shownExamples.length > 1 && <div className="shown-example-label">Example {i + 1}</div>}
+                  <pre className="shown-example-code">{ex.source_code}</pre>
+                  {ex.failing_test && (
+                    <div className="shown-example-test">
+                      <div>
+                        <strong>Input:</strong> <code>{ex.failing_test.stdin.trimEnd()}</code>
+                      </div>
+                      <div>
+                        <strong>Expected:</strong> <code>{ex.failing_test.expected_stdout.trimEnd()}</code>
+                      </div>
+                      <div>
+                        <strong>Got:</strong> <code>{ex.failing_test.stdout.trim() || "(nothing)"}</code>
+                      </div>
+                      {ex.failing_test.stderr && (
+                        <div>
+                          <strong>Error:</strong> <code>{ex.failing_test.stderr.trim().split("\n").pop()}</code>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="card">
             <label htmlFor="code">Your code (Python)</label>
             <textarea

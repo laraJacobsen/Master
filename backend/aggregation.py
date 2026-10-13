@@ -190,6 +190,16 @@ logger = logging.getLogger(__name__)
 
 MIN_STUDENTS_FOR_DISCUSSION = 2
 
+# Issues the lecturer chose to show to the students on the live dashboard -- see
+# raise_issue(). A raised issue gets a discussion point even below
+# MIN_STUDENTS_FOR_DISCUSSION, sorts to the top, and its example is sent to the
+# students' waiting screen (shown_examples()). Keyed by (question_id,
+# exec_verdict, error_type, frozenset(student names in the issue when it was
+# raised)), so an issue stays raised as more students land in it; the value is
+# the submission id shown to students, in the order raised. In-memory, same as
+# the discussion-point caches below: a restart forgets them.
+_raised_issues = {}
+
 # Keeps operators/brackets/literals as features instead of dropping them -- see
 # the 2026-09-16 follow-up in the module docstring.
 _TOKEN_PATTERN = r"\S+"
@@ -220,7 +230,7 @@ IDUN_MODEL = os.environ.get("IDUN_MODEL", "openai/gpt-oss-120b")
 WRONG_ANSWER_SUBCLUSTER_PROMPT = (
     "You are writing a short, factual note for a lecturer's own dashboard about a group "
     "of students whose code produced the wrong output on the same exercise. You are given "
-    "2-3 of those students' code snippets (comments removed). Different students may use "
+    "1-3 of those students' code snippets (comments removed). Different students may use "
     "different variable names for the same thing. You may also be given the exercise's own "
     "reference (correct) solution -- it is for context only, never one of the snippets to "
     "describe.\n"
@@ -235,7 +245,8 @@ WRONG_ANSWER_SUBCLUSTER_PROMPT = (
     "describing it abstractly. Do not guess a root cause or what the students intended "
     "unless it is literally visible in every snippet shown. If the snippets don't share an "
     "obvious concrete pattern that differs from the reference, say plainly that they don't "
-    "rather than inventing one.\n"
+    "rather than inventing one. Given a single snippet, describe how it differs from the "
+    "reference solution.\n"
     "Only refer to a variable by name if every snippet uses that same name; otherwise "
     "describe what it holds (e.g. 'the lowercased string').\n"
     "Write in third person, for the lecturer, about the students -- never 'you' or "
@@ -477,14 +488,19 @@ def _call_idun_subcluster_pattern(snippets: list, reference_solution: str = None
     return point
 
 
-def _subcluster_discussion_point(group: list, reference_solution: str, student_count: int):
+def _subcluster_discussion_point(group: list, reference_solution: str, student_count: int, raised: bool = False):
     """`reference_solution` -- the exercise's raw (not yet canonicalized) reference
     solution, or None/empty if unavailable -- is comment-stripped here and passed as
     context to the IDUN call (see _call_idun_subcluster_pattern's docstring for
     why). None is a legitimate value, not an error: it just means the call falls
     back to the pre-2026-09-21 behavior of describing the snippets with no
-    reference-relative context."""
-    if student_count < MIN_STUDENTS_FOR_DISCUSSION:
+    reference-relative context.
+
+    `raised` -- the lecturer flagged this issue (see raise_issue()) -- lifts the
+    MIN_STUDENTS_FOR_DISCUSSION gate, so a one-student sub-cluster is labeled
+    from its single snippet. Single-snippet labels haven't been through a
+    spot-check round yet; every rated round so far had 2-3 snippets per row."""
+    if student_count < MIN_STUDENTS_FOR_DISCUSSION and not raised:
         return None
 
     cache_key = frozenset(row["id"] for row in group)
@@ -499,7 +515,7 @@ def _subcluster_discussion_point(group: list, reference_solution: str, student_c
     # switch to showing real code -- this is a "too little code to describe" gate,
     # independent of what the model is shown.
     trivial = any(len(_canonicalize(s).split()) < _MIN_TOKENS_FOR_PATTERN_CALL for s in snippets)
-    if len(snippets) >= 2 and not trivial and _idun_available():
+    if snippets and not trivial and _idun_available():
         t0 = time.monotonic()
         for _attempt in (1, 2):
             try:
@@ -531,9 +547,11 @@ def _distinct_student_submission_ids(rows: list) -> list:
     return ids
 
 
-def _generate_subcluster_labels(groups_with_counts: list) -> list:
-    """Returns one discussion_point (or None, below MIN_STUDENTS_FOR_DISCUSSION) per
-    (group, reference_solution, student_count) in `groups_with_counts`, same order in.
+def _generate_subcluster_labels(groups_with_counts: list, raised_flags: list = None) -> list:
+    """Returns one discussion_point (or None, below MIN_STUDENTS_FOR_DISCUSSION and
+    not raised) per (group, reference_solution, student_count) in
+    `groups_with_counts`, same order in. `raised_flags`, if given, is a parallel
+    list of bools -- see raise_issue().
 
     Sub-clusters are independent of each other -- often from different questions
     entirely, and even within one question a bug shape in one sub-cluster has
@@ -548,10 +566,11 @@ def _generate_subcluster_labels(groups_with_counts: list) -> list:
     network call.
     """
     results = [None] * len(groups_with_counts)
+    raised_flags = raised_flags or [False] * len(groups_with_counts)
     pending = {
-        i: (group, reference_solution, student_count)
-        for i, (group, reference_solution, student_count) in enumerate(groups_with_counts)
-        if student_count >= MIN_STUDENTS_FOR_DISCUSSION
+        i: (group, reference_solution, student_count, raised)
+        for i, ((group, reference_solution, student_count), raised) in enumerate(zip(groups_with_counts, raised_flags))
+        if student_count >= MIN_STUDENTS_FOR_DISCUSSION or raised
     }
     if not pending:
         return results
@@ -559,8 +578,8 @@ def _generate_subcluster_labels(groups_with_counts: list) -> list:
     t0 = time.monotonic()
     with ThreadPoolExecutor(max_workers=min(len(pending), _MAX_PARALLEL_LABEL_CALLS)) as pool:
         futures = {
-            pool.submit(_subcluster_discussion_point, group, reference_solution, student_count): i
-            for i, (group, reference_solution, student_count) in pending.items()
+            pool.submit(_subcluster_discussion_point, group, reference_solution, student_count, raised): i
+            for i, (group, reference_solution, student_count, raised) in pending.items()
         }
         for future in as_completed(futures):
             results[futures[future]] = future.result()
@@ -615,10 +634,16 @@ def _wrong_answer_subclusters(members: list) -> list:
         (group, reference_solution, len({m["student_name"] for m in group}))
         for group, reference_solution in all_groups
     ]
-    labels = _generate_subcluster_labels(groups_with_counts)
+    raised_flags = [
+        _is_raised(group[0]["question_id"], "wrong_answer", None, {m["student_name"] for m in group})
+        for group, _reference_solution, _student_count in groups_with_counts
+    ]
+    labels = _generate_subcluster_labels(groups_with_counts, raised_flags)
 
     result = []
-    for (group, _reference_solution, student_count), discussion_point in zip(groups_with_counts, labels):
+    for (group, _reference_solution, student_count), discussion_point, raised in zip(
+        groups_with_counts, labels, raised_flags
+    ):
         example = group[0]
         result.append(
             {
@@ -628,6 +653,7 @@ def _wrong_answer_subclusters(members: list) -> list:
                 "example_submission_id": example["id"],
                 "submission_ids": _distinct_student_submission_ids(group),
                 "discussion_point": discussion_point,
+                "raised": raised,
             }
         )
     return result
@@ -640,8 +666,8 @@ def _generate_discussion_point(exec_verdict: str, error_type: str, student_count
         return None  # no recognized family -- nothing safe to say
 
 
-def _cached_discussion_point(question_id, exec_verdict, error_type, student_count):
-    if student_count < MIN_STUDENTS_FOR_DISCUSSION:
+def _cached_discussion_point(question_id, exec_verdict, error_type, student_count, raised=False):
+    if student_count < MIN_STUDENTS_FOR_DISCUSSION and not raised:
         return None
     cache_key = (question_id, exec_verdict, error_type)
     if cache_key not in _discussion_cache:
@@ -651,11 +677,91 @@ def _cached_discussion_point(question_id, exec_verdict, error_type, student_coun
     return _discussion_cache[cache_key]
 
 
+def _is_raised(question_id, exec_verdict, error_type, students: set) -> bool:
+    return any(
+        (q, v, e) == (question_id, exec_verdict, error_type) and flagged & students
+        for q, v, e, flagged in _raised_issues
+    )
+
+
+def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids: list, raised: bool) -> None:
+    """Shows (or stops showing) one issue to the class, chosen by the lecturer: its
+    example goes to every student's waiting screen once time is up (see
+    shown_examples()), and the issue gets a discussion point and sorts first on
+    the lecturer's own dashboard.
+
+    MIN_STUDENTS_FOR_DISCUSSION keeps one student's idiosyncratic mistake off the
+    dashboard's talking points by default -- but some single mistakes are exactly
+    what's worth taking up with the whole class (a str * 2 doubling the text, an
+    off-by-one), and only the lecturer can tell which. Requested in supervision,
+    2026-10-13. Deliberately the lecturer's call rather than a curated per-category
+    weight (too coarse for wrong_answer, where one category covers every logic bug)
+    or a model-judged "teachability" score (the same unverifiable-judgment risk
+    pedagogical-feedback-design-decision.md removed twice).
+
+    Flagging alone only reordered the lecturer's list, which did nothing for the
+    class -- so (same day) raising also became the way to put the example in front
+    of the students, on the screen they're already looking at while the lecturer
+    goes over results. Students see the code and its failing test only, no
+    discussion point: those are written about students, for the lecturer.
+
+    The issue is identified by the students in it, via `submission_ids` (what the
+    dashboard already has per cluster; its first id is the example shown).
+    Unraising removes every entry on the same (question, verdict, error_type) that
+    shares a student with it. Raises ValueError if none of the ids exist."""
+    students = set()
+    for sub_id in submission_ids:
+        row = store.get_submission(sub_id)
+        if row:
+            students.add(row["student_name"])
+    if not students:
+        raise ValueError(f"no submissions found for ids {submission_ids!r}")
+    if raised:
+        _raised_issues[(question_id, exec_verdict, error_type, frozenset(students))] = submission_ids[0]
+    else:
+        for entry in list(_raised_issues):
+            if entry[:3] == (question_id, exec_verdict, error_type) and entry[3] & students:
+                del _raised_issues[entry]
+
+
+def shown_examples(question_id: str) -> list:
+    """The examples the lecturer raised for this question, in the order raised, as
+    the students see them: code with comments stripped (the one free-text field
+    in a submission, see _strip_comments()) and the first test it failed. No
+    student name, no discussion point -- see raise_issue()."""
+    examples = []
+    for (q, _v, _e, _students), sub_id in _raised_issues.items():
+        if q != question_id:
+            continue
+        row = store.get_submission(sub_id)
+        if not row:
+            continue
+        results = json.loads(row.get("raw_test_results") or "[]")
+        failing = next((r for r in results if not r.get("passed")), None)
+        examples.append(
+            {
+                "source_code": _strip_comments(row["source_code"]),
+                "failing_test": (
+                    {
+                        "stdin": failing.get("stdin", ""),
+                        "expected_stdout": failing.get("expected_stdout", ""),
+                        "stdout": failing.get("stdout") or "",
+                        "stderr": failing.get("stderr") or "",
+                    }
+                    if failing
+                    else None
+                ),
+            }
+        )
+    return examples
+
+
 def cluster_submissions(question_id: str = None) -> list:
     """Returns clusters ranked by distinct-student count (largest first), each:
       exec_verdict, error_type, count (distinct students), example_submission_id,
       submission_ids (one per distinct student, for "view all"),
-      discussion_point (None unless enough distinct students hit this cluster)
+      discussion_point (None unless enough distinct students hit this cluster, or the
+        lecturer raised it), raised (flagged via raise_issue() -- sorted first)
 
     wrong_answer is expanded into one or more similarity sub-clusters instead of a
     single entry -- see _wrong_answer_subclusters().
@@ -673,7 +779,9 @@ def cluster_submissions(question_id: str = None) -> list:
             result.extend(_wrong_answer_subclusters(members))
             continue
         example = members[0]  # all_submissions is already newest-first
-        student_count = len({m["student_name"] for m in members})
+        students = {m["student_name"] for m in members}
+        student_count = len(students)
+        raised = _is_raised(example["question_id"], exec_verdict, error_type, students)
         result.append(
             {
                 "exec_verdict": exec_verdict,
@@ -682,12 +790,13 @@ def cluster_submissions(question_id: str = None) -> list:
                 "example_submission_id": example["id"],
                 "submission_ids": _distinct_student_submission_ids(members),
                 "discussion_point": _cached_discussion_point(
-                    example["question_id"], exec_verdict, error_type, student_count
+                    example["question_id"], exec_verdict, error_type, student_count, raised
                 ),
+                "raised": raised,
             }
         )
 
-    result.sort(key=lambda c: c["count"], reverse=True)
+    result.sort(key=lambda c: (c["raised"], c["count"]), reverse=True)
     return result
 
 

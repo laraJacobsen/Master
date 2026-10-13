@@ -115,6 +115,21 @@ export function fetchClusters(questionId?: string | null): Promise<ClusterRow[]>
   return fetch(`${API_BASE}/api/lecturer/clusters${qs}`).then((res) => asJson(res));
 }
 
+// Returns the question's clusters re-ranked with the change applied.
+export function raiseIssue(questionId: string, cluster: ClusterRow, raised: boolean): Promise<ClusterRow[]> {
+  return fetch(`${API_BASE}/api/lecturer/clusters/raise`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      question_id: questionId,
+      exec_verdict: cluster.exec_verdict,
+      error_type: cluster.error_type,
+      submission_ids: cluster.submission_ids,
+      raised,
+    }),
+  }).then((res) => asJson(res));
+}
+
 export function fetchLectureStatus(): Promise<LectureStatus> {
   return fetch(`${API_BASE}/api/lecture/status`).then((res) => asJson(res));
 }

@@ -30,6 +30,8 @@ from backend import store
 from backend.aggregation import (
     carry_forward_discussion_points,
     cluster_submissions,
+    raise_issue,
+    shown_examples,
     session_summary,
     student_recap,
 )
@@ -103,6 +105,16 @@ class LectureAdvanceRequest(BaseModel):
 
 class LectureCreateRequest(BaseModel):
     label: str | None = None
+
+
+class RaiseIssueRequest(BaseModel):
+    # Identifies one cluster from GET /api/lecturer/clusters -- its own
+    # exec_verdict/error_type plus its submission_ids.
+    question_id: str
+    exec_verdict: str
+    error_type: str | None = None
+    submission_ids: list[int]
+    raised: bool = True
 
 
 class LectureJoinRequest(BaseModel):
@@ -446,7 +458,7 @@ def api_lecture_status():
     current_lecture = store.current_lecture_row()
     finished = bool(current_lecture and current_lecture["ended_at"])
     if not question:
-        return {"finished": finished, "question": None}
+        return {"finished": finished, "question": None, "shown_examples": []}
 
     return {
         "finished": finished,
@@ -460,6 +472,10 @@ def api_lecture_status():
             "started_at": question["started_at"],
             "seconds_remaining": _seconds_remaining(question),
         },
+        # Issues the lecturer is showing the class (aggregation.raise_issue()) --
+        # only once time is up, so no student sees anyone else's attempt while
+        # they're still answering.
+        "shown_examples": shown_examples(question["id"]) if _seconds_remaining(question) <= 0 else [],
     }
 
 
@@ -631,6 +647,18 @@ def api_lecturer_question_progress(question_id: str):
 @app.get("/api/lecturer/clusters")
 def api_lecturer_clusters(question_id: str = None):
     return cluster_submissions(question_id)
+
+
+# "Show to students" on the live dashboard -- see aggregation.raise_issue().
+# Returns the question's clusters re-ranked, so the dashboard doesn't wait
+# for its next poll to show the flagged issue (and its discussion point).
+@app.post("/api/lecturer/clusters/raise")
+def api_lecturer_clusters_raise(req: RaiseIssueRequest):
+    try:
+        raise_issue(req.question_id, req.exec_verdict, req.error_type, req.submission_ids, req.raised)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return cluster_submissions(req.question_id)
 
 
 # Serve the built React/TS frontend (setup.html, student.html, lecturer.html
