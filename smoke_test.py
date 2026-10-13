@@ -28,7 +28,7 @@ request/response shape (chat-completions endpoint, Bearer auth, OpenAI-style
 
 Proves the FastAPI app, SQLite store, and request/response plumbing are wired
 correctly end to end, including that the sub-clustering step actually separates
-differently-shaped bugs and that the narrowed IDUN call it uses stays anonymized.
+differently-shaped bugs and that the narrowed IDUN call it uses never sees student names or comments.
 Does NOT prove Judge0 execution or real IDUN's actual output quality; those need
 a live Judge0 (see README.md) and a live IDUN endpoint.
 
@@ -60,8 +60,8 @@ DOUBLE_MARKER_CODE = f"print({DOUBLE_MARKER})"  # reference solution for the que
 
 # Two structurally different wrong_answer bugs on the same exercise -- real code, not bare
 # marker strings, so _canonicalize()/TF-IDF has something genuine to tell apart. Each
-# marker is inside a comment, which _canonicalize() strips entirely, so it can't leak into
-# the clustering signal or make the two bugs look artificially similar/different.
+# marker is inside a comment, which _canonicalize() and _strip_comments() both drop, so it
+# can't leak into the clustering signal or the Label prompt.
 BUG_A_CODE = "nums = input().split()\nprint(sum(int(n) for n in nums) + 1)  # bug_a_add_one"
 # Deliberately "count instead of sum" -- guaranteed wrong on every test case (unlike an
 # earlier draft using product, which coincidentally equals the sum for a couple of the
@@ -186,43 +186,8 @@ def _run_canonicalize_boundary_checks():
     print("_canonicalize() statement-boundary fix   OK")
 
 
-def _run_internal_token_leak_checks():
-    """Regression test for the 2026-09-21 internal-token-leak backstop.
-
-    After the Label call started receiving reference-solution context, a regex
-    scan of a real 16-row generated batch found 14 rows quoting VARn placeholders
-    directly (plus one quoting STMT_BREAK) -- meaningless to a lecturer who never
-    sees canonicalized code, and far more widespread than a manual read alone had
-    caught (see backend/aggregation.py's _INTERNAL_TOKEN_LEAK_RE docstring). This
-    checks the regex itself catches the real leaked strings and does not
-    false-positive on legitimate role-based phrasing. Pure function, no
-    network/DB needed.
-    """
-    from backend import aggregation as agg
-
-    leaked_examples = [
-        "All student snippets omit the second method call (the .VAR5(...) chain) after VAR4.",
-        "The students' snippets each contain two STMT_BREAK statements.",
-        "Both snippets call VAR4 with only VAR5(VAR2) as an argument.",
-    ]
-    for text in leaked_examples:
-        assert agg._INTERNAL_TOKEN_LEAK_RE.search(text), text
-
-    clean_examples = [
-        "All student snippets define the vowel-checking string as \"aeiouy\" instead of \"aeiou\".",
-        "The students' snippets omit the sort function's keyword argument that appears in the "
-        "reference solution.",
-        "A variable named variable_count is unrelated to this check.",  # "VAR" substring, no digits
-    ]
-    for text in clean_examples:
-        assert not agg._INTERNAL_TOKEN_LEAK_RE.search(text), text
-
-    print("Internal-token-leak backstop regex   OK")
-
-
 def main():
     _run_canonicalize_boundary_checks()
-    _run_internal_token_leak_checks()
 
     with patch("backend.judge0_client.requests.post", side_effect=fake_post), \
          patch("backend.aggregation.requests.post", side_effect=fake_post):
@@ -383,15 +348,17 @@ def _run_checks(client):
             assert c["discussion_point"] == "All snippets share the same overall structure.", clusters
         print("wrong_answer sub-clustering separates two bug shapes  OK ->", wrong_answer_clusters)
 
-        # The sub-cluster IDUN call must only ever see canonicalized snippets -- never
-        # student names, never the real identifiers, never the marker comments (which
-        # _canonicalize() strips as comments). Exactly one call per sub-cluster (cached).
+        # The sub-cluster IDUN call sees the students' real code (since 2026-10-13 -- see
+        # backend/aggregation.py's _call_idun_subcluster_pattern docstring) but never
+        # student names and never comments (the marker comments here stand in for e.g.
+        # the research corpora's "# forgot to lowercase" annotations). Exactly one call
+        # per sub-cluster (cached).
         assert len(idun_chat_calls) == 2, idun_chat_calls
         sent = json_lib.dumps(idun_chat_calls)
-        for leaked in ("Carol", "Dave", "Kasper", "Vilde", "bug_a_add_one", "bug_b_count_instead_of_sum", "nums"):
+        for leaked in ("Carol", "Dave", "Kasper", "Vilde", "bug_a_add_one", "bug_b_count_instead_of_sum", "VAR1"):
             assert leaked not in sent, (leaked, sent)
-        assert "VAR1" in sent, sent
-        print("Sub-cluster IDUN call carries no names/code    OK")
+        assert "nums = input().split()" in sent, sent
+        print("Sub-cluster IDUN call: real code, no names/comments  OK")
 
         # Fallback path, tested directly against _subcluster_discussion_point() rather
         # than through another full HTTP round trip: whether a third real submission

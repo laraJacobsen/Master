@@ -32,8 +32,8 @@ to act on. That bucket gets sub-clustered by actual code similarity instead:
      ai-coding-assistant-and-large-language-models-llms-on-idun/ -- rather than local
      Ollama, so this doesn't sit on the laptop-latency/memory ceiling measured in
      pedagogical-feedback-design-decision.md), but a narrowly scoped one: given 2-3
-     representative *canonicalized* snippets (never full original source, never real
-     names) from that one sub-cluster, and explicitly told to describe only the pattern
+     representative snippets (comments stripped, never student names -- canonicalized
+     VARn form until 2026-10-13, see the entry at the end) from that one sub-cluster, and explicitly told to describe only the pattern
      visible in ALL of them, never invent a cause true of less than all. This is a
      different risk shape than the lecturer discussion-point call this project removed
      twice before (see pedagogical-feedback-design-decision.md) -- that one asked a model
@@ -152,6 +152,16 @@ Discussion-point generation (_subcluster_discussion_point() / the IDUN call belo
 UNCHANGED by this: it still shows the LLM raw canonicalized code snippets, not diff tokens --
 that step's own known issues (see the fabrication/over-generalization findings above) are
 tracked separately and weren't touched here.
+
+2026-10-13, Label call shown real code instead of canonicalized code. Round 3 of the real
+discussion-point spot-check (feedback-research/real_discussion_point_sample_2026-09-21_round3.csv)
+rated all 16 rows lecturer-facing, but 9 only partially grounded -- every one of them because
+_canonicalize() renames builtins and methods along with the students' own names, so the model
+could only describe a missing .replace(" ", "") as "the subsequent method call that takes the
+two string literals". The Label call now gets each snippet and the reference solution as written
+by the student, minus comments (_strip_comments()). Clustering is untouched: it still diffs
+canonicalized code, which is where name-independence actually matters. The VARn/STMT_BREAK leak
+backstop added in round 3 was removed along with the placeholders it guarded against.
 """
 
 import difflib
@@ -210,29 +220,24 @@ IDUN_MODEL = os.environ.get("IDUN_MODEL", "openai/gpt-oss-120b")
 WRONG_ANSWER_SUBCLUSTER_PROMPT = (
     "You are writing a short, factual note for a lecturer's own dashboard about a group "
     "of students whose code produced the wrong output on the same exercise. You are given "
-    "2-3 anonymized code snippets -- every variable, function, and parameter name has "
-    "been replaced with VAR1, VAR2, etc. in order of first appearance in each snippet, so "
-    "you cannot know what anything is actually called or what the exercise even is. You "
-    "may also be given the exercise's own reference (correct) solution, anonymized the "
-    "same way -- it is for context only, never one of the snippets to describe.\n"
+    "2-3 of those students' code snippets (comments removed). Different students may use "
+    "different variable names for the same thing. You may also be given the exercise's own "
+    "reference (correct) solution -- it is for context only, never one of the snippets to "
+    "describe.\n"
     "Describe, in ONE short factual sentence, only the pattern that is visibly shared "
     "across ALL of the given snippets AND, when a reference solution is shown, is "
     "actually DIFFERENT from it -- e.g. a specific operator, an off-by-one style "
     "adjustment, a missing or extra call, a particular loop or condition shape. Code the "
     "snippets share with the reference solution is normal, correct code, not the bug -- "
-    "never describe it as if it were the shared pattern, even if it looks distinctive. Do "
-    "not name or guess a specific bug, variable purpose, or root cause unless it is "
-    "literally visible in every snippet shown. If the snippets don't share an obvious "
-    "concrete pattern that differs from the reference, say plainly that they don't rather "
-    "than inventing one.\n"
-    "The lecturer reading this has NEVER seen the anonymized code and does not know what "
-    "VAR1, VAR2, etc. or STMT_BREAK mean -- never write one of those placeholder tokens "
-    "in your answer, even to refer to it. Instead describe the ROLE the differing code "
-    "plays -- e.g. 'the string comparison method call', 'the loop's stopping condition', "
-    "'the sort function's keyword argument', 'the vowel-checking string literal' -- using "
-    "only what it does, never its placeholder name. Actual string literals, numbers, and "
-    "operators (e.g. \"aeiou\", 0, +, ==) are real code content, not anonymized "
-    "identifiers, and are fine to quote directly.\n"
+    "never describe it as if it were the shared pattern, even if it looks distinctive. "
+    "Name the specific function, method, argument, literal, or operator involved (e.g. "
+    "'call .lower()', 'pass reverse=True to sorted()', 'use range(len(t) - 1)') rather than "
+    "describing it abstractly. Do not guess a root cause or what the students intended "
+    "unless it is literally visible in every snippet shown. If the snippets don't share an "
+    "obvious concrete pattern that differs from the reference, say plainly that they don't "
+    "rather than inventing one.\n"
+    "Only refer to a variable by name if every snippet uses that same name; otherwise "
+    "describe what it holds (e.g. 'the lowercased string').\n"
     "Write in third person, for the lecturer, about the students -- never 'you' or "
     "'your'.\n"
     "Respond with ONLY a JSON object with exactly this key:\n"
@@ -250,22 +255,6 @@ _subcluster_discussion_cache = {}  # frozenset(submission ids) -> str or None
 # DEDENT/etc. are. Unambiguous against real Python tokens (not a valid identifier
 # or operator), so it can't collide with anything _canonicalize() also emits.
 _STMT_BREAK = "STMT_BREAK"
-
-# Deterministic backstop, same discipline as _SECOND_PERSON_RE above: matches any
-# internal placeholder token (VAR1, VAR2, ..., or STMT_BREAK) that could leak
-# verbatim into lecturer-facing text. Found 2026-09-21: after adding reference-
-# solution context to the Label call (a prompt-only instruction not to name
-# placeholders), a plain regex scan of that round's 16 real generated rows found
-# 14 of 16 quoting VARn directly, plus the STMT_BREAK token appearing once -- far
-# more widespread than the handful a manual read had caught. Root cause:
-# canonicalization strips the only real name a variable ever had, so without an
-# explicit instruction to describe its ROLE instead (see
-# WRONG_ANSWER_SUBCLUSTER_PROMPT) the model had nothing else to call it by, and
-# that instruction alone did not reliably hold. This regex is the backstop for
-# when it still doesn't -- caller retries/falls back to the generic line, same as
-# any other validation failure.
-_INTERNAL_TOKEN_LEAK_RE = re.compile(r"\bVAR\d+\b|\b" + re.escape(_STMT_BREAK) + r"\b")
-
 
 def _canonicalize(source_code: str) -> str:
     """Renames every non-keyword identifier to VAR1/VAR2/... in order of first
@@ -315,6 +304,32 @@ def _canonicalize(source_code: str) -> str:
         return " ".join(out)
     except (tokenize.TokenError, IndentationError, SyntaxError):
         return source_code
+
+
+def _strip_comments(source_code: str) -> str:
+    """The student's own code, minus comments -- what the Label call is shown
+    (see _call_idun_subcluster_pattern's docstring for why that's no longer the
+    _canonicalize() form). Comments are dropped because they can state the bug
+    outright (the research corpora's "# forgot to lowercase" annotations would hand
+    the model the answer) and are the one free-text field in a submission that
+    could carry anything personal. Lines left empty by removing a whole-line comment
+    are dropped too; everything else -- names, layout, indentation -- is unchanged.
+    Falls back to the raw source if it can't be tokenized, same as _canonicalize()."""
+    try:
+        comments = [
+            tok for tok in tokenize.generate_tokens(io.StringIO(source_code).readline)
+            if tok.type == tokenize.COMMENT
+        ]
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return source_code
+    lines = source_code.splitlines()
+    comment_only = set()
+    for tok in comments:
+        row, col = tok.start[0] - 1, tok.start[1]
+        lines[row] = lines[row][:col].rstrip()
+        if not lines[row].strip():
+            comment_only.add(row)
+    return "\n".join(line for i, line in enumerate(lines) if i not in comment_only)
 
 
 def _diff_tokens(reference_solution: str, source_code: str) -> str:
@@ -375,16 +390,16 @@ def _cluster_by_similarity(rows: list, reference_solution: str) -> list:
 
 
 def _representative_snippets(group: list, max_n: int = 3) -> list:
-    """Up to max_n canonicalized snippets from distinct students in this group, for
-    the Ollama call -- never the full group (keeps the call cheap and the model from
-    over-indexing on one student's resubmissions)."""
+    """Up to max_n comment-stripped snippets (_strip_comments()) from distinct
+    students in this group, for the Label call -- never the full group (keeps the
+    call cheap and the model from over-indexing on one student's resubmissions)."""
     seen_students = set()
     picked = []
     for row in group:
         if row["student_name"] in seen_students:
             continue
         seen_students.add(row["student_name"])
-        picked.append(_canonicalize(row["source_code"]))
+        picked.append(_strip_comments(row["source_code"]))
         if len(picked) >= max_n:
             break
     return picked
@@ -398,14 +413,14 @@ def _idun_available() -> bool:
     return bool(IDUN_API_KEY)
 
 
-def _call_idun_subcluster_pattern(snippets: list, reference_canonical: str = None) -> str:
-    """One JSON-mode call given 2-3 canonicalized snippets from one similarity
+def _call_idun_subcluster_pattern(snippets: list, reference_solution: str = None) -> str:
+    """One JSON-mode call given 2-3 comment-stripped snippets from one similarity
     sub-cluster, via IDUN's OpenAI-compatible chat-completions endpoint. Raises on
     network failure, invalid JSON, a response that doesn't satisfy the schema, or
     second-person phrasing -- caller retries/falls back to the generic wrong_answer
     line.
 
-    `reference_canonical` -- the exercise's own reference solution, canonicalized
+    `reference_solution` -- the exercise's own reference solution, comment-stripped
     the same way as `snippets` -- is optional context, not a snippet to describe
     (see WRONG_ANSWER_SUBCLUSTER_PROMPT). Added 2026-09-21 after a real spot-check
     found the model repeatedly restating structure the submissions share with the
@@ -418,15 +433,23 @@ def _call_idun_subcluster_pattern(snippets: list, reference_canonical: str = Non
     numbers variables independently per snippet, so a single real difference before
     a shared call cascades into a run of spurious DEL/INS pairs from pure
     renumbering -- fine for a TF-IDF vectorizer (order/coherence don't matter to
-    it), unreadable as a prompt. Showing the model the full reference and
-    submission text and asking it to compare them itself uses the model's own
-    comparison ability instead of a token-level diff built for a different
-    consumer."""
+    it), unreadable as a prompt.
+
+    Changed 2026-10-13: snippets and reference are the students' real code (comments
+    stripped), no longer _canonicalize()'s VARn token stream. Round 3's spot-check
+    rated 9 of 16 rows only partially grounded, all for one reason: canonicalization
+    renames builtins and methods too (lower, replace, sorted, reverse, int), so the
+    model could see THAT something differed but not WHAT -- "omits the subsequent
+    method call that takes the two string literals" for a missing .replace(" ", ""),
+    "without the keyword argument set to True" for a missing reverse=True. Anonymizing
+    names is what clustering needs (two students' different variable names mustn't
+    split identical code); it was never a requirement of the Label call, just
+    inherited from reusing the clustering input. Student names are still never sent."""
     parts = []
-    if reference_canonical:
+    if reference_solution:
         parts.append(
-            "Reference (correct) solution, anonymized the same way -- for context "
-            "only, not one of the snippets to describe:\n\n" + reference_canonical
+            "Reference (correct) solution -- for context only, not one of the "
+            "snippets to describe:\n\n" + reference_solution
         )
     parts.append("Snippets:\n\n" + "\n\n---\n\n".join(snippets))
     prompt = "\n\n".join(parts) + "\n\nRespond with the JSON object described in the system prompt."
@@ -451,14 +474,12 @@ def _call_idun_subcluster_pattern(snippets: list, reference_canonical: str = Non
     point = point.strip()
     if _SECOND_PERSON_RE.search(point):
         raise ValueError(f"discussion_point addressed the student, not the lecturer: {point!r}")
-    if _INTERNAL_TOKEN_LEAK_RE.search(point):
-        raise ValueError(f"discussion_point leaked an internal placeholder token: {point!r}")
     return point
 
 
 def _subcluster_discussion_point(group: list, reference_solution: str, student_count: int):
     """`reference_solution` -- the exercise's raw (not yet canonicalized) reference
-    solution, or None/empty if unavailable -- is canonicalized here and passed as
+    solution, or None/empty if unavailable -- is comment-stripped here and passed as
     context to the IDUN call (see _call_idun_subcluster_pattern's docstring for
     why). None is a legitimate value, not an error: it just means the call falls
     back to the pre-2026-09-21 behavior of describing the snippets with no
@@ -473,13 +494,16 @@ def _subcluster_discussion_point(group: list, reference_solution: str, student_c
     fallback = hints.discussion_point_for_cluster("wrong_answer", None, student_count)
     result = fallback
     snippets = _representative_snippets(group)
-    reference_canonical = _canonicalize(reference_solution) if reference_solution else None
-    trivial = any(len(s.split()) < _MIN_TOKENS_FOR_PATTERN_CALL for s in snippets)
+    reference = _strip_comments(reference_solution) if reference_solution else None
+    # Token count measured on the canonicalized form, same as before the 2026-10-13
+    # switch to showing real code -- this is a "too little code to describe" gate,
+    # independent of what the model is shown.
+    trivial = any(len(_canonicalize(s).split()) < _MIN_TOKENS_FOR_PATTERN_CALL for s in snippets)
     if len(snippets) >= 2 and not trivial and _idun_available():
         t0 = time.monotonic()
         for _attempt in (1, 2):
             try:
-                result = _call_idun_subcluster_pattern(snippets, reference_canonical)
+                result = _call_idun_subcluster_pattern(snippets, reference)
                 break
             except Exception:
                 continue

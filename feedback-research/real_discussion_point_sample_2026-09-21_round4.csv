@@ -1,0 +1,551 @@
+id,exercise,student_count,raw_code_snippets,snippets_shown_to_model,reference_solution_shown_to_model,discussion_point,is_grounded_y_n,is_lecturer_facing_y_n,is_actionable_y_n
+1,sum-ints,5,"nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)","nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)",print(sum(int(x) for x in input().split())),"All students add 1 to the computed sum before printing (i.e., they use `... + 1`).",,,
+2,sum-ints,2,"nums = input().split()
+print(sum(int(n) for n in nums) - 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) - 1)","nums = input().split()
+print(sum(int(n) for n in nums) - 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) - 1)",print(sum(int(x) for x in input().split())),Both snippets subtract 1 from the computed sum before printing.,,,
+3,sum-ints,4,"nums = input().split()
+print(sum(int(n) for n in nums[1:]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))","nums = input().split()
+print(sum(int(n) for n in nums[1:]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))",print(sum(int(x) for x in input().split())),"All snippets apply a slice to the list returned by input().split() (e.g., nums[1:] or nums[:-1]) before summing, unlike the reference solution which sums the unsliced list.",,,
+4,sum-ints,2,"nums = input().split()
+print(int(nums[0]))
+
+---
+
+nums = input().split()
+print(int(nums[0]))","nums = input().split()
+print(int(nums[0]))
+
+---
+
+nums = input().split()
+print(int(nums[0]))",print(sum(int(x) for x in input().split())),They convert only the first split token (nums[0]) to int and print it,,,
+5,sum-ints,2,"nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)
+
+---
+
+nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)","nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)
+
+---
+
+nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)",print(sum(int(x) for x in input().split())),They initialize an accumulator with 1 and use `result *= int(n)` to multiply each input number.,,,
+6,double-it,2,"print(int(input()) + 2)
+
+---
+
+print(int(input()) + 2)","print(int(input()) + 2)
+
+---
+
+print(int(input()) + 2)",print(int(input()) * 2),All students use the addition operator `+ 2` on the input value instead of the multiplication operator `* 2` as in the reference solution.,,,
+7,double-it,2,"int = input()
+print(int*2)
+
+---
+
+int = input()
+print(int*2)","int = input()
+print(int*2)
+
+---
+
+int = input()
+print(int*2)",print(int(input()) * 2),Both snippets multiply the raw input string stored in variable int by 2 without converting it to an integer.,,,
+8,is_palindrome,2,"def is_palindrome(s):
+    t = s.replace("" "", """")  # forgot to lowercase
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.replace("" "", """")  # forgot to lowercase
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+","def is_palindrome(s):
+    t = s.replace("" "", """")
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+---
+
+def is_palindrome(s):
+    t = s.replace("" "", """")
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))","def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))","All snippets omit calling .lower() on the input string before using replace("" "", """").",,,
+9,is_palindrome,2,"def is_palindrome(s):
+    t = s.lower()  # forgot to strip spaces
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.lower()  # forgot to strip spaces
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+","def is_palindrome(s):
+    t = s.lower()
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+---
+
+def is_palindrome(s):
+    t = s.lower()
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))","def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))","Both students omit the call to .replace("" "", """") on the string before performing the palindrome check.",,,
+10,is_palindrome,2,"def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:  # off-by-one: should be n - i - 1
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:  # off-by-one: should be n - i - 1
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+","def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+
+---
+
+def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))","def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))","All snippets compare t[i] with t[n - i - 2] inside the loop, an off‑by‑one index that differs from the correct solution.",,,
+11,count_vowels,2,"def count_vowels(s):
+    vowels = ""aeiou""  # forgot to lowercase s first
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    vowels = ""aeiou""  # forgot to lowercase s first
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def count_vowels(s):
+    vowels = ""aeiou""
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+---
+
+def count_vowels(s):
+    vowels = ""aeiou""
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","All snippets iterate over the input string directly without calling .lower() to convert it to lowercase, unlike the reference solution.",,,
+12,count_vowels,2,"def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""  # bug: y isn't a vowel
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""  # bug: y isn't a vowel
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","All snippets define the vowel string as ""aeiouy"" instead of the reference's ""aeiou"".",,,
+13,count_vowels,2,"def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):  # off-by-one: skips the last character
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):  # off-by-one: skips the last character
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))",All snippets use `for i in range(len(t) - 1)` to iterate over the string instead of the reference’s `for ch in t` loop.,,,
+14,second_largest,2,"def second_largest(nums):
+    s = sorted(nums, reverse=True)  # no dedup: picks second position, not second distinct value
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    s = sorted(nums, reverse=True)  # no dedup: picks second position, not second distinct value
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def second_largest(nums):
+    s = sorted(nums, reverse=True)
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+---
+
+def second_largest(nums):
+    s = sorted(nums, reverse=True)
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","def second_largest(nums):
+    distinct = sorted(set(nums), reverse=True)
+    return distinct[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","Both students call sorted(nums, reverse=True) directly, omitting the set conversion to remove duplicates.",,,
+15,second_largest,2,"def second_largest(nums):
+    s = sorted(set(nums))  # ascending, not descending
+    return s[1]  # grabs second-smallest distinct instead of second-largest
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    s = sorted(set(nums))  # ascending, not descending
+    return s[1]  # grabs second-smallest distinct instead of second-largest
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def second_largest(nums):
+    s = sorted(set(nums))
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+---
+
+def second_largest(nums):
+    s = sorted(set(nums))
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","def second_largest(nums):
+    distinct = sorted(set(nums), reverse=True)
+    return distinct[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))",All snippets call sorted(set(nums)) without the reverse=True argument.,,,
+16,second_largest,2,"def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:  # bug: should be n > second
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:  # bug: should be n > second
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+---
+
+def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","def second_largest(nums):
+    distinct = sorted(set(nums), reverse=True)
+    return distinct[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","They use the '<' operator when updating `second` (i.e., `if second is None or n < second:`).",,,
