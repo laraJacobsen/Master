@@ -58,7 +58,7 @@ export interface JoinedCountResponse {
   joined: number;
 }
 
-export type QuestionStatus = "draft" | "live" | "closed";
+export type QuestionStatus = "draft" | "live" | "closed" | "skipped";
 
 // GET/POST/PUT /api/lecturer/questions* -- full question row (setup page +
 // lecturer page title lookup).

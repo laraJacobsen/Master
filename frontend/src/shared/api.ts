@@ -150,6 +150,12 @@ export function nextTask(currentQuestionId: string | null): Promise<LectureNextR
   }).then((res) => asJson(res));
 }
 
+export function endQuestionNow(questionId: string): Promise<QuestionRow> {
+  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/end_now`, {
+    method: "POST",
+  }).then((res) => asJson(res));
+}
+
 export function finishLecture(currentQuestionId: string | null): Promise<LectureFinishResponse> {
   return fetch(`${API_BASE}/api/lecturer/lecture/finish`, {
     method: "POST",

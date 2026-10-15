@@ -253,6 +253,26 @@ def init_db():
                     (fallback_id,),
                 )
 
+        # Drafts left unstarted when a lecture ended used to stay in the shared
+        # bank (lecture_id NULL) and resurface in the next lecture -- see
+        # end_lecture(). One-time backfill for DBs from before that fix: a
+        # draft created during an already-ended lecture is retired under it.
+        conn.execute(
+            """
+            UPDATE questions SET status = 'skipped', lecture_id = (
+                SELECT l.id FROM lectures l
+                WHERE l.ended_at IS NOT NULL
+                  AND questions.created_at BETWEEN l.started_at AND l.ended_at
+                ORDER BY l.id DESC LIMIT 1
+            )
+            WHERE status = 'draft' AND lecture_id IS NULL AND EXISTS (
+                SELECT 1 FROM lectures l
+                WHERE l.ended_at IS NOT NULL
+                  AND questions.created_at BETWEEN l.started_at AND l.ended_at
+            )
+            """
+        )
+
         # Seed the original MVP question directly as `live`/validated so a fresh
         # checkout keeps working exactly as before without anyone having to walk
         # it through the setup page first (see smoke_test.py, README.md).
@@ -457,6 +477,22 @@ def close_question(question_id: str) -> None:
     update_question(question_id, {"status": "closed"})
 
 
+def end_question_now(question_id: str) -> None:
+    """Runs a live question's timer out early (the lecturer's "End task now")
+    by shortening duration_seconds to the time already elapsed. Deliberately
+    not close_question(): the question stays live, so it goes through the
+    exact same "time's up" path as a timer that ran out on its own --
+    students' unsubmitted code gets auto-submitted, and "Show to students"
+    examples reach their waiting screens. Moving on is still "Next task"."""
+    row = get_question_row(question_id)
+    if not row or row["status"] != "live" or not row.get("started_at"):
+        return
+    started = datetime.strptime(row["started_at"], "%Y-%m-%d %H:%M:%S")
+    elapsed = int((datetime.utcnow() - started).total_seconds())
+    if elapsed < row["duration_seconds"]:
+        update_question(question_id, {"duration_seconds": max(0, elapsed)})
+
+
 def next_draft_question():
     """The earliest-created, validated draft question -- what "Next task"
     (see api_lecturer_lecture_next in main.py) starts next. Lecture order is
@@ -627,13 +663,26 @@ def current_lecture_row():
 def end_lecture(lecture_id: int) -> None:
     """Marks a lecture's live window over -- the "Finish lecture"/"End
     session" action. A no-op if it's already ended or isn't the active one,
-    same defensive shape as close_question()."""
+    same defensive shape as close_question().
+
+    Also retires the drafts still sitting in this lecture's question bank
+    (never started, so lecture_id is still NULL) as `skipped`, tagged with
+    this lecture. Without that, ending a lecture early left its unstarted
+    tasks in the shared bank, where the next lecture's setup page and "Next
+    task" picked them up as if they belonged to it. `skipped` questions are
+    kept (not deleted) but never listed, started, or counted as run tasks
+    (see questions_for_lecture())."""
     with _lock:
         conn = _connect()
-        conn.execute(
+        cur = conn.execute(
             "UPDATE lectures SET ended_at = datetime('now') WHERE id = ? AND ended_at IS NULL",
             (lecture_id,),
         )
+        if cur.rowcount:
+            conn.execute(
+                "UPDATE questions SET status = 'skipped', lecture_id = ? WHERE status = 'draft' AND lecture_id IS NULL",
+                (lecture_id,),
+            )
         conn.commit()
         conn.close()
 
@@ -712,13 +761,15 @@ def lecture_totals() -> dict:
 
 
 def questions_for_lecture(lecture_id: int) -> list:
-    """Every question stamped with this lecture_id, in the order they were
-    run -- the per-task rows for the lecturer session summary and the
-    student recap (see aggregation.py)."""
+    """Every question that actually ran under this lecture_id, in the order
+    they were run -- the per-task rows for the lecturer session summary and
+    the student recap (see aggregation.py). Excludes drafts retired as
+    `skipped` when the lecture ended (see end_lecture())."""
     with _lock:
         conn = _connect()
         cur = conn.execute(
-            "SELECT * FROM questions WHERE lecture_id = ? ORDER BY created_at ASC, rowid ASC",
+            "SELECT * FROM questions WHERE lecture_id = ? AND status != 'skipped' "
+            "ORDER BY created_at ASC, rowid ASC",
             (lecture_id,),
         )
         rows = [_deserialize_question(dict(r)) for r in cur.fetchall()]

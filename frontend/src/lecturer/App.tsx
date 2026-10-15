@@ -17,10 +17,12 @@ import {
   fetchQuestionDetail,
   fetchSubmissionDetail,
   fetchSubmissions,
+  endQuestionNow,
   finishLecture,
   nextTask,
   raiseIssue,
 } from "../shared/api";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
 
@@ -185,6 +187,9 @@ export default function App() {
   const [advancing, setAdvancing] = useState(false);
   const [advanceMessage, setAdvanceMessage] = useState<string | null>(null);
   const [lectureFinished, setLectureFinished] = useState(false);
+  // Ending the whole lecture can't be undone and kicks every student to the
+  // end screen, so it sits behind a confirm (and out of the main button row).
+  const [confirmFinishOpen, setConfirmFinishOpen] = useState(false);
 
   // The STATE 2 post-lecture view -- fetched once, right when "End session"
   // succeeds (see handleFinishLecture below), not polled: the lecture is
@@ -360,7 +365,7 @@ export default function App() {
       if (res.started) {
         window.location.href = `lecturer.html?question_id=${encodeURIComponent(res.started.id)}`;
       } else {
-        setAdvanceMessage("No more tasks left to start. Click \"Finish lecture\" to end.");
+        setAdvanceMessage("No more tasks left to start. Use \"End lecture...\" below to finish.");
         setAdvancing(false);
       }
     } catch (e) {
@@ -369,7 +374,25 @@ export default function App() {
     }
   }
 
+  // "End task now" -- runs this task's timer out early (everyone's answered,
+  // short on time, ...). Lands on the same "time's up" state as a timer that
+  // ran out by itself: students go to their waiting screen and the lecturer
+  // can show them examples before clicking "Next task".
+  async function handleEndTaskNow() {
+    if (!QUESTION_ID) return;
+    setAdvancing(true);
+    setAdvanceMessage(null);
+    try {
+      setQuestion(await endQuestionNow(QUESTION_ID));
+    } catch (e) {
+      setAdvanceMessage(e instanceof Error ? e.message : "Could not end this task.");
+    } finally {
+      setAdvancing(false);
+    }
+  }
+
   async function handleFinishLecture() {
+    setConfirmFinishOpen(false);
     setAdvancing(true);
     setAdvanceMessage(null);
     try {
@@ -509,6 +532,15 @@ export default function App() {
   return (
     <>
       <NavBar />
+      <ConfirmDialog
+        open={confirmFinishOpen}
+        title="End the whole lecture?"
+        message="Every student is sent to the end-of-lecture screen and can't submit anything more. Tasks you haven't started yet won't run. This can't be undone."
+        confirmLabel="End lecture"
+        cancelLabel="Keep going"
+        onConfirm={handleFinishLecture}
+        onCancel={() => setConfirmFinishOpen(false)}
+      />
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <h1 id="page-title">{pageTitle}</h1>
@@ -599,21 +631,37 @@ export default function App() {
                       </>
                     )}
                   </div>
-                  <div>
-                    <button className="secondary" onClick={handleNextTask} disabled={advancing}>
-                      Next task
-                    </button>
+                  <div className="task-control-actions">
+                    {secondsRemaining != null && secondsRemaining > 0 && (
+                      <button className="secondary" onClick={handleEndTaskNow} disabled={advancing}>
+                        End task now
+                      </button>
+                    )}
                     <button
-                      className="danger"
-                      onClick={handleFinishLecture}
+                      className={secondsRemaining === 0 ? undefined : "secondary"}
+                      onClick={handleNextTask}
                       disabled={advancing}
-                      style={{ marginLeft: "0.6rem" }}
                     >
-                      End session
+                      Next task
                     </button>
                   </div>
                 </div>
+                {secondsRemaining === 0 && (
+                  <div className="advance-message">
+                    Students are on their waiting screen. Use "Show to students" on an issue below to go
+                    over it with them, then "Next task" when you're ready.
+                  </div>
+                )}
                 {advanceMessage && <div className="advance-message">{advanceMessage}</div>}
+                <div className="end-lecture-row">
+                  <button
+                    className="end-lecture-link"
+                    onClick={() => setConfirmFinishOpen(true)}
+                    disabled={advancing}
+                  >
+                    End lecture...
+                  </button>
+                </div>
               </>
             )}
           </div>
