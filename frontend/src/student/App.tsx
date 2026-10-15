@@ -116,6 +116,9 @@ export default function App() {
   // What the lecturer is going over with the class right now -- see the
   // "On your lecturer's screen" card below.
   const [shownExamples, setShownExamples] = useState<SharedExample[]>([]);
+  // Whether a task has gone live since this tab joined -- tells the waiting
+  // screen's "lecture hasn't started yet" apart from "between tasks".
+  const [hadTask, setHadTask] = useState(false);
 
   const questionIdRef = useRef<string | null>(null);
   const phaseRef = useRef<Phase>("loading");
@@ -186,6 +189,10 @@ export default function App() {
       setResult(data);
       resultRef.current = data;
       loadHistory(trimmedName, qId);
+      // Solved it -- nothing left to do on this task, so off to the waiting
+      // screen. A wrong answer stays on the editor with its hint so the
+      // student can resubmit (that's what escalates the hint tier).
+      if (data.verdict === "correct") setPhase("waiting");
     } catch (e) {
       setErrorMessage(e instanceof Error ? e.message : "Submission failed.");
     } finally {
@@ -269,6 +276,7 @@ export default function App() {
       recapFetchedRef.current = false;
       setRecap(null);
       setQuestionId(q.id);
+      setHadTask(true);
       setPromptText(q.prompt);
       setExample(q.example);
       setDurationSeconds(q.duration_seconds);
@@ -482,13 +490,108 @@ export default function App() {
     );
   }
 
-  const isWaiting = phase === "waiting";
-  // The STATE-1 sub-cases the "time's up" panel below can be in -- derived
-  // from state rather than tracked separately, since once the editor goes
-  // read-only `code`/`result`/`submitting` don't change except through the
-  // auto-submit/grading flow itself.
-  const waitingIsGrading = isWaiting && submitting;
-  const waitingIsEmpty = isWaiting && !result && !submitting && !errorMessage && !code.trim();
+  if (phase === "waiting") {
+    // One screen for every "nothing to type right now" moment -- only the
+    // headline/message change with what this student just did.
+    let title: string;
+    let message: string;
+    if (submitting) {
+      title = "Time's up";
+      message = wasAutoSubmitted ? "Your code was submitted automatically." : "Your code is being graded.";
+    } else if (errorMessage) {
+      title = "Time's up";
+      message = "Waiting for your lecturer to give the next task.";
+    } else if (result?.verdict === "correct") {
+      title = "Good job!";
+      message = "You solved it. Waiting for your lecturer to give the next task.";
+    } else if (result) {
+      title = "Thanks for submitting";
+      message = "Your lecturer will go over the results. Waiting for the next task.";
+    } else if (hadTask) {
+      title = "Time's up";
+      message = "No code submitted for this task. That's fine, the next one's coming.";
+    } else {
+      title = `You're in${name.trim() ? `, ${name.trim()}` : ""}!`;
+      message = "Waiting for your lecturer to start the first task.";
+    }
+
+    return (
+      <>
+        <header>
+          <h1>Interactive Lecture</h1>
+        </header>
+        <main className="waiting-main">
+          <div className="card accent-navy waiting-card">
+            <h2>{title}</h2>
+            <p className="waiting-message">{message}</p>
+            {result && !submitting && (
+              <div className="waiting-result">
+                <span className={verdictClass(result.verdict)}>{verdictLabel(result.verdict)}</span>
+                <span className="waiting-score">
+                  {result.tests_passed}/{result.tests_total} tests passed
+                </span>
+              </div>
+            )}
+            {errorMessage && !submitting && (
+              <div id="error-box" style={{ display: "block" }}>
+                {errorMessage}
+              </div>
+            )}
+            <div className="pulse-indicator waiting-pulse">
+              {submitting ? (
+                <span className="spinner waiting-spinner" />
+              ) : (
+                <span className="pulse-dot" />
+              )}
+              {submitting ? statusText || "Grading..." : "Waiting for your lecturer..."}
+            </div>
+          </div>
+
+          {shownExamples.length > 0 && (
+            <div className="card accent-navy" id="shown-examples-card">
+              <h2>Let's look at this together</h2>
+              <p className="shown-examples-note">
+                {shownExamples.length > 1
+                  ? "Your lecturer picked these attempts from the class to go over."
+                  : "Your lecturer picked this attempt from the class to go over."}
+              </p>
+              {shownExamples.map((ex, i) => (
+                <div className="shown-example" key={i}>
+                  {shownExamples.length > 1 && <div className="shown-example-label">Example {i + 1}</div>}
+                  <pre className="shown-example-code">{ex.source_code}</pre>
+                  {ex.failing_test && (
+                    <div className="shown-example-test">
+                      <div>
+                        <strong>Input:</strong> <code>{ex.failing_test.stdin.trimEnd()}</code>
+                      </div>
+                      <div>
+                        <strong>Expected:</strong> <code>{ex.failing_test.expected_stdout.trimEnd()}</code>
+                      </div>
+                      <div>
+                        <strong>Got:</strong> <code>{ex.failing_test.stdout.trim() || "(nothing)"}</code>
+                      </div>
+                      {ex.failing_test.stderr && (
+                        <div>
+                          <strong>Error:</strong> <code>{ex.failing_test.stderr.trim().split("\n").pop()}</code>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {result && !submitting && result.verdict !== "correct" && result.feedback && (
+            <div className="card" id="waiting-feedback">
+              <h2>Feedback on your last attempt</h2>
+              <div id="feedback-text">{result.feedback}</div>
+            </div>
+          )}
+        </main>
+      </>
+    );
+  }
 
   return (
     <>
@@ -510,7 +613,7 @@ export default function App() {
             />
 
             <div id="timer-box" style={{ display: secondsRemaining != null ? "block" : "none" }}>
-              <div className="timer-label">{isWaiting ? "Time's up" : "Time remaining"}</div>
+              <div className="timer-label">Time remaining</div>
               <div className={"timer-value" + (secondsRemaining === 0 ? " time-up" : "")}>
                 {secondsRemaining != null ? formatMMSS(secondsRemaining) : ""}
               </div>
@@ -526,16 +629,6 @@ export default function App() {
                 />
               </div>
             </div>
-
-            {isWaiting && (
-              <div id="waiting-status">
-                <div className="pulse-indicator">
-                  <span className="pulse-dot" />
-                  Waiting for the next task...
-                </div>
-                <div className="waiting-attention-note">Your lecturer is going over the results now.</div>
-              </div>
-            )}
 
             <label>Question</label>
             <div id="prompt-text">{promptText}</div>
@@ -576,41 +669,6 @@ export default function App() {
         </div>
 
         <div className="col-right">
-          {isWaiting && shownExamples.length > 0 && (
-            <div className="card accent-navy" id="shown-examples-card">
-              <h2>Let's look at this together</h2>
-              <p className="shown-examples-note">
-                {shownExamples.length > 1
-                  ? "Your lecturer picked these attempts from the class to go over."
-                  : "Your lecturer picked this attempt from the class to go over."}
-              </p>
-              {shownExamples.map((ex, i) => (
-                <div className="shown-example" key={i}>
-                  {shownExamples.length > 1 && <div className="shown-example-label">Example {i + 1}</div>}
-                  <pre className="shown-example-code">{ex.source_code}</pre>
-                  {ex.failing_test && (
-                    <div className="shown-example-test">
-                      <div>
-                        <strong>Input:</strong> <code>{ex.failing_test.stdin.trimEnd()}</code>
-                      </div>
-                      <div>
-                        <strong>Expected:</strong> <code>{ex.failing_test.expected_stdout.trimEnd()}</code>
-                      </div>
-                      <div>
-                        <strong>Got:</strong> <code>{ex.failing_test.stdout.trim() || "(nothing)"}</code>
-                      </div>
-                      {ex.failing_test.stderr && (
-                        <div>
-                          <strong>Error:</strong> <code>{ex.failing_test.stderr.trim().split("\n").pop()}</code>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
           <div className="card">
             <label htmlFor="code">Your code (Python)</label>
             <textarea
@@ -618,50 +676,23 @@ export default function App() {
               spellCheck={false}
               placeholder="# Your code here."
               value={code}
-              readOnly={isWaiting}
               onChange={(e) => updateCode(e.target.value)}
             />
-            {!isWaiting && (
-              <>
-                <button id="submit-btn" disabled={submitting} onClick={handleSubmit}>
-                  <span
-                    id="submit-spinner"
-                    className="spinner"
-                    style={{ display: submitting ? "inline-block" : "none" }}
-                  />
-                  <span id="submit-btn-text">{submitting ? "Running..." : "Submit"}</span>
-                </button>
-                <div id="submit-status" style={{ display: submitting ? "block" : "none" }}>
-                  {statusText}
-                </div>
-                <div id="error-box" style={{ display: errorMessage ? "block" : "none" }}>
-                  {errorMessage}
-                </div>
-              </>
-            )}
-            {isWaiting && (
-              <div id="waiting-submit-status">
-                {waitingIsGrading && (
-                  <div id="submit-status" style={{ display: "block" }}>
-                    <span className="spinner" style={{ display: "inline-block" }} />
-                    {wasAutoSubmitted && <div>Your code was submitted automatically.</div>}
-                    <div>{statusText || "Grading..."}</div>
-                  </div>
-                )}
-                {waitingIsEmpty && (
-                  <div className="neutral-note">
-                    No code to submit this time. That's fine, the next one's coming.
-                  </div>
-                )}
-                {errorMessage && !waitingIsGrading && (
-                  <div id="error-box" style={{ display: "block" }}>
-                    {errorMessage}
-                  </div>
-                )}
-              </div>
-            )}
+            <button id="submit-btn" disabled={submitting} onClick={handleSubmit}>
+              <span
+                id="submit-spinner"
+                className="spinner"
+                style={{ display: submitting ? "inline-block" : "none" }}
+              />
+              <span id="submit-btn-text">{submitting ? "Running..." : "Submit"}</span>
+            </button>
+            <div id="submit-status" style={{ display: submitting ? "block" : "none" }}>
+              {statusText}
+            </div>
+            <div id="error-box" style={{ display: errorMessage ? "block" : "none" }}>
+              {errorMessage}
+            </div>
           </div>
-
           <div className="card" id="result" style={{ display: result ? "block" : "none" }}>
             {result && (
               <>
