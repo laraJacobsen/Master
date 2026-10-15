@@ -83,7 +83,7 @@ code {
 @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 
 /* Questions panel */
-.panel-head { display: flex; align-items: center; gap: 0.5rem; }
+.panel-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
 .panel-count {
   background: var(--tint);
   color: var(--navy);
@@ -210,7 +210,7 @@ code {
 .check-result ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
 
 .disclosure {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 0.5rem;
   background: none;

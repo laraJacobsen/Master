@@ -63,7 +63,7 @@ function Meter({ rate, size = "md" }: { rate: number; size?: "sm" | "md" }) {
 function IssueLine({ task }: { task: LectureReviewTask }) {
   const issue = task.top_issue;
   if (!issue) {
-    return task.submitted === 0 ? <p className="issue-line">Nobody submitted this task.</p> : null;
+    return task.submitted === 0 ? <p className="issue-line muted">No submissions</p> : null;
   }
   const ex = issue.example;
   if (ex) {
@@ -129,7 +129,7 @@ function LectureItem({
           </span>
         </span>
         {review.solve_rate !== null && (
-          <span className="lecture-score">
+          <span className="lecture-score" title="Share of students who solved each task, averaged. Not submitting counts as not solved.">
             <span className="lecture-pct">{percent(review.solve_rate)}</span>
             <Meter rate={review.solve_rate} />
           </span>
@@ -144,7 +144,7 @@ function LectureItem({
             ))}
           </ul>
           <a className="text-link panel-link" href={`lecturer.html?lecture_id=${review.lecture_id}`}>
-            Open the full lecture summary &rarr;
+            Lecture summary &rarr;
           </a>
         </div>
       )}
@@ -276,17 +276,13 @@ export default function App() {
       <NavBar />
       <header>
         <h1>Lecture history</h1>
-        <p>Which past lectures and topics are worth going back over in a review lecture.</p>
       </header>
       <main>
         {reviewError && (
-          <div className="card notice">Could not load the ranking. Check that the backend is running.</div>
+          <div className="card notice">Couldn't load the ranking.</div>
         )}
         {reviews && ranked.length === 0 && !reviewError && (
-          <div className="card notice">
-            No finished lectures with at least {MIN_STUDENTS_FOR_REVIEW} students yet. Run one and it will show up
-            here.
-          </div>
+          <div className="card notice">No finished lectures with {MIN_STUDENTS_FOR_REVIEW}+ students yet.</div>
         )}
 
         {ranked.length > 0 && (
@@ -302,16 +298,16 @@ export default function App() {
                   <span className="stat-label">Hardest topic</span>
                   <span className="stat-value stat-value-text">{topics[0].title}</span>
                   <span className="stat-sub">
-                    {percent(topics[0].rate)} solved on average · {plural(topics[0].lectures, "lecture")}
+                    {percent(topics[0].rate)} solved · {plural(topics[0].lectures, "lecture")}
                   </span>
                 </div>
               )}
               {average !== null && (
                 <div className="stat">
-                  <span className="stat-label">Average across lectures</span>
+                  <span className="stat-label">Average</span>
                   <span className="stat-value">{percent(average)}</span>
                   <span className="stat-sub">
-                    {plural(ranked.length, "lecture")} compared
+                    {plural(ranked.length, "lecture")}
                   </span>
                 </div>
               )}
@@ -320,7 +316,6 @@ export default function App() {
             <div className="card trend-card">
               <div className="card-head">
                 <h2>Solved per lecture</h2>
-                <span className="card-caption">Oldest to newest · hover a bar for details</span>
               </div>
               <Trend ranked={ranked} />
             </div>
@@ -330,10 +325,6 @@ export default function App() {
                 <div className="card-head">
                   <h2>Lectures, worst first</h2>
                 </div>
-                <p className="card-intro">
-                  Share of students who solved each task, averaged per lecture. Students who took part but didn't
-                  submit a task count as not solving it.
-                </p>
                 <ol className="lecture-list">
                   {ranked.map((r, i) => (
                     <LectureItem
@@ -347,8 +338,7 @@ export default function App() {
                 </ol>
                 {unranked > 0 && (
                   <p className="footnote">
-                    {plural(unranked, "lecture")} with fewer than {MIN_STUDENTS_FOR_REVIEW} students{" "}
-                    {unranked === 1 ? "isn't" : "aren't"} ranked: too few to compare fairly.
+                    {plural(unranked, "lecture")} with under {MIN_STUDENTS_FOR_REVIEW} students not ranked.
                   </p>
                 )}
               </div>
@@ -357,7 +347,6 @@ export default function App() {
                 <div className="card-head">
                   <h2>Topics to revisit</h2>
                 </div>
-                <p className="card-intro">The same task across lectures, hardest first.</p>
                 <ol className="topic-list">
                   {topics.slice(0, TOPICS_SHOWN).map((t) => (
                     <li key={t.title} className="topic">

@@ -179,7 +179,7 @@ export default function App() {
   // testing.
   async function addTestQuestions() {
     setAddingTestQuestions(true);
-    setStatus("Adding test questions...");
+    setStatus("Adding...");
     const samples = [
       {
         title: "Double It",
@@ -221,7 +221,7 @@ export default function App() {
         });
         await validateQuestionApi(created.id);
       }
-      setStatus("Added 3 ready test questions.", "ok");
+      setStatus("Added 3 sample questions.", "ok");
       loadQuestionList();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Could not add test questions.", "bad");
@@ -336,7 +336,7 @@ export default function App() {
     const payload = formPayload();
     if (!payload.title || !payload.prompt) {
       setStep(0);
-      setStatus("Give the question a title and the text students will see.", "bad");
+      setStatus("Title and task description are required.", "bad");
       return null;
     }
     if (payload.test_cases.length === 0) {
@@ -346,7 +346,7 @@ export default function App() {
     }
     if (!payload.duration_seconds || payload.duration_seconds <= 0) {
       setStep(2);
-      setStatus("The student time limit must be a positive number of minutes.", "bad");
+      setStatus("Time limit must be at least 1 minute.", "bad");
       return null;
     }
     setBusy("saving");
@@ -366,13 +366,13 @@ export default function App() {
 
   async function handleSave() {
     if (currentId && !dirty) {
-      setStatus(currentValidated ? "No changes to save. Ready to run." : "No changes to save.", "muted");
+      setStatus("No changes.", "muted");
       return;
     }
     const saved = await saveDraft();
     if (saved) {
       setStatus(
-        saved.validated ? "Saved. Ready to run." : 'Saved. Use "Check solution" in step 2 before it can run.',
+        saved.validated ? "Saved." : "Saved. Needs a check before it can run.",
         "ok"
       );
     }
@@ -382,13 +382,13 @@ export default function App() {
   // tests (the backend refuses to validate an unsaved question anyway).
   async function checkSolution() {
     if (!referenceSolution.trim()) {
-      setStatus("Paste a correct solution first; it's what the tests are checked against.", "bad");
+      setStatus("Add a reference solution first.", "bad");
       return;
     }
     const saved = await saveDraft();
     if (!saved) return;
     setBusy("checking");
-    setStatus("Running your solution against the tests...");
+    setStatus("Checking...");
     setValidationResult(null);
     try {
       const data = await validateQuestionApi(saved.id);
@@ -413,7 +413,7 @@ export default function App() {
     setStatus("Starting...");
     try {
       await startQuestionApi(currentId);
-      setStatus("Live. Opening the dashboard...", "ok");
+      setStatus("Live.", "ok");
       loadQuestionList();
       setTimeout(() => {
         window.location.href = `lecturer.html?question_id=${encodeURIComponent(currentId)}`;
@@ -434,7 +434,6 @@ export default function App() {
       <NavBar />
       <header>
         <h1>Prepare lecture</h1>
-        <p>Add the questions you want to run, check each one, then open the lobby for students.</p>
       </header>
       <main>
         {activeLecture && (
@@ -449,11 +448,11 @@ export default function App() {
               <div className="lecture-bar-sub">
                 {questions.length === 0
                   ? "No questions yet"
-                  : `${readyCount} of ${draftCount} upcoming question${draftCount === 1 ? "" : "s"} ready`}
+                  : `${readyCount}/${draftCount} ready`}
                 {lobbyOpen && activeLecture.join_code && (
                   <>
                     {" "}
-                    · join code <strong className="join-code">{activeLecture.join_code}</strong>
+                    · Code <strong className="join-code">{activeLecture.join_code}</strong>
                   </>
                 )}
               </div>
@@ -482,7 +481,7 @@ export default function App() {
                   type="button"
                   onClick={handleOpenLobby}
                   disabled={openingLobby || readyCount === 0}
-                  title={readyCount === 0 ? "Check at least one question first" : undefined}
+                  title={readyCount === 0 ? "No questions ready yet" : undefined}
                 >
                   {openingLobby ? "Opening..." : "Open lobby"}
                 </button>
@@ -500,9 +499,8 @@ export default function App() {
               <h2>Questions</h2>
               <span className="panel-count">{questions.length}</span>
             </div>
-            <p className="panel-intro">Run in this order, top to bottom.</p>
             {questions.length === 0 ? (
-              <div className="empty">No questions yet. Start with the editor.</div>
+              <div className="empty">No questions yet</div>
             ) : (
               <ol className="question-list">
                 {questions.map((q, i) => {
@@ -550,9 +548,9 @@ export default function App() {
               className="link-button dev-link"
               onClick={addTestQuestions}
               disabled={addingTestQuestions}
-              title="Dev convenience: adds 3 real, pre-checked questions so you don't have to type one in to test the flow."
+              title="Adds 3 checked sample questions, for testing"
             >
-              {addingTestQuestions ? "Adding..." : "Add 3 sample questions (testing)"}
+              {addingTestQuestions ? "Adding..." : "Add sample questions"}
             </button>
           </section>
 
@@ -573,7 +571,7 @@ export default function App() {
             </div>
             {locked && (
               <div className="locked-banner">
-                This question has already run, so it can't be edited. Create a new question to change anything.
+                Already run, so it can't be edited.
               </div>
             )}
 
@@ -605,9 +603,7 @@ export default function App() {
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                   />
-                  <label htmlFor="f-prompt">
-                    Task for students <span className="hint">shown on their screen as written</span>
-                  </label>
+                  <label htmlFor="f-prompt">Task description</label>
                   <textarea
                     id="f-prompt"
                     className="prose"
@@ -628,7 +624,6 @@ export default function App() {
                 <>
                   <div className="field-head">
                     <span className="field-label">Test cases</span>
-                    <span className="hint">The first one is shown to students as an example.</span>
                   </div>
                   <div className="tc-table">
                     <div className="tc-header" aria-hidden="true">
@@ -659,7 +654,11 @@ export default function App() {
                         >
                           &times;
                         </button>
-                        {i === 0 && <span className="tc-example">Example</span>}
+                        {i === 0 && (
+                          <span className="tc-example" title="Shown to students">
+                            Example
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -668,7 +667,7 @@ export default function App() {
                   </button>
 
                   <label htmlFor="f-reference" className="spaced">
-                    A correct solution <span className="hint">never shown to students; used to check the tests</span>
+                    Reference solution <span className="hint">hidden from students</span>
                   </label>
                   <textarea
                     id="f-reference"
@@ -681,20 +680,18 @@ export default function App() {
                     <button type="button" className="secondary" onClick={checkSolution}>
                       {busy === "checking" ? "Checking..." : "Check solution"}
                     </button>
-                    <span className="hint">Saves the question and runs your solution against every test.</span>
                   </div>
                   {validationResult && (
                     <div className={validationResult.pass ? "check-result pass" : "check-result fail"} role="status">
                       {validationResult.pass ? (
                         <>
-                          <strong>All {validationResult.total} tests pass.</strong> This question is ready to run.
+                          <strong>All {validationResult.total} tests pass.</strong>
                         </>
                       ) : (
                         <>
                           <strong>
                             {validationResult.failing.length} of {validationResult.total} tests fail
-                          </strong>{" "}
-                          with your solution. Fix the test or the solution:
+                          </strong>
                           <ul>
                             {validationResult.failing.map((r, i) => (
                               <li key={i}>
@@ -714,7 +711,7 @@ export default function App() {
                 <>
                   <div className="row2">
                     <div>
-                      <label htmlFor="f-duration">Time for students (minutes)</label>
+                      <label htmlFor="f-duration">Time limit (min)</label>
                       <input
                         type="number"
                         id="f-duration"
@@ -723,7 +720,6 @@ export default function App() {
                         value={durationMinutes}
                         onChange={(e) => setDurationMinutes(e.target.value)}
                       />
-                      <p className="field-help">Their code is submitted automatically when time runs out.</p>
                     </div>
                     <div>
                       <label htmlFor="f-expected">
@@ -738,10 +734,11 @@ export default function App() {
                         value={expectedStudents}
                         onChange={(e) => setExpectedStudents(e.target.value)}
                       />
-                      <p className="field-help">Shows "X of N submitted" on the dashboard.</p>
                     </div>
                   </div>
-                  <label htmlFor="f-idle-nudge">Nudge idle students after (minutes)</label>
+                  <label htmlFor="f-idle-nudge">
+                    Idle nudge after (min) <span className="hint">0 = off</span>
+                  </label>
                   <input
                     type="number"
                     id="f-idle-nudge"
@@ -751,9 +748,6 @@ export default function App() {
                     value={idleNudgeMinutes}
                     onChange={(e) => setIdleNudgeMinutes(e.target.value)}
                   />
-                  <p className="field-help">
-                    A student who hasn't typed for this long gets a gentle reminder. 0 turns it off.
-                  </p>
 
                   <button
                     type="button"
@@ -761,13 +755,13 @@ export default function App() {
                     aria-expanded={showAdvanced}
                     onClick={() => setShowAdvanced((v) => !v)}
                   >
-                    <span className="chevron" aria-hidden="true" /> Advanced grading limits
+                    <span className="chevron" aria-hidden="true" /> Advanced
                   </button>
                   {showAdvanced && (
                     <div className="advanced">
                       <div className="row2">
                         <div>
-                          <label htmlFor="f-time">CPU time per test (seconds)</label>
+                          <label htmlFor="f-time">CPU time per test (s)</label>
                           <input
                             type="number"
                             id="f-time"
@@ -791,7 +785,7 @@ export default function App() {
                       </div>
                       <div className="row2">
                         <div>
-                          <label htmlFor="f-lines">Max lines per submission</label>
+                          <label htmlFor="f-lines">Max lines</label>
                           <input
                             type="number"
                             id="f-lines"
@@ -814,7 +808,6 @@ export default function App() {
                           />
                         </div>
                       </div>
-                      <p className="field-help">Defaults suit most exercises. The server caps time and memory.</p>
                     </div>
                   )}
                 </>

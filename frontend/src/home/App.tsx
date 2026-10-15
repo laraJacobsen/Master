@@ -79,7 +79,6 @@ export default function App() {
       <NavBar />
       <header className="hero">
         <h1>Interactive Lecture</h1>
-        <p>Start a new lecture or resume one in progress.</p>
       </header>
       <main>
         <div className="card fade-in-up" id="start-card">
@@ -88,10 +87,7 @@ export default function App() {
           ) : hasActive ? (
             <>
               <h2>Lecture in progress</h2>
-              <p className="muted-note">
-                {active!.lecture!.display_label} is currently active. This backend supports one lecture at a
-                time, so finish it before starting another.
-              </p>
+              <p className="muted-note">{active!.lecture!.display_label}</p>
               {active!.lecture!.lobby_opened_at ? (
                 active!.lecture!.join_code && (
                   <div id="join-code-display" className="join-code-display">
@@ -101,10 +97,7 @@ export default function App() {
                   </div>
                 )
               ) : (
-                <p className="muted-note">
-                  Still being prepared. Nothing is joinable yet, so add your questions on setup, then open the
-                  lobby when you're ready for students to join.
-                </p>
+                <p className="muted-note">Not open to students yet.</p>
               )}
               <button onClick={handleResume}>{activeLectureAction(active).label}</button>
               {!active!.live_question_id && (
@@ -118,7 +111,7 @@ export default function App() {
             <>
               <h2>Start a new lecture</h2>
               <label htmlFor="f-label">
-                Label <span className="hint">(optional, defaults to today's date if left blank)</span>
+                Name <span className="hint">optional</span>
               </label>
               <input
                 type="text"

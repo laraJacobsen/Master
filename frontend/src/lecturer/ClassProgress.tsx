@@ -234,7 +234,7 @@ export function ClassProgress({
   return (
     <div className="class-progress">
       {total > 0 && (
-        <div className="cp-bar" role="img" aria-label="Best result so far per student">
+        <div className="cp-bar" role="img" aria-label="Best result per student" title="Each student's best result">
           {ORDER.filter((v) => counts[v] > 0).map((v) => (
             <span
               key={v}
@@ -266,17 +266,19 @@ export function ClassProgress({
           </li>
         )}
       </ul>
-      <div className="cp-caption">{finished ? "Each student's best result." : "Best result so far per student."}</div>
 
       {showActivity && unsolved.length > 0 && (
-        <ul className="cp-legend cp-activity-summary" aria-label="Students still working, by activity">
+        <ul
+          className="cp-legend cp-activity-summary"
+          aria-label="Students who haven't solved it, by activity"
+          title="Students who haven't solved it yet. Idle: no typing for a few minutes. Away: editor not open."
+        >
           {(["active", "idle", "away"] as ActivityStatus[]).map((st) => (
             <li key={st} className={`cp-act-${st}`}>
               <span className="cp-act-dot" aria-hidden="true" />
               {activityCounts[st]} {ACTIVITY_LABEL[st]}
             </li>
           ))}
-          <li className="cp-caption-inline">of those not solved yet</li>
         </ul>
       )}
 
@@ -287,10 +289,6 @@ export function ClassProgress({
       )}
       {open && tracks.length > 0 && (
         <div className="cp-students">
-          <div className="cp-caption">
-            One square per attempt, oldest on the left. Hover a square for details.
-            {showActivity && " Idle means no typing for a few minutes; away means their editor isn't open."}
-          </div>
           <Group title="Idle or away" tracks={needsAttention} showActivity={showActivity} />
           <Group title={showActivity ? "Working" : "Not solved"} tracks={working} showActivity={showActivity} />
           <Group title="Solved" tracks={solved} showActivity={showActivity} />
