@@ -125,7 +125,9 @@ Then open in a browser:
   live lecture is shown on the home page (and on the live task-control
   dashboard) once a lecture is active; a fresh checkout's pre-seeded lecture
   already has one. Entering it is remembered for the rest of that browser
-  tab. From there the page follows the lecture on its own (it polls
+  tab, but only for that lecture: once the lecture ends, a refresh goes back
+  to the code screen, and if the lecturer starts a new lecture an open tab
+  is sent back there by itself ("A new lecture has started"). From there the page follows the lecture on its own (it polls
   `/api/lecture/status` every 2s): no `question_id` needed, it always shows
   the task the lecturer has live.
 
@@ -135,7 +137,7 @@ Then open in a browser:
     start the first task."
   - correct submission -- "Good job!", straight away, even with time left
   - time's up after a wrong answer -- "Thanks for submitting", with their
-    verdict and last hint
+    verdict (the hint stays on the task page)
   - time's up with nothing submitted -- "Time's up, no code submitted"
   - time's up mid-grading -- a spinner until the auto-submitted code is graded
 
@@ -146,7 +148,24 @@ Then open in a browser:
   waiting screen once the task's time is up.
 - Lecturer page: `http://localhost:8000/lecturer.html?question_id=sum-ints`
   (the setup page's "Start"/"Live dashboard" links go here directly; with no
-  `question_id` it shows submissions across every question, the old behavior)
+  `question_id` it shows submissions across every question, the old behavior).
+  The "Task control" card at the top runs the lecture:
+  - **End task now** (while the timer runs) -- ends the task early, e.g.
+    everyone has answered. It doesn't move on: the task goes straight to
+    "Time's up", exactly as if the timer had run out (students' unsubmitted
+    code is auto-submitted and they land on the waiting screen), so you can
+    go over the results and use "Show to students" first. Under the hood it
+    shortens the task's stored `duration_seconds` to the time already used.
+  - **Next task** -- closes the current task and starts the next unstarted
+    one, in creation order.
+  - **End lecture...** -- a small link at the bottom of the card, kept out of
+    the main button row on purpose, behind an "are you sure" popup (with
+    "Keep going" as the default button). Ends the lecture for everyone.
+    Tasks that were never started are retired as `skipped` under that
+    lecture: they aren't carried into the next lecture, and they don't count
+    as tasks in its summary or history. (Tasks authored while no lecture is
+    running still wait for the next one. A one-time startup migration also
+    retires leftovers from lectures that ended before this existed.)
 
 Open the student and lecturer pages side by side (or on two machines on the
 same network, using your laptop's IP instead of `localhost`) to see a

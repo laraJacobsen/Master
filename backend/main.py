@@ -256,6 +256,21 @@ def api_lecturer_close_question(question_id: str):
     return store.get_question_row(question_id)
 
 
+@app.post("/api/lecturer/questions/{question_id}/end_now")
+def api_lecturer_end_question_now(question_id: str):
+    """The live dashboard's "End task now" -- e.g. everyone has already
+    answered. Puts the task straight into its "time's up" state (see
+    store.end_question_now()) rather than closing it or starting the next
+    one, so the lecturer can still go over results and show examples."""
+    question = store.get_question_row(question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail="Not found")
+    if question["status"] != "live":
+        raise HTTPException(status_code=409, detail="This task isn't live.")
+    store.end_question_now(question_id)
+    return store.get_question_row(question_id)
+
+
 @app.post("/api/lecturer/lectures")
 def api_lecturer_create_lecture(req: LectureCreateRequest):
     """The home dashboard's "New lecture" action -- the only place a lecture
@@ -457,11 +472,17 @@ def api_lecture_status():
     question = store.live_question_row()
     current_lecture = store.current_lecture_row()
     finished = bool(current_lecture and current_lecture["ended_at"])
+    # Which lecture this status is about -- the student page compares it to
+    # the lecture it joined, so a tab left open (or refreshed) after the
+    # lecturer starts a *new* lecture is sent back to the join screen instead
+    # of silently carrying the old join over.
+    lecture_id = current_lecture["id"] if current_lecture else None
     if not question:
-        return {"finished": finished, "question": None, "shown_examples": []}
+        return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": []}
 
     return {
         "finished": finished,
+        "lecture_id": lecture_id,
         "question": {
             "id": question["id"],
             "title": question["title"],

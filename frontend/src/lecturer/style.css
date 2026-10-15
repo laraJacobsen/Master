@@ -160,6 +160,24 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
   gap: 0.75rem;
 }
 #task-control-card .advance-message { margin-top: 0.6rem; color: var(--muted); font-size: 0.85rem; }
+#task-control-card .task-control-actions { display: flex; gap: 0.6rem; }
+/* Ending the whole lecture is rare and irreversible -- kept small and out of
+   the main button row so it isn't clicked by accident (it also confirms). */
+#task-control-card .end-lecture-row {
+  margin-top: 0.9rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  text-align: right;
+}
+#task-control-card .end-lecture-link {
+  background: none;
+  color: var(--muted);
+  padding: 0;
+  margin: 0;
+  font-size: 0.8rem;
+  text-decoration: underline;
+}
+#task-control-card .end-lecture-link:hover:not(:disabled) { color: var(--bad); }
 .join-code-pill {
   background: var(--bg);
   border: 1px solid #e3e5ec;

@@ -553,6 +553,17 @@ def _run_question_setup_checks(client):
     assert pkg_row["rejection_reason"] == "disallowed_package", pkg_row
     print("Package allow-list enforced   OK")
 
+    # "End task now": time's up immediately, but the task stays live -- so it
+    # still accepts the students' auto-submits and still serves the
+    # "Show to students" examples -- rather than closing or advancing.
+    r = client.post(f"/api/lecturer/questions/{qid}/end_now")
+    assert r.status_code == 200 and r.json()["status"] == "live", r.text
+    status = client.get("/api/lecture/status").json()
+    assert status["question"]["id"] == qid and status["question"]["seconds_remaining"] == 0, status
+    assert qid in [q["id"] for q in client.get("/api/questions").json()]  # still accepting submits
+    assert client.post("/api/lecturer/questions/no-such-q/end_now").status_code == 404
+    print("POST .../end_now -> time's up, still live   OK")
+
     # Live submission-progress counter (live-submission-progress-scoping-decision.md):
     # Grace's three submissions above (correct + two rejections) count as one
     # distinct student, not three.
@@ -604,6 +615,16 @@ def _run_lecture_dashboard_checks(client):
     assert seeded_row["archived"] is False, seeded_row
     print("GET /api/lecturer/lectures (history)   OK ->", seeded_row)
 
+    # A task authored for this lecture but never started -- ending the lecture
+    # early must retire it, not leave it to resurface in the next lecture.
+    r = client.post(
+        "/api/lecturer/questions",
+        json={"title": "Never Reached", "prompt": "p", "language": "python",
+              "test_cases": [{"stdin": "", "expected_stdout": "x"}]},
+    )
+    assert r.status_code == 200, r.text
+    leftover_qid = r.json()["id"]
+
     # Ending it generalizes straight to a lecture_id -- the home dashboard's
     # history-list link target, not just "whatever's most recent."
     r = client.post("/api/lecturer/lecture/finish", json={"current_question_id": None})
@@ -618,6 +639,11 @@ def _run_lecture_dashboard_checks(client):
     assert summary["lecture_id"] == seeded_lecture_id, summary
     assert {t["question_id"] for t in summary["tasks"]} == {"sum-ints", "double-it"}, summary
     print("GET /api/lecturer/lecture/summary?lecture_id=   OK ->", summary["lecture_label"])
+
+    leftover = client.get(f"/api/lecturer/questions/{leftover_qid}").json()
+    assert leftover["status"] == "skipped" and leftover["lecture_id"] == seeded_lecture_id, leftover
+    assert leftover_qid not in [q["id"] for q in client.get("/api/lecturer/questions").json()]
+    print("Unstarted task retired as skipped when the lecture ends   OK")
 
     # No lecture active anymore -- "New lecture" now succeeds, and
     # start_question requires exactly this new one.
