@@ -162,6 +162,68 @@ two string literals". The Label call now gets each snippet and the reference sol
 by the student, minus comments (_strip_comments()). Clustering is untouched: it still diffs
 canonicalized code, which is where name-independence actually matters. The VARn/STMT_BREAK leak
 backstop added in round 3 was removed along with the placeholders it guarded against.
+
+2026-10-15, output-signature level added in front of the diff signal. Closes the case in
+feedback-research/double-it-shape-vs-behavior-limitation-2026-09-21.md: DI-01/02/05/07 print the
+same wrong output (33, 1010) through three different code edits, so the diff signal kept them in
+3 groups. Every graded submission already stores its per-test stdout (raw_test_results), so a
+behavioral signal costs no extra execution.
+
+- _output_signature(): one entry per test case, in order -- "PASS", or the stdout with whitespace
+  stripped and collapsed. None (missing/unparseable/empty raw_test_results) falls through to the
+  diff signal unchanged.
+- _group_wrong_answers(): level 1 groups by signature; level 2 runs the unchanged
+  _cluster_by_similarity() inside a signature group only when the signature is weak (fewer than
+  MIN_TESTS_FOR_FINAL_SIGNATURE = 2 test cases). WRONG_ANSWER_SUBCLUSTER_DISTANCE, linkage and the
+  token pattern are unchanged.
+- Tried and reverted the same day: also showing the Label call one failing test the whole group
+  failed the same way (_shared_failing_case()), with a prompt paragraph asking for the shared
+  wrong behavior when snippets differ in shape. See "Label call: round 5" below.
+
+Measured with feedback-research/run_signature_baseline.py against the same 29-submission ground
+truth and subcluster_eval.py, at the production threshold (0.05), each submission run against its
+own question's real stored test cases:
+
+    variant                   sum-ints        double-it       is_palindrome   mean ARI
+    (a) diff only (old)       0.897 (5/6)     0.798 (5/3)     1.000 (3/3)     0.899
+    (b) signature only        1.000 (6/6)     1.000 (3/3)     0.000 (1/3)     0.667
+    (c) signature then diff   1.000 (6/6)     1.000 (3/3)     1.000 (3/3)     1.000
+
+Mean pairwise precision/recall: (a) 0.947/0.921, (b) 0.667/1.000, (c) 1.000/1.000. (b) shows why
+the weak-signature fallback exists: is_palindrome has a single test input in the repo, all three
+of its bugs print False on it, and signature-only merges them. Under (c) that exercise is decided
+entirely by the diff signal -- the signature adds nothing there.
+
+Not solved, and worth saying plainly:
+- The perfect score is on 29 submissions whose labels were made with the help of
+  subcluster_ground_truth_io_table.md, an output table. An output-based signal agreeing with
+  output-assisted labels is partly circular; this shows the signal does what it should on the
+  cases it targets, not that it's validated.
+- Two unrelated bugs that happen to print the same thing on every test case now merge, and the
+  diff signal never gets a say on a final signature. Fewer test cases means more of this; 2 is
+  the minimum before a signature is trusted alone.
+- Questions with one test case get no benefit (weak signature -> diff, as before).
+- Output that isn't deterministic (random numbers, set/dict ordering, timestamps) splits
+  identical bugs into separate signatures.
+
+Label call: round 5 (feedback-research/real_discussion_point_sample_2026-09-21_round5.csv), same
+data as round 4 plus the shared failing test. Pass rule fixed before rating: no row less grounded
+or actionable than its round-4 counterpart, the double-it prints-twice row describes the shared
+behavior, no fabrications. Result: sum-ints and double-it all y/y/y, including the two new groups
+(drop-last on its own; the prints-twice row, grounded and using the test correctly). No
+fabrications. But 4 of 14 rows matched to round 4 got worse, all in the single-test corpus
+exercises: is_palindrome off-by-one and second_largest x3 lost the bug's meaning ("differs from
+the correct indexing" instead of round 4's "an off-by-one index"; "instead of sorting a set" with
+no mention that duplicates make it pick the second position, not the second distinct value --
+which the shown test, 9 9 -> printed 9, actually demonstrated). None of the four labels used the
+test. Rule failed, so the Label part was reverted; the clustering change stays (evaluated
+separately above). Not established: whether the test caused the drift or it's run-to-run model
+variation -- each round is one sample per row. A control (same groups, test off, plus a repeat
+of each) would tell, and the round's groups were mostly identical code, so the case the test was
+for (different code, same output) was exercised by one row only.
+
+Signature grouping time is logged per question ("wrong_answer signature: ..."), next to the
+existing diff+cluster line, which now reports how many submissions still needed the diff step.
 """
 
 import difflib
@@ -207,6 +269,16 @@ _TOKEN_PATTERN = r"\S+"
 # Retuned 2026-09-16 -- see module docstring for the measured distance gap this
 # sits in. Still an unvalidated first guess, not a tuned constant.
 WRONG_ANSWER_SUBCLUSTER_DISTANCE = 0.05
+
+# An output signature (see _output_signature()) built from fewer test cases than
+# this is "weak": with a single test, two unrelated bugs that both just print the
+# wrong thing for that one input -- e.g. False for a non-palindrome check -- would
+# share a signature by coincidence. A weak signature group is therefore split
+# further by the diff signal; a signature from at least this many tests is final.
+# The signature has one entry per stored test case, so this is the same as "the
+# question has fewer than 2 test cases". Not tuned: 2 is the smallest count where
+# two different bugs have to agree on more than one input to merge.
+MIN_TESTS_FOR_FINAL_SIGNATURE = 2
 
 # Below this many canonicalized tokens there's nothing real to describe a pattern
 # from -- see the 2026-09-16 fabrication finding in the module docstring.
@@ -400,6 +472,110 @@ def _cluster_by_similarity(rows: list, reference_solution: str) -> list:
     return list(groups.values())
 
 
+def _output_signature(row: dict):
+    """What this submission actually printed, as a tuple with one entry per test
+    case in order: "PASS" for a passed case, otherwise its stdout with surrounding
+    whitespace stripped and internal whitespace runs collapsed to one space. Two
+    submissions with equal signatures behaved identically on every test the
+    question has, however differently their code is written -- see the 2026-10-15
+    entry in the module docstring.
+
+    Read from raw_test_results, which already holds Judge0's per-test result for
+    every graded submission (a JSON list of run_test_cases() dicts: stdout, passed,
+    case_index, ...), so this costs no extra execution. Returns None when that's
+    missing, unparseable, or empty (a rejected submission stores "[]") -- such rows
+    fall through to diff-based clustering instead of all sharing one empty
+    signature."""
+    raw = row.get("raw_test_results")
+    if not raw:
+        return None
+    try:
+        results = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(results, list) or not results or not all(isinstance(r, dict) for r in results):
+        return None
+    results = sorted(results, key=lambda r: r.get("case_index", 0))
+    return tuple(
+        "PASS" if r.get("passed") else " ".join((r.get("stdout") or "").split())
+        for r in results
+    )
+
+
+def _group_wrong_answers(rows: list, reference_solution: str, question_id: str = None) -> list:
+    """Two-level grouping of one question's wrong_answer rows (see the 2026-10-15
+    entry in the module docstring). Level 1: rows with equal _output_signature()
+    are one group. Level 2: _cluster_by_similarity() (diff against the reference)
+    splits a level-1 group further only when its signature is weak -- see
+    MIN_TESTS_FOR_FINAL_SIGNATURE. Rows with no signature skip level 1 and are
+    diff-clustered exactly as before. Returns a list of groups (lists of rows).
+    Each level's latency is logged, same as diff+cluster always was."""
+    t0 = time.monotonic()
+    by_signature = defaultdict(list)
+    unsigned = []
+    for row in rows:
+        signature = _output_signature(row)
+        if signature is None:
+            unsigned.append(row)
+        else:
+            by_signature[signature].append(row)
+    logger.info(
+        "wrong_answer signature: question=%s, %d submissions -> %d signature groups "
+        "(%d without a signature), %.3fs",
+        question_id, len(rows), len(by_signature), len(unsigned), time.monotonic() - t0,
+    )
+
+    t0 = time.monotonic()
+    groups = []
+    diffed = 0
+    for signature, members in by_signature.items():
+        if len(signature) < MIN_TESTS_FOR_FINAL_SIGNATURE:
+            groups.extend(_cluster_by_similarity(members, reference_solution))
+            diffed += len(members)
+        else:
+            groups.append(members)
+    if unsigned:
+        groups.extend(_cluster_by_similarity(unsigned, reference_solution))
+        diffed += len(unsigned)
+    logger.info(
+        "wrong_answer diff+cluster: question=%s, %d of %d submissions diff-clustered -> %d groups total, %.3fs",
+        question_id, diffed, len(rows), len(groups), time.monotonic() - t0,
+    )
+    return groups
+
+
+def _shared_failing_case(group: list):
+    """The first test case every row in `group` failed with the same (normalized)
+    output, as {"stdin", "expected_stdout", "stdout"} -- or None if there isn't one.
+    Not used by the Label call since the 2026-10-15 revert (see the module
+    docstring); kept for feedback-research/generate_real_discussion_point_sample.py's
+    round-5 sample and a planned control run. Always found for a final signature group (its rows printed
+    the same thing on every test); not guaranteed for a diff-clustered group, whose
+    rows are alike in code, not necessarily in output."""
+    parsed = []
+    for row in group:
+        try:
+            results = json.loads(row.get("raw_test_results") or "[]")
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(results, list) or not results:
+            return None
+        parsed.append({r.get("case_index", i): r for i, r in enumerate(results) if isinstance(r, dict)})
+    for index in sorted(parsed[0]):
+        cases = [p.get(index) for p in parsed]
+        if any(c is None or c.get("passed") for c in cases):
+            continue
+        outputs = {" ".join((c.get("stdout") or "").split()) for c in cases}
+        if len(outputs) == 1:
+            first = cases[0]
+            return {
+                "stdin": first.get("stdin", ""),
+                "expected_stdout": first.get("expected_stdout", ""),
+                "stdout": outputs.pop(),
+            }
+    return None
+
+
 def _representative_snippets(group: list, max_n: int = 3) -> list:
     """Up to max_n comment-stripped snippets (_strip_comments()) from distinct
     students in this group, for the Label call -- never the full group (keeps the
@@ -455,7 +631,10 @@ def _call_idun_subcluster_pattern(snippets: list, reference_solution: str = None
     "without the keyword argument set to True" for a missing reverse=True. Anonymizing
     names is what clustering needs (two students' different variable names mustn't
     split identical code); it was never a requirement of the Label call, just
-    inherited from reusing the clustering input. Student names are still never sent."""
+    inherited from reusing the clustering input. Student names are still never sent.
+
+    Not shown the group's shared failing test: tried 2026-10-15 and reverted the same
+    day after spot-check round 5 -- see the module docstring's 2026-10-15 entry."""
     parts = []
     if reference_solution:
         parts.append(
@@ -592,10 +771,11 @@ def _generate_subcluster_labels(groups_with_counts: list, raised_flags: list = N
 
 
 def _wrong_answer_subclusters(members: list) -> list:
-    """Sub-clusters one exec_verdict=="wrong_answer" bucket by divergence from the
-    exercise's own reference solution, scoped per question_id first -- comparing
-    code across different exercises would be meaningless, and each question_id has
-    its own reference_solution to diff against. Returns cluster dicts in the same
+    """Sub-clusters one exec_verdict=="wrong_answer" bucket by what the submissions
+    printed, then (only where that's too coarse) by divergence from the exercise's
+    own reference solution (see _group_wrong_answers()). Scoped per question_id
+    first: outputs and code are only comparable within one exercise, and each
+    question_id has its own test cases and reference_solution. Returns cluster dicts in the same
     shape cluster_submissions() uses for every other category.
 
     Clustering itself stays per-question (a diff-against-reference signal is
@@ -622,12 +802,7 @@ def _wrong_answer_subclusters(members: list) -> list:
             )
             groups = [[r] for r in rows]
         else:
-            t0 = time.monotonic()
-            groups = _cluster_by_similarity(rows, reference_solution)
-            logger.info(
-                "wrong_answer diff+cluster: question=%s, %d submissions -> %d groups, %.3fs",
-                question_id, len(rows), len(groups), time.monotonic() - t0,
-            )
+            groups = _group_wrong_answers(rows, reference_solution, question_id)
         all_groups.extend((group, reference_solution) for group in groups)
 
     groups_with_counts = [

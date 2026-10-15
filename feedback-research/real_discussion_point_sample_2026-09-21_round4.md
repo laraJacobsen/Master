@@ -32,9 +32,9 @@ print(sum(int(n) for n in nums) + 1)
 print(sum(int(x) for x in input().split()))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: y
 
 ## Row 2 -- sum-ints (2 students)
 
@@ -59,9 +59,9 @@ print(sum(int(n) for n in nums) - 1)
 print(sum(int(x) for x in input().split()))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y  
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: y
 
 ## Row 3 -- sum-ints (4 students)
 
@@ -91,9 +91,9 @@ print(sum(int(n) for n in nums[:-1]))
 print(sum(int(x) for x in input().split()))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: y
 
 ## Row 4 -- sum-ints (2 students)
 
@@ -118,9 +118,9 @@ print(int(nums[0]))
 print(sum(int(x) for x in input().split()))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: y
 
 ## Row 5 -- sum-ints (2 students)
 
@@ -151,9 +151,9 @@ print(result)
 print(sum(int(x) for x in input().split()))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: y
 
 ## Row 6 -- double-it (2 students)
 
@@ -176,9 +176,9 @@ print(int(input()) + 2)
 print(int(input()) * 2)
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: y
+- is_lecturer_facing_y_n: y
+- is_actionable_y_n: y
 
 ## Row 7 -- double-it (2 students)
 
@@ -203,9 +203,9 @@ print(int*2)
 print(int(input()) * 2)
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: ______y
+- is_lecturer_facing_y_n: ______y
+- is_actionable_y_n: ______y
 
 ## Row 8 -- is_palindrome (2 students)
 
@@ -245,9 +245,9 @@ s = input()
 print(is_palindrome(s))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: ______y
+- is_lecturer_facing_y_n: ______y
+- is_actionable_y_n: ______y
 
 ## Row 9 -- is_palindrome (2 students)
 
@@ -287,9 +287,9 @@ s = input()
 print(is_palindrome(s))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: ______y
+- is_lecturer_facing_y_n: ______y
+- is_actionable_y_n: ______y
 
 ## Row 10 -- is_palindrome (2 students)
 
@@ -337,9 +337,9 @@ s = input()
 print(is_palindrome(s))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: ______y
+- is_lecturer_facing_y_n: ______y
+- is_actionable_y_n: ______y
 
 ## Row 11 -- count_vowels (2 students)
 
@@ -392,9 +392,9 @@ s = input()
 print(count_vowels(s))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: ______y
+- is_lecturer_facing_y_n: ______y
+- is_actionable_y_n: ______y
 
 ## Row 12 -- count_vowels (2 students)
 
@@ -449,9 +449,9 @@ s = input()
 print(count_vowels(s))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: ______y
+- is_lecturer_facing_y_n: ______y
+- is_actionable_y_n: ______y
 
 ## Row 13 -- count_vowels (2 students)
 
@@ -506,9 +506,9 @@ s = input()
 print(count_vowels(s))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: ______y
+- is_lecturer_facing_y_n: ______y
+- is_actionable_y_n: ______y
 
 ## Row 14 -- second_largest (2 students)
 
@@ -548,9 +548,9 @@ nums = [int(x) for x in input().split()]
 print(second_largest(nums))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: ______y
+- is_lecturer_facing_y_n: ______y
+- is_actionable_y_n: ______y
 
 ## Row 15 -- second_largest (2 students)
 
@@ -590,9 +590,9 @@ nums = [int(x) for x in input().split()]
 print(second_largest(nums))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: ______y
+- is_lecturer_facing_y_n: ______y
+- is_actionable_y_n: ______y
 
 ## Row 16 -- second_largest (2 students)
 
@@ -642,6 +642,6 @@ nums = [int(x) for x in input().split()]
 print(second_largest(nums))
 ```
 
-- is_grounded_y_n: ______
-- is_lecturer_facing_y_n: ______
-- is_actionable_y_n: ______
+- is_grounded_y_n: ______y
+- is_lecturer_facing_y_n: ______y
+- is_actionable_y_n: ______y
