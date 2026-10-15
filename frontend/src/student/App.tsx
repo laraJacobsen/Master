@@ -42,12 +42,34 @@ const JOIN_SESSION_KEY = "lecture_joined";
 // error-taxonomy.md's no-real-identity stance -- this doesn't collect
 // anything new, just moves the existing collection point earlier).
 const JOIN_NAME_KEY = "lecture_joined_name";
+// Which lecture the join was for -- a join only counts for that one lecture
+// (see applyStatus: a different lecture_id means a new lecture, back to the
+// join screen).
+const JOIN_LECTURE_KEY = "lecture_joined_id";
 
 function hasJoinedThisSession(): boolean {
   try {
     return sessionStorage.getItem(JOIN_SESSION_KEY) === "1";
   } catch {
     return false;
+  }
+}
+
+function getJoinedLectureId(): number | null {
+  try {
+    const v = sessionStorage.getItem(JOIN_LECTURE_KEY);
+    return v ? Number(v) : null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetJoin(): void {
+  try {
+    sessionStorage.removeItem(JOIN_SESSION_KEY);
+    sessionStorage.removeItem(JOIN_LECTURE_KEY);
+  } catch {
+    // Best effort.
   }
 }
 
@@ -59,10 +81,11 @@ function getJoinedName(): string {
   }
 }
 
-function markJoinedThisSession(studentName: string): void {
+function markJoinedThisSession(studentName: string, lectureId: number): void {
   try {
     sessionStorage.setItem(JOIN_SESSION_KEY, "1");
     sessionStorage.setItem(JOIN_NAME_KEY, studentName);
+    sessionStorage.setItem(JOIN_LECTURE_KEY, String(lectureId));
   } catch {
     // Best effort -- worst case the student re-enters the code after a refresh.
   }
@@ -84,6 +107,9 @@ export default function App() {
   const [joinCodeInput, setJoinCodeInput] = useState("");
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  // Shown on the join screen after being sent back to it because a new
+  // lecture started (see applyStatus).
+  const [joinNotice, setJoinNotice] = useState<string | null>(null);
   const [questionId, setQuestionId] = useState<string | null>(null);
   const [promptText, setPromptText] = useState("");
   const [example, setExample] = useState<TestCase | null>(null);
@@ -228,8 +254,22 @@ export default function App() {
   }
 
   function applyStatus(status: LectureStatus) {
+    // A different lecture than the one this tab joined (or a join saved
+    // before lecture ids were tracked) -- the old join doesn't carry over.
+    // Back to the join screen for the new lecture's code.
+    if (status.lecture_id !== getJoinedLectureId() && !(status.finished && phaseRef.current === "finished")) {
+      forgetJoin();
+      setJoined(false);
+      setJoinCodeInput(""); // the old lecture's code -- keep the name, not this
+      setPhase("join");
+      setJoinNotice(status.finished ? null : "A new lecture has started. Enter its code to join.");
+      return;
+    }
     setShownExamples(status.shown_examples ?? []);
     if (status.finished) {
+      // Lecture's over: this tab's join is used up. The finished screen stays
+      // up, but a refresh (or a new lecture) goes back to the join screen.
+      forgetJoin();
       questionIdRef.current = null;
       setQuestionId(null);
       setSecondsRemaining(null);
@@ -331,8 +371,9 @@ export default function App() {
     setJoining(true);
     setJoinError(null);
     try {
-      await joinLectureApi(code, trimmedName);
-      markJoinedThisSession(trimmedName);
+      const joinedLecture = await joinLectureApi(code, trimmedName);
+      markJoinedThisSession(trimmedName, joinedLecture.lecture_id);
+      setJoinNotice(null);
       updateName(trimmedName); // carries forward to the answering screen's own name field
       setJoined(true);
       setPhase("loading");
@@ -402,6 +443,7 @@ export default function App() {
         <main className="waiting-main">
           <div className="card accent-navy waiting-card">
             <h2>Enter the lecture</h2>
+            {joinNotice && <p className="join-notice">{joinNotice}</p>}
             <label htmlFor="join-name">Your name</label>
             <input
               type="text"

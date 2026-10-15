@@ -472,11 +472,17 @@ def api_lecture_status():
     question = store.live_question_row()
     current_lecture = store.current_lecture_row()
     finished = bool(current_lecture and current_lecture["ended_at"])
+    # Which lecture this status is about -- the student page compares it to
+    # the lecture it joined, so a tab left open (or refreshed) after the
+    # lecturer starts a *new* lecture is sent back to the join screen instead
+    # of silently carrying the old join over.
+    lecture_id = current_lecture["id"] if current_lecture else None
     if not question:
-        return {"finished": finished, "question": None, "shown_examples": []}
+        return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": []}
 
     return {
         "finished": finished,
+        "lecture_id": lecture_id,
         "question": {
             "id": question["id"],
             "title": question["title"],

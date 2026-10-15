@@ -29,6 +29,8 @@ export interface LiveQuestion extends PublicQuestion {
 // src/student/App.tsx).
 export interface LectureStatus {
   finished: boolean;
+  // The lecture this status describes (active, or the one that just ended).
+  lecture_id: number | null;
   question: LiveQuestion | null;
   // Examples the lecturer is showing the class -- only sent once the task's
   // time is up. See aggregation.raise_issue() / shown_examples().

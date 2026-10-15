@@ -270,3 +270,13 @@ button:disabled { background: #9aa0b5; cursor: not-allowed; }
 .shown-example-test { font-size: 0.85rem; }
 .shown-example-test div { margin-bottom: 0.2rem; }
 .shown-example-test code { font-family: "Courier New", Consolas, monospace; white-space: pre-wrap; }
+
+.join-notice {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--navy);
+  font-size: 0.9rem;
+}
