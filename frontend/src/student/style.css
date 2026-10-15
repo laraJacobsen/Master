@@ -77,16 +77,34 @@ input[type=text] {
   font-size: 0.85rem;
 }
 #example-box code { font-family: "Courier New", Consolas, monospace; white-space: pre-wrap; }
-textarea {
-  width: 100%;
-  min-height: 260px;
-  font-family: "Courier New", Consolas, monospace;
-  font-size: 0.95rem;
-  padding: 0.75rem;
+.code-editor {
   border: 1px solid #d0d3dc;
   border-radius: 6px;
-  resize: vertical;
+  overflow: hidden;
+  padding-top: 0.4rem;
 }
+.code-editor-loading { height: 320px; padding: 0.75rem; color: var(--muted); font-size: 0.9rem; }
+
+/* Idle nudge (POST /api/lecture/activity's reply) -- calm, not an alert:
+   same card as everything else, navy accent, no animation. */
+.nudge-card {
+  border-left-color: var(--navy);
+  background: #f1f5fe;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.nudge-card p { margin: 0; line-height: 1.45; color: var(--navy); }
+.nudge-card .nudge-dismiss {
+  margin-top: 0;
+  flex: none;
+  background: none;
+  color: var(--navy);
+  border: 1px solid var(--navy);
+  padding: 0.35rem 0.9rem;
+  font-size: 0.9rem;
+}
+@media (max-width: 600px) { .nudge-card { flex-direction: column; align-items: flex-start; } }
 button { padding: 0.6rem 1.4rem; font-size: 1rem; margin-top: 1rem; }
 button:disabled { background: #9aa0b5; cursor: not-allowed; }
 .spinner {

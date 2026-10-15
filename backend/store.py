@@ -93,7 +93,8 @@ def init_db():
                 expected_students INTEGER,
                 duration_seconds INTEGER NOT NULL DEFAULT 600,
                 started_at TEXT,
-                lecture_id INTEGER
+                lecture_id INTEGER,
+                idle_nudge_seconds INTEGER NOT NULL DEFAULT 180
             )
             """
         )
@@ -108,6 +109,10 @@ def init_db():
             conn.execute("ALTER TABLE questions ADD COLUMN duration_seconds INTEGER NOT NULL DEFAULT 600")
         if "started_at" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN started_at TEXT")
+        # See class-progress-visualization-decision.md's activity section --
+        # 0 turns the idle nudge off for that question.
+        if "idle_nudge_seconds" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN idle_nudge_seconds INTEGER NOT NULL DEFAULT 180")
         # A question that was already `live` before started_at existed (e.g.
         # an existing checkout's seeded sum-ints) would otherwise have no
         # timer zero-point -- backfill it to "now" so its countdown starts
@@ -179,6 +184,26 @@ def init_db():
                 student_name TEXT NOT NULL,
                 joined_at TEXT NOT NULL DEFAULT (datetime('now')),
                 UNIQUE (lecture_id, student_name)
+            )
+            """
+        )
+
+        # `student_activity`: one row per student per question, refreshed by
+        # the student page's heartbeat (record_activity() below) -- backs the
+        # lecturer's active/idle/away status and the automatic idle nudge
+        # (class-progress-visualization-decision.md). Only *whether* the
+        # student typed is recorded, never what they typed.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS student_activity (
+                question_id TEXT NOT NULL,
+                student_name TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_edit_at TEXT,
+                nudged_at TEXT,
+                nudge_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (question_id, student_name)
             )
             """
         )
@@ -372,8 +397,8 @@ def create_question(fields: dict) -> str:
             INSERT INTO questions
                 (id, title, prompt, language, test_cases, reference_solution,
                  cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
-                 expected_students, duration_seconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 expected_students, duration_seconds, idle_nudge_seconds)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 question_id,
@@ -388,6 +413,7 @@ def create_question(fields: dict) -> str:
                 row.get("line_limit", 200),
                 row.get("expected_students"),
                 row.get("duration_seconds", 600),
+                row.get("idle_nudge_seconds", 180),
             ),
         )
         conn.commit()
@@ -936,3 +962,80 @@ def distinct_student_count(question_id: str) -> int:
         count = cur.fetchone()["c"]
         conn.close()
         return count
+
+
+def record_activity(question_id: str, student_name: str, edited: bool) -> dict:
+    """One heartbeat from a student's editor (see api_lecture_activity in
+    main.py). Timestamps are the server's own clock, so a student's skewed
+    laptop clock can't make them look idle. Typing clears any earlier nudge,
+    so the next idle stretch can earn a fresh one. Returns the updated row."""
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            "INSERT INTO student_activity (question_id, student_name) VALUES (?, ?) "
+            "ON CONFLICT (question_id, student_name) DO UPDATE SET last_seen_at = datetime('now')",
+            (question_id, student_name),
+        )
+        if edited:
+            conn.execute(
+                "UPDATE student_activity SET last_edit_at = datetime('now'), nudged_at = NULL "
+                "WHERE question_id = ? AND student_name = ?",
+                (question_id, student_name),
+            )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM student_activity WHERE question_id = ? AND student_name = ?",
+            (question_id, student_name),
+        ).fetchone()
+        conn.close()
+        return dict(row)
+
+
+def mark_nudged(question_id: str, student_name: str) -> None:
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            "UPDATE student_activity SET nudged_at = datetime('now'), nudge_count = nudge_count + 1 "
+            "WHERE question_id = ? AND student_name = ?",
+            (question_id, student_name),
+        )
+        conn.commit()
+        conn.close()
+
+
+def activity_rows(question_id: str) -> list:
+    with _lock:
+        conn = _connect()
+        rows = [
+            dict(r)
+            for r in conn.execute("SELECT * FROM student_activity WHERE question_id = ?", (question_id,))
+        ]
+        conn.close()
+        return rows
+
+
+def joined_names(lecture_id: int) -> list:
+    """Everyone who entered this lecture's join code -- lets the lecturer's
+    activity view list students who joined but never opened the editor,
+    not just the ones who've sent a heartbeat."""
+    with _lock:
+        conn = _connect()
+        names = [
+            r["student_name"]
+            for r in conn.execute(
+                "SELECT student_name FROM lecture_joins WHERE lecture_id = ? ORDER BY student_name", (lecture_id,)
+            )
+        ]
+        conn.close()
+        return names
+
+
+def has_solved(question_id: str, student_name: str) -> bool:
+    with _lock:
+        conn = _connect()
+        row = conn.execute(
+            "SELECT 1 FROM submissions WHERE question_id = ? AND student_name = ? AND verdict = 'correct' LIMIT 1",
+            (question_id, student_name),
+        ).fetchone()
+        conn.close()
+        return row is not None

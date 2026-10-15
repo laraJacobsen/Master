@@ -5,11 +5,13 @@ import type {
   LectureSummary,
   ProgressResponse,
   QuestionRow,
+  StudentActivity,
   SubmissionRow,
   ValidationTestResult,
 } from "../shared/types";
 import {
   fetchActiveLecture,
+  fetchActivity,
   fetchClusters,
   fetchJoinedCount,
   fetchLectureSummary,
@@ -162,6 +164,8 @@ export default function App() {
 
   const [clusters, setClusters] = useState<ClusterRow[]>([]);
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
+  // Who's typing / idle / away -- see ClassProgress and api_lecturer_question_activity.
+  const [activity, setActivity] = useState<StudentActivity[]>([]);
   // Issues whose code is expanded inline (by issueKey), plus any submissions
   // an open issue needed that weren't in the polled list -- see toggleIssue.
   const [openIssues, setOpenIssues] = useState<Set<string>>(new Set());
@@ -307,6 +311,14 @@ export default function App() {
           // Backend not reachable yet -- stay quiet and retry on the next poll.
         });
     };
+    const pollActivity = () => {
+      if (!QUESTION_ID) return;
+      fetchActivity(QUESTION_ID)
+        .then((rows) => setActivity(rows))
+        .catch(() => {
+          // Backend not reachable yet -- stay quiet and retry on the next poll.
+        });
+    };
     // Re-fetched (not just loaded once) so the "Time remaining" banner and
     // status pill stay accurate if the question gets closed out from under
     // this tab (e.g. a second lecturer tab, or a manual API call).
@@ -323,15 +335,18 @@ export default function App() {
     pollClusters();
     pollProgress();
     pollQuestion();
+    pollActivity();
     const t1 = window.setInterval(poll, POLL_MS);
     const t2 = window.setInterval(pollClusters, POLL_MS);
     const t3 = window.setInterval(pollProgress, POLL_MS);
     const t4 = window.setInterval(pollQuestion, POLL_MS);
+    const t5 = window.setInterval(pollActivity, POLL_MS);
     return () => {
       window.clearInterval(t1);
       window.clearInterval(t2);
       window.clearInterval(t3);
       window.clearInterval(t4);
+      window.clearInterval(t5);
     };
   }, []);
 
@@ -663,7 +678,15 @@ export default function App() {
           <div id="progress-text" style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
             {progress && submittedText(progress.submitted, progress.expected)}
           </div>
-          {progress && <ClassProgress subs={subRows} expected={progress.expected} />}
+          {progress && (
+            <ClassProgress
+              subs={subRows}
+              expected={progress.expected}
+              // Activity only means something while students can still type --
+              // once time's up everyone's heartbeat stops and would read "away".
+              activity={secondsRemaining != null && secondsRemaining > 0 ? activity : null}
+            />
+          )}
         </div>
         <div className="grid">
           <div className="card" id="issues-card">

@@ -78,6 +78,7 @@ class QuestionCreateRequest(BaseModel):
     line_limit: int = DEFAULT_LINE_LIMIT
     expected_students: int | None = None
     duration_seconds: int = 600
+    idle_nudge_seconds: int = 180
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -94,6 +95,7 @@ class QuestionUpdateRequest(BaseModel):
     line_limit: int | None = None
     expected_students: int | None = None
     duration_seconds: int | None = None
+    idle_nudge_seconds: int | None = None
 
 
 class LectureAdvanceRequest(BaseModel):
@@ -120,6 +122,14 @@ class RaiseIssueRequest(BaseModel):
 class LectureJoinRequest(BaseModel):
     code: str
     student_name: str
+
+
+class ActivityRequest(BaseModel):
+    student_name: str
+    question_id: str
+    # Whether the student typed anything since their previous heartbeat --
+    # never the code itself.
+    edited: bool = False
 
 
 @app.get("/api/questions")
@@ -166,6 +176,9 @@ def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
     fields = req.model_dump(exclude_unset=True)
     if "test_cases" in fields:
         fields["test_cases"] = [tc if isinstance(tc, dict) else tc.model_dump() for tc in req.test_cases]
+    # NOT NULL column -- "off" is 0, not null.
+    if "idle_nudge_seconds" in fields and fields["idle_nudge_seconds"] is None:
+        del fields["idle_nudge_seconds"]
     if fields:
         # Editing config invalidates any earlier validation preview.
         fields["validated"] = 0
@@ -532,6 +545,58 @@ def api_lecture_join(req: LectureJoinRequest):
     return {"lecture_id": lecture["id"], "label": lecture["display_label"]}
 
 
+# The student page sends a heartbeat this often while a task is running (see
+# HEARTBEAT_MS in student/App.tsx); a student is "away" once a few in a row
+# have gone missing (tab closed, laptop asleep, network gone).
+AWAY_AFTER_SECONDS = 30
+
+# Used for the lecturer's idle status when a question has nudges turned off
+# (idle_nudge_seconds = 0) -- "idle" still means something to the lecturer
+# even if the student isn't being nudged.
+DEFAULT_IDLE_SECONDS = 180
+
+# The automatic idle nudge. Deliberately generic: it has to be safe for any
+# task and any student, so it only points at first steps (tier-0 scaffolds in
+# hint-taxonomy-draft.md terms) and never at the answer.
+IDLE_NUDGE_MESSAGE = (
+    "Still with us? It's been a little while since you last typed. "
+    "A small first step helps: work through the example by hand, or write just the part "
+    "that reads the input and submit it to see which tests pass. "
+    "Stuck? Put your hand up, that's what the lecturer is here for."
+)
+
+
+def _seconds_since(sqlite_ts: str) -> float:
+    then = datetime.strptime(sqlite_ts, "%Y-%m-%d %H:%M:%S")
+    return (datetime.utcnow() - then).total_seconds()
+
+
+@app.post("/api/lecture/activity")
+def api_lecture_activity(req: ActivityRequest):
+    """Heartbeat from the student editor while a task runs (see class-
+    progress-visualization-decision.md). Records only whether the student
+    typed since their last heartbeat, and answers with a nudge when they've
+    been idle past the question's idle_nudge_seconds -- once per idle
+    stretch (typing resets it), never after time's up, never once they've
+    solved it."""
+    student_name = req.student_name.strip()
+    question = store.get_question_row(req.question_id)
+    if not student_name or not question or question["status"] != "live" or _seconds_remaining(question) <= 0:
+        return {"nudge": None}
+    row = store.record_activity(req.question_id, student_name, req.edited)
+    threshold = question["idle_nudge_seconds"]
+    idle_for = _seconds_since(row["last_edit_at"] or row["first_seen_at"])
+    if (
+        threshold > 0
+        and idle_for >= threshold
+        and row["nudged_at"] is None
+        and not store.has_solved(req.question_id, student_name)
+    ):
+        store.mark_nudged(req.question_id, student_name)
+        return {"nudge": IDLE_NUDGE_MESSAGE}
+    return {"nudge": None}
+
+
 @app.post("/api/submit")
 def api_submit(req: SubmitRequest):
     question = get_question(req.question_id)
@@ -663,6 +728,44 @@ def api_lecturer_question_progress(question_id: str):
         "expected": expected,
         "not_submitted": (expected - submitted) if expected is not None else None,
     }
+
+
+@app.get("/api/lecturer/questions/{question_id}/activity")
+def api_lecturer_question_activity(question_id: str):
+    """Per-student active/idle/away status for the live dashboard's Class
+    progress card. Includes everyone who joined the lecture, so a student who
+    joined but never opened the editor shows up as "away" instead of not at
+    all."""
+    question = store.get_question_row(question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail="Not found")
+    threshold = question["idle_nudge_seconds"] or DEFAULT_IDLE_SECONDS
+    rows = {r["student_name"]: r for r in store.activity_rows(question_id)}
+    names = set(rows)
+    if question.get("lecture_id") is not None:
+        names.update(store.joined_names(question["lecture_id"]))
+    result = []
+    for name in sorted(names):
+        row = rows.get(name)
+        if not row:
+            result.append({"student_name": name, "status": "away", "idle_seconds": None, "nudged": False})
+            continue
+        idle_for = _seconds_since(row["last_edit_at"] or row["first_seen_at"])
+        if _seconds_since(row["last_seen_at"]) > AWAY_AFTER_SECONDS:
+            status = "away"
+        elif idle_for >= threshold:
+            status = "idle"
+        else:
+            status = "active"
+        result.append(
+            {
+                "student_name": name,
+                "status": status,
+                "idle_seconds": int(idle_for),
+                "nudged": row["nudge_count"] > 0,
+            }
+        )
+    return result
 
 
 @app.get("/api/lecturer/clusters")

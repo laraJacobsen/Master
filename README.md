@@ -66,7 +66,10 @@ frontend/              React + TypeScript (Vite), one entry point per page -- sa
                         set its grading config, run the validation preview, start it
   src/student/          Student page: join code, then whatever the lecturer has live --
                         code box + submit + feedback/hint tier while a task runs, a
-                        waiting screen between tasks (see "Running it" below)
+                        waiting screen between tasks (see "Running it" below).
+                        The code box is Monaco (the VS Code editor, CodeEditor.tsx), which also
+                        drives the activity heartbeat + idle nudge (see
+                        feedback-research/class-progress-visualization-decision.md)
   src/lecturer/         Lecturer page: live table of submissions + discussion points
                         (polls every 3s) for one question, picked via ?question_id=,
                         plus a class-progress chart (ClassProgress.tsx; see

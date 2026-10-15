@@ -77,8 +77,10 @@ Choices made to keep it calm and simple:
 
 ## Known limitations
 
-- "Not yet submitted" is still only a number. There is no roster, so
-  non-submitters have no rows (same limitation as the earlier counter).
+- "Not yet submitted" in the bar is still a typed-in number. While a task
+  runs, students who *joined* but haven't submitted do get rows (from the
+  join table, see the activity section below). Students who never joined
+  remain invisible, because there is still no roster.
 - "Best result so far" hides a student who solved it and then submitted
   something broken. The strip still shows it, but the bar doesn't.
 - Strips are cut to the latest 20 attempts, with a "+N" marker in front.
@@ -87,3 +89,71 @@ Choices made to keep it calm and simple:
 - The "Everyone has submitted" / "N more than expected" line under the old
   bar was dropped. The headline count and the legend's "not yet submitted"
   count cover it.
+
+## Activity and idle nudges (2026-10-15, follow-up)
+
+Supervisors' follow-up: the lecturer should also see whether students are
+*actually typing*, i.e. who is trying and who has dropped off, and an idle
+student should get a small nudge. They mentioned a VS Code extension.
+
+**Editor.** A real VS Code extension would mean an install on every student
+machine and a second submit path, so instead the student page's text box is
+now **Monaco**, the editor VS Code is built on, running in the browser. It
+gives syntax highlighting, line numbers and auto-indent, and its change
+events are the activity signal. Autocomplete is switched off (it would
+suggest code during an exercise). Monaco is bundled locally rather than
+loaded from a CDN, so a weak lecture-hall network can't take it down, and
+it's lazy-loaded, so the join and waiting screens stay small.
+
+**Signal.** While a task runs, the student page sends a heartbeat every 10s
+(`POST /api/lecture/activity`) that says only *whether* they typed since the
+last one. The code itself is never sent, which keeps this easy to describe in
+an ethics/consent form. The server stamps all times with its own clock and
+keeps one row per student per question (`student_activity`).
+
+**Statuses shown to the lecturer** (`GET /api/lecturer/questions/{id}/activity`):
+
+- *active*: has typed within the idle threshold.
+- *idle*: the editor is open, but no typing for at least the threshold
+  (shown as e.g. "idle 4m").
+- *away*: no heartbeat for 30s (tab closed, laptop asleep, offline), or
+  joined but never opened the task.
+
+In the Class progress card, a summary line ("N active · N idle · N away, of
+those not solved yet") sits under the bar. When the card is expanded, an
+**Idle or away** group is listed first, then *Working*, then *Solved*.
+Students only change group when their state actually changes. Activity is
+encoded with navy shapes (filled / ring / faint dot), not status colours:
+typing isn't good or bad, and the verdict colours are already in use.
+Solved students show no activity, since their editor has closed. Activity is
+hidden once time is up, because everyone would read "away".
+
+**Nudge.** Automatic, configured per question on the setup page ("Nudge
+idle students after (minutes)", default 3, 0 = off). When a heartbeat finds
+the student idle past the threshold, the reply carries a nudge, shown as a
+calm card above the editor that disappears when they type or click "Got it".
+Rules:
+
+- Once per idle stretch. Typing resets it.
+- Never after time's up.
+- Never for a student who already solved the task.
+
+The text is deliberately generic and answer-free (tier-0 scaffolds: work the
+example by hand, write just the input-reading part and submit to see which
+tests pass, put your hand up). The lecturer sees a small "nudged" tag on that
+student's row.
+
+### Activity limitations
+
+- Browsers throttle timers in background tabs, so a student reading notes in
+  another tab drifts to *away* after about 30s. That is arguably accurate (they
+  left the task), but it means *away* doesn't always mean *gave up*.
+- Idle is measured as "no keystrokes". Thinking, reading the prompt or
+  working on paper also count as idle. That's why the nudge is phrased as an
+  offer, not a warning, and why the lecturer sees "idle 4m" rather than a
+  judgement.
+- The heartbeat goes under the name on the answering screen. A student who
+  renames themselves mid-task shows up as two rows.
+- Nudge effectiveness (does it bring idle students back?) is unmeasured.
+  `student_activity` keeps `nudged_at`/`nudge_count`/`last_edit_at`, enough to
+  check in a pilot whether typing resumes after a nudge.

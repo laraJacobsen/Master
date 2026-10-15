@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type {
   LectureStatus,
   SharedExample,
@@ -13,8 +13,12 @@ import {
   fetchStudentRecap,
   fetchSubmissions,
   joinLecture as joinLectureApi,
+  sendActivity,
   submitCode as submitCodeApi,
 } from "../shared/api";
+// Monaco is most of this page's weight -- loaded only once a task is live,
+// so the join and waiting screens stay instant.
+const CodeEditor = lazy(() => import("./CodeEditor").then((m) => ({ default: m.CodeEditor })));
 
 const VERDICT_LABELS: Record<string, string> = {
   correct: "Correct",
@@ -29,6 +33,12 @@ const VERDICT_LABELS: Record<string, string> = {
 // (and the auto-submit-on-timeout it drives) benefits more from staying
 // in sync.
 const POLL_MS = 2000;
+
+// How often the editor reports "still here, typed / didn't type" while a
+// task is running (POST /api/lecture/activity). The lecturer's dashboard
+// marks a student "away" after a few missed heartbeats (AWAY_AFTER_SECONDS
+// in backend/main.py), and the reply is where an idle nudge arrives.
+const HEARTBEAT_MS = 10000;
 
 // Kahoot-style entry gate (POST /api/lecture/join) -- a soft UX gate, not
 // real access control (/api/submit itself stays open either way, see the
@@ -113,6 +123,7 @@ export default function App() {
   // lecture started (see applyStatus).
   const [joinNotice, setJoinNotice] = useState<string | null>(null);
   const [questionId, setQuestionId] = useState<string | null>(null);
+  const [language, setLanguage] = useState("python");
   const [promptText, setPromptText] = useState("");
   const [example, setExample] = useState<TestCase | null>(null);
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
@@ -127,6 +138,12 @@ export default function App() {
   // state captured at effect-setup time would otherwise be stale.
   const nameRef = useRef(getJoinedName());
   const codeRef = useRef("");
+  // Set on every keystroke, cleared by each heartbeat -- so a heartbeat
+  // reports "typed since the last one" without ever sending the code.
+  const editedRef = useRef(false);
+  // The idle nudge from the last heartbeat, shown above the editor until the
+  // student types or dismisses it.
+  const [nudge, setNudge] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [statusText, setStatusText] = useState("");
@@ -176,6 +193,11 @@ export default function App() {
   function updateCode(v: string) {
     setCode(v);
     codeRef.current = v;
+  }
+  function handleEditorChange(v: string) {
+    updateCode(v);
+    editedRef.current = true;
+    setNudge(null);
   }
 
   async function loadHistory(studentName: string, qId: string | null) {
@@ -320,6 +342,9 @@ export default function App() {
       setQuestionId(q.id);
       setHadTask(true);
       setPromptText(q.prompt);
+      setLanguage(q.language);
+      editedRef.current = false;
+      setNudge(null);
       setExample(q.example);
       setDurationSeconds(q.duration_seconds);
       updateCode("");
@@ -358,6 +383,28 @@ export default function App() {
     // retrigger this (start polling right after a successful join).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joined]);
+
+  // Activity heartbeat -- only while answering, so the waiting screen (time's
+  // up, or already solved) never earns a nudge or counts as idle.
+  useEffect(() => {
+    if (phase !== "answering" || !questionId) return;
+    const beat = () => {
+      const studentName = nameRef.current.trim();
+      if (!studentName) return;
+      const edited = editedRef.current;
+      editedRef.current = false;
+      sendActivity(studentName, questionId, edited)
+        .then((r) => {
+          if (r.nudge) setNudge(r.nudge);
+        })
+        .catch(() => {
+          // Missed heartbeat -- the next one catches up.
+        });
+    };
+    beat();
+    const t = window.setInterval(beat, HEARTBEAT_MS);
+    return () => window.clearInterval(t);
+  }, [phase, questionId]);
 
   async function handleJoin() {
     const trimmedName = joinNameInput.trim();
@@ -711,15 +758,19 @@ export default function App() {
         </div>
 
         <div className="col-right">
+          {nudge && (
+            <div className="card nudge-card" role="status">
+              <p>{nudge}</p>
+              <button className="nudge-dismiss" onClick={() => setNudge(null)}>
+                Got it
+              </button>
+            </div>
+          )}
           <div className="card">
-            <label htmlFor="code">Your code (Python)</label>
-            <textarea
-              id="code"
-              spellCheck={false}
-              placeholder="# Your code here."
-              value={code}
-              onChange={(e) => updateCode(e.target.value)}
-            />
+            <label>Your code (Python)</label>
+            <Suspense fallback={<div className="code-editor code-editor-loading">Loading editor...</div>}>
+              <CodeEditor key={questionId} language={language} onChange={handleEditorChange} />
+            </Suspense>
             <button id="submit-btn" disabled={submitting} onClick={handleSubmit}>
               <span
                 id="submit-spinner"

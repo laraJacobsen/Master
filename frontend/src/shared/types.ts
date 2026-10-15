@@ -80,6 +80,8 @@ export interface QuestionRow {
   validated: boolean;
   expected_students: number | null;
   duration_seconds: number;
+  // Seconds without typing before the student gets an automatic nudge; 0 = off.
+  idle_nudge_seconds: number;
   started_at: string | null;
 }
 
@@ -95,6 +97,7 @@ export interface QuestionPayload {
   line_limit: number;
   expected_students: number | null;
   duration_seconds: number;
+  idle_nudge_seconds: number;
 }
 
 // POST /api/lecturer/lecture/next
@@ -195,6 +198,22 @@ export interface ClusterRow {
   // point even with a single student, and its example is on the students'
   // waiting screen. See aggregation.raise_issue().
   raised: boolean;
+}
+
+// POST /api/lecture/activity -- the student editor's heartbeat reply.
+export interface ActivityResponse {
+  nudge: string | null;
+}
+
+// GET /api/lecturer/questions/{id}/activity -- one row per student who
+// joined the lecture or opened this task's editor.
+export type ActivityStatus = "active" | "idle" | "away";
+export interface StudentActivity {
+  student_name: string;
+  status: ActivityStatus;
+  // Seconds since they last typed (or opened the task, if they never have).
+  idle_seconds: number | null;
+  nudged: boolean;
 }
 
 // GET /api/lecturer/questions/{id}/progress

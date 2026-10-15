@@ -768,6 +768,8 @@ def _run_lecture_dashboard_checks(client):
     assert r.json()["lecture_id"] == new_lecture["id"], r.json()
     print("Starting a question after the lobby opens   OK")
 
+    _run_activity_checks(client, qid)
+
     # Once a question's gone live, delete is refused -- there's real
     # history now, so archive is the only way to hide it.
     r = client.delete(f"/api/lecturer/lectures/{new_lecture['id']}")
@@ -798,6 +800,64 @@ def _run_lecture_dashboard_checks(client):
     assert totals["lectures_run"] >= 2, totals
     assert totals["total_submissions"] >= 1, totals
     print("GET /api/lecturer/stats/totals   OK ->", totals)
+
+
+def _run_activity_checks(client, qid):
+    """Editor heartbeat -> lecturer active/idle/away status + automatic idle
+    nudge (class-progress-visualization-decision.md). Grace and Henry joined
+    this lecture above; idle time is simulated by backdating timestamps."""
+    from backend import store
+
+    def backdate(column, minutes, name="Grace"):
+        conn = store._connect()
+        conn.execute(
+            f"UPDATE student_activity SET {column} = datetime('now', ?) WHERE question_id = ? AND student_name = ?",
+            (f"-{minutes} minutes", qid, name),
+        )
+        conn.commit()
+        conn.close()
+
+    def beat(edited=False, name="Grace"):
+        r = client.post("/api/lecture/activity", json={"student_name": name, "question_id": qid, "edited": edited})
+        assert r.status_code == 200, r.text
+        return r.json()["nudge"]
+
+    def status_of(name):
+        rows = client.get(f"/api/lecturer/questions/{qid}/activity").json()
+        return next(r for r in rows if r["student_name"] == name)
+
+    assert store.get_question_row(qid)["idle_nudge_seconds"] == 180
+
+    assert beat() is None
+    assert status_of("Grace")["status"] == "active", status_of("Grace")
+    henry = status_of("Henry")  # joined, never opened the editor
+    assert henry["status"] == "away" and henry["idle_seconds"] is None, henry
+    print("Activity heartbeat + joined-but-silent student   OK")
+
+    backdate("first_seen_at", 5)
+    nudge = beat()
+    assert nudge and "hand up" in nudge, nudge
+    assert beat() is None  # once per idle stretch, not every heartbeat
+    grace = status_of("Grace")
+    assert grace["status"] == "idle" and grace["nudged"], grace
+    print("Idle student nudged once   OK ->", grace)
+
+    assert beat(edited=True) is None
+    assert status_of("Grace")["status"] == "active"
+    backdate("last_edit_at", 5)
+    assert beat(), "typing should reset the nudge so a later idle stretch earns a new one"
+    print("Typing resets the nudge   OK")
+
+    backdate("last_seen_at", 2)
+    assert status_of("Grace")["status"] == "away", status_of("Grace")
+    print("Missed heartbeats -> away   OK")
+
+    # No nudge, and nothing recorded, for a question that isn't live.
+    r = client.post(
+        "/api/lecture/activity", json={"student_name": "Grace", "question_id": "no-such-q", "edited": True}
+    )
+    assert r.status_code == 200 and r.json() == {"nudge": None}, r.text
+    print("Heartbeat for a non-live question ignored   OK")
 
 
 if __name__ == "__main__":
