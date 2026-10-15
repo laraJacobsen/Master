@@ -46,8 +46,7 @@ input[type=text] {
 }
 #timer-bar-fill { background: var(--navy); height: 100%; transition: width 1s linear; }
 
-/* Between-task waiting status (STATE 1: timer hit zero) */
-#waiting-status { margin-bottom: 1rem; }
+/* Waiting screen pulse ("Waiting for your lecturer...") */
 .pulse-indicator {
   display: flex;
   align-items: center;
@@ -67,28 +66,6 @@ input[type=text] {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
 }
-.waiting-attention-note { margin-top: 0.4rem; color: var(--muted); font-size: 0.85rem; }
-
-textarea[readonly] { background: var(--bg); color: var(--muted); cursor: default; }
-
-#waiting-submit-status .neutral-note {
-  margin-top: 1rem;
-  color: var(--muted);
-  font-size: 0.95rem;
-  line-height: 1.5;
-}
-#waiting-submit-status #submit-status {
-  display: block;
-  margin-top: 1rem;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-#waiting-submit-status .spinner {
-  display: inline-block;
-  border-color: rgba(30, 39, 97, 0.25);
-  border-top-color: var(--navy);
-}
-#waiting-submit-status #error-box { display: block; }
 
 #prompt-text { color: var(--muted); line-height: 1.5; }
 #example-box {
@@ -236,6 +213,18 @@ button:disabled { background: #9aa0b5; cursor: not-allowed; }
 .waiting-card { text-align: center; }
 .waiting-card h2 { margin-top: 0; }
 .waiting-message { font-size: 1.05rem; line-height: 1.5; color: var(--muted); margin-bottom: 0; }
+.waiting-main > .card + .card { margin-top: 1.25rem; }
+.waiting-result { margin-top: 1rem; }
+.waiting-score { margin-left: 0.6rem; color: var(--muted); font-size: 0.9rem; }
+.waiting-pulse { justify-content: center; margin-top: 1.25rem; }
+.waiting-spinner {
+  display: inline-block;
+  margin-right: 0;
+  border-color: rgba(30, 39, 97, 0.25);
+  border-top-color: var(--navy);
+}
+#waiting-feedback h2 { margin: 0 0 0.3rem; font-size: 1.05rem; }
+#waiting-feedback #feedback-text { margin-top: 0.5rem; }
 
 /* STATE 2: student personal recap */
 #recap-summary-line { font-size: 1rem; font-weight: bold; color: var(--navy); margin-bottom: 0.9rem; }
