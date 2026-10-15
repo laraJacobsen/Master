@@ -208,7 +208,13 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
 .hint { font-weight: normal; color: var(--muted); font-size: 0.78rem; }
 .summary-status { color: var(--muted); font-size: 0.9rem; }
 .summary-status.summary-error { color: var(--bad); }
-.verdict-breakdown { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+#summary-task-list { list-style: none; margin: 0; padding: 0; }
+.summary-task { padding: 0.9rem 0; border-bottom: 1px solid #eceef3; }
+.summary-task:first-child { padding-top: 0.2rem; }
+.summary-task:last-child { border-bottom: none; padding-bottom: 0; }
+.summary-task-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 0.75rem; }
+.summary-task-count { color: var(--muted); font-size: 0.9rem; }
+.summary-task-head .drilldown-link { margin-left: auto; }
 .drilldown-link { color: var(--navy); font-size: 0.85rem; text-decoration: none; white-space: nowrap; }
 .drilldown-link:hover { text-decoration: underline; }
 #carry-forward-list { list-style: none; margin: 0; padding: 0; }
@@ -234,3 +240,87 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
   cursor: pointer;
 }
 .back-to-home-btn:hover { opacity: 0.9; }
+
+/* Class progress (ClassProgress.tsx). Status colours are local to this chart:
+   the pill colours above are too close (amber vs red) to tell apart at
+   square size, so these were re-stepped and checked for colour-blind
+   separation. Error also gets a hatch, so it never relies on colour alone. */
+.class-progress {
+  --cp-correct: #2e7d32;
+  --cp-partial: #c9a227;
+  --cp-incorrect: #b3453a;
+  --cp-none: #e3e5ec;
+  margin-top: 0.6rem;
+}
+.cp-bar { display: flex; gap: 2px; height: 12px; border-radius: 4px; overflow: hidden; }
+.cp-seg { flex-basis: 0; min-width: 4px; }
+.cp-correct { background: var(--cp-correct); }
+.cp-partially_correct { background: var(--cp-partial); }
+.cp-incorrect { background: var(--cp-incorrect); }
+.cp-error {
+  background: repeating-linear-gradient(135deg, var(--cp-incorrect) 0 2px, #fff 2px 4px);
+  box-shadow: inset 0 0 0 1px var(--cp-incorrect);
+}
+.cp-none { background: var(--cp-none); }
+
+.cp-legend {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  font-size: 0.85rem;
+}
+.cp-legend li { display: flex; align-items: center; gap: 0.35rem; }
+.cp-caption { color: var(--muted); font-size: 0.78rem; margin-top: 0.3rem; }
+.cp-toggle { margin-top: 0.75rem; }
+
+.cp-sq { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.cp-students { margin-top: 0.6rem; max-height: 20rem; overflow-y: auto; }
+.cp-group {
+  margin: 0.8rem 0 0.3rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.cp-rows { list-style: none; margin: 0; padding: 0; }
+.cp-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 10rem) 2.5rem 1fr;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.2rem 0;
+  font-size: 0.85rem;
+}
+@media (max-width: 600px) {
+  .cp-row { grid-template-columns: 5.5rem 2.5rem 1fr; gap: 0.5rem; }
+  .cp-row-activity { grid-template-columns: 5.5rem 2.5rem 1fr; }
+  .cp-row-activity .cp-strip { grid-column: 2 / -1; }
+}
+.cp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.cp-more { color: var(--muted); font-size: 0.72rem; margin-right: 0.2rem; }
+.cp-score { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Activity (student editor heartbeat). Navy, not status colours: whether
+   someone is typing isn't good/bad, and the verdict colours are taken.
+   Active = filled dot, idle = ring, away = faint dot -- shape, not hue. */
+.cp-row-activity { grid-template-columns: minmax(6rem, 10rem) 2.5rem 7.5rem 1fr; }
+.cp-activity { display: flex; align-items: center; gap: 0.35rem; color: var(--muted); white-space: nowrap; }
+.cp-act-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.cp-act-active .cp-act-dot { background: var(--navy); }
+.cp-act-idle .cp-act-dot { box-shadow: inset 0 0 0 2px var(--navy); }
+.cp-act-away .cp-act-dot { background: #c3c7d3; }
+.cp-activity.cp-act-idle { color: var(--navy); font-weight: bold; }
+.cp-nudged {
+  font-size: 0.7rem;
+  font-weight: normal;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+.cp-activity-summary { margin-top: 0.4rem; }
+.cp-caption-inline { color: var(--muted); font-size: 0.78rem; }

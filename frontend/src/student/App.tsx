@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type {
   LectureStatus,
   SharedExample,
@@ -13,8 +13,12 @@ import {
   fetchStudentRecap,
   fetchSubmissions,
   joinLecture as joinLectureApi,
+  sendActivity,
   submitCode as submitCodeApi,
 } from "../shared/api";
+// Monaco is most of this page's weight -- loaded only once a task is live,
+// so the join and waiting screens stay instant.
+const CodeEditor = lazy(() => import("./CodeEditor").then((m) => ({ default: m.CodeEditor })));
 
 const VERDICT_LABELS: Record<string, string> = {
   correct: "Correct",
@@ -29,6 +33,12 @@ const VERDICT_LABELS: Record<string, string> = {
 // (and the auto-submit-on-timeout it drives) benefits more from staying
 // in sync.
 const POLL_MS = 2000;
+
+// How often the editor reports "still here, typed / didn't type" while a
+// task is running (POST /api/lecture/activity). The lecturer's dashboard
+// marks a student "away" after a few missed heartbeats (AWAY_AFTER_SECONDS
+// in backend/main.py), and the reply is where an idle nudge arrives.
+const HEARTBEAT_MS = 10000;
 
 // Kahoot-style entry gate (POST /api/lecture/join) -- a soft UX gate, not
 // real access control (/api/submit itself stays open either way, see the
@@ -113,13 +123,16 @@ export default function App() {
   // lecture started (see applyStatus).
   const [joinNotice, setJoinNotice] = useState<string | null>(null);
   const [questionId, setQuestionId] = useState<string | null>(null);
+  const [language, setLanguage] = useState("python");
   const [promptText, setPromptText] = useState("");
   const [example, setExample] = useState<TestCase | null>(null);
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
 
-  // Pre-filled from the join screen's name (see JOIN_NAME_KEY) if this tab
-  // already joined -- still editable here in case of a typo.
+  // The name typed on the join screen (see JOIN_NAME_KEY) -- fixed for the
+  // rest of the lecture, so submissions, the activity heartbeat and the
+  // lecturer's per-student rows all stay under one name. Fixing a typo means
+  // re-joining from a new tab.
   const [name, setName] = useState(getJoinedName);
   const [code, setCode] = useState("");
   // Mirrors of `name`/`code` for the auto-submit-on-timeout path, which can
@@ -127,6 +140,12 @@ export default function App() {
   // state captured at effect-setup time would otherwise be stale.
   const nameRef = useRef(getJoinedName());
   const codeRef = useRef("");
+  // Set on every keystroke, cleared by each heartbeat -- so a heartbeat
+  // reports "typed since the last one" without ever sending the code.
+  const editedRef = useRef(false);
+  // The idle nudge from the last heartbeat, shown above the editor until the
+  // student types or dismisses it.
+  const [nudge, setNudge] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [statusText, setStatusText] = useState("");
@@ -176,6 +195,11 @@ export default function App() {
   function updateCode(v: string) {
     setCode(v);
     codeRef.current = v;
+  }
+  function handleEditorChange(v: string) {
+    updateCode(v);
+    editedRef.current = true;
+    setNudge(null);
   }
 
   async function loadHistory(studentName: string, qId: string | null) {
@@ -320,6 +344,9 @@ export default function App() {
       setQuestionId(q.id);
       setHadTask(true);
       setPromptText(q.prompt);
+      setLanguage(q.language);
+      editedRef.current = false;
+      setNudge(null);
       setExample(q.example);
       setDurationSeconds(q.duration_seconds);
       updateCode("");
@@ -359,6 +386,28 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joined]);
 
+  // Activity heartbeat -- only while answering, so the waiting screen (time's
+  // up, or already solved) never earns a nudge or counts as idle.
+  useEffect(() => {
+    if (phase !== "answering" || !questionId) return;
+    const beat = () => {
+      const studentName = nameRef.current.trim();
+      if (!studentName) return;
+      const edited = editedRef.current;
+      editedRef.current = false;
+      sendActivity(studentName, questionId, edited)
+        .then((r) => {
+          if (r.nudge) setNudge(r.nudge);
+        })
+        .catch(() => {
+          // Missed heartbeat -- the next one catches up.
+        });
+    };
+    beat();
+    const t = window.setInterval(beat, HEARTBEAT_MS);
+    return () => window.clearInterval(t);
+  }, [phase, questionId]);
+
   async function handleJoin() {
     const trimmedName = joinNameInput.trim();
     const code = joinCodeInput.trim();
@@ -376,7 +425,7 @@ export default function App() {
       const joinedLecture = await joinLectureApi(code, trimmedName);
       markJoinedThisSession(trimmedName, joinedLecture.lecture_id);
       setJoinNotice(null);
-      updateName(trimmedName); // carries forward to the answering screen's own name field
+      updateName(trimmedName); // the name for the rest of this lecture (shown, not editable, while answering)
       setJoined(true);
       setPhase("loading");
     } catch (e) {
@@ -644,15 +693,8 @@ export default function App() {
       <main>
         <div className="col-left">
           <div className="card accent-navy">
-            <label htmlFor="name">Your name</label>
-            <input
-              type="text"
-              id="name"
-              placeholder="e.g. Lara Pinheiro"
-              value={name}
-              onChange={(e) => updateName(e.target.value)}
-              onBlur={(e) => loadHistory(e.target.value.trim(), questionId)}
-            />
+            <div className="timer-label">Joined as</div>
+            <div id="student-name">{name}</div>
 
             <div id="timer-box" style={{ display: secondsRemaining != null ? "block" : "none" }}>
               <div className="timer-label">Time remaining</div>
@@ -711,15 +753,19 @@ export default function App() {
         </div>
 
         <div className="col-right">
+          {nudge && (
+            <div className="card nudge-card" role="status">
+              <p>{nudge}</p>
+              <button className="nudge-dismiss" onClick={() => setNudge(null)}>
+                Got it
+              </button>
+            </div>
+          )}
           <div className="card">
-            <label htmlFor="code">Your code (Python)</label>
-            <textarea
-              id="code"
-              spellCheck={false}
-              placeholder="# Your code here."
-              value={code}
-              onChange={(e) => updateCode(e.target.value)}
-            />
+            <label>Your code (Python)</label>
+            <Suspense fallback={<div className="code-editor code-editor-loading">Loading editor...</div>}>
+              <CodeEditor key={questionId} language={language} onChange={handleEditorChange} />
+            </Suspense>
             <button id="submit-btn" disabled={submitting} onClick={handleSubmit}>
               <span
                 id="submit-spinner"

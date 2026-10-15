@@ -44,6 +44,7 @@ export default function App() {
   const [packages, setPackages] = useState("");
   const [expectedStudents, setExpectedStudents] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("10");
+  const [idleNudgeMinutes, setIdleNudgeMinutes] = useState("3");
   const [referenceSolution, setReferenceSolution] = useState("");
 
   const [formStatusText, setFormStatusText] = useState("");
@@ -191,6 +192,7 @@ export default function App() {
           line_limit: 200,
           expected_students: null,
           duration_seconds: 600,
+          idle_nudge_seconds: 180,
         });
         await validateQuestionApi(created.id);
       }
@@ -218,6 +220,7 @@ export default function App() {
     setPackages("");
     setExpectedStudents("");
     setDurationMinutes("10");
+    setIdleNudgeMinutes("3");
     setReferenceSolution("");
     setTestCases([emptyTestCase()]);
     setFormStatusText("");
@@ -241,6 +244,7 @@ export default function App() {
     setPackages(q.extra_packages.join(", "));
     setExpectedStudents(q.expected_students != null ? String(q.expected_students) : "");
     setDurationMinutes(String(q.duration_seconds / 60));
+    setIdleNudgeMinutes(String(q.idle_nudge_seconds / 60));
     setReferenceSolution(q.reference_solution || "");
     setTestCases(
       q.test_cases.length
@@ -279,6 +283,8 @@ export default function App() {
       line_limit: parseInt(lineLimit, 10),
       expected_students: expectedStudents ? parseInt(expectedStudents, 10) : null,
       duration_seconds: Math.round(parseFloat(durationMinutes) * 60),
+      // Blank counts as off, same as 0.
+      idle_nudge_seconds: Math.max(0, Math.round((parseFloat(idleNudgeMinutes) || 0) * 60)),
     };
   }
 
@@ -631,6 +637,22 @@ export default function App() {
               value={durationMinutes}
               disabled={locked}
               onChange={(e) => setDurationMinutes(e.target.value)}
+            />
+
+            <label htmlFor="f-idle-nudge">
+              Nudge idle students after (minutes){" "}
+              <span className="hint">
+                a student who hasn't typed for this long gets a gentle reminder; 0 turns it off
+              </span>
+            </label>
+            <input
+              type="number"
+              id="f-idle-nudge"
+              min={0}
+              step={0.5}
+              value={idleNudgeMinutes}
+              disabled={locked}
+              onChange={(e) => setIdleNudgeMinutes(e.target.value)}
             />
 
             <h3>

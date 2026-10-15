@@ -5,11 +5,13 @@ import type {
   LectureSummary,
   ProgressResponse,
   QuestionRow,
+  StudentActivity,
   SubmissionRow,
   ValidationTestResult,
 } from "../shared/types";
 import {
   fetchActiveLecture,
+  fetchActivity,
   fetchClusters,
   fetchJoinedCount,
   fetchLectureSummary,
@@ -22,6 +24,7 @@ import {
   nextTask,
   raiseIssue,
 } from "../shared/api";
+import { ClassProgress } from "./ClassProgress";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
@@ -161,6 +164,8 @@ export default function App() {
 
   const [clusters, setClusters] = useState<ClusterRow[]>([]);
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
+  // Who's typing / idle / away -- see ClassProgress and api_lecturer_question_activity.
+  const [activity, setActivity] = useState<StudentActivity[]>([]);
   // Issues whose code is expanded inline (by issueKey), plus any submissions
   // an open issue needed that weren't in the polled list -- see toggleIssue.
   const [openIssues, setOpenIssues] = useState<Set<string>>(new Set());
@@ -197,6 +202,10 @@ export default function App() {
   const [summary, setSummary] = useState<LectureSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  // Every task's submissions, for the per-task Class progress charts in the
+  // summary -- keyed by question_id; a task missing here failed to load.
+  const [taskSubs, setTaskSubs] = useState<Record<string, SubmissionRow[]>>({});
+  const [taskSubsLoaded, setTaskSubsLoaded] = useState(false);
 
   // Lobby mode (?lobby=) -- the lecture row itself (for its code/label,
   // fetched once) and the live joined-count (polled, same cadence as the
@@ -217,6 +226,16 @@ export default function App() {
       .then((s) => {
         setSummary(s);
         setPageTitle(`${s.lecture_label} summary`);
+        return Promise.all(
+          s.tasks.map((t) =>
+            fetchSubmissions(t.question_id)
+              .then((rows) => [t.question_id, rows] as const)
+              .catch(() => null),
+          ),
+        ).then((results) => {
+          setTaskSubs(Object.fromEntries(results.filter((r) => r !== null)));
+          setTaskSubsLoaded(true);
+        });
       })
       .catch((e) => {
         setSummaryError(e instanceof Error ? e.message : "Could not load this lecture's summary.");
@@ -306,6 +325,14 @@ export default function App() {
           // Backend not reachable yet -- stay quiet and retry on the next poll.
         });
     };
+    const pollActivity = () => {
+      if (!QUESTION_ID) return;
+      fetchActivity(QUESTION_ID)
+        .then((rows) => setActivity(rows))
+        .catch(() => {
+          // Backend not reachable yet -- stay quiet and retry on the next poll.
+        });
+    };
     // Re-fetched (not just loaded once) so the "Time remaining" banner and
     // status pill stay accurate if the question gets closed out from under
     // this tab (e.g. a second lecturer tab, or a manual API call).
@@ -322,15 +349,18 @@ export default function App() {
     pollClusters();
     pollProgress();
     pollQuestion();
+    pollActivity();
     const t1 = window.setInterval(poll, POLL_MS);
     const t2 = window.setInterval(pollClusters, POLL_MS);
     const t3 = window.setInterval(pollProgress, POLL_MS);
     const t4 = window.setInterval(pollQuestion, POLL_MS);
+    const t5 = window.setInterval(pollActivity, POLL_MS);
     return () => {
       window.clearInterval(t1);
       window.clearInterval(t2);
       window.clearInterval(t3);
       window.clearInterval(t4);
+      window.clearInterval(t5);
     };
   }, []);
 
@@ -505,11 +535,6 @@ export default function App() {
     ...clusters.filter((c) => c.exec_verdict === "pass"),
   ];
 
-  const progressPct =
-    progress && progress.expected != null && progress.expected > 0
-      ? Math.min(100, Math.round((progress.submitted / progress.expected) * 100))
-      : 0;
-
   // `expected` is just a number the lecturer typed in at setup time (see
   // live-submission-progress-scoping-decision.md) -- there's no roster, so
   // it can be wrong in either direction. Submitted > expected is a normal
@@ -520,13 +545,6 @@ export default function App() {
     if (expected == null) return `${submitted} submitted`;
     if (submitted > expected) return `${submitted} submitted (more than the ${expected} expected)`;
     return `${submitted}/${expected} submitted`;
-  }
-
-  function notSubmittedText(notSubmitted: number | null): string {
-    if (notSubmitted == null) return "";
-    if (notSubmitted > 0) return `${notSubmitted} not yet submitted`;
-    if (notSubmitted === 0) return "Everyone has submitted.";
-    return `${-notSubmitted} more than expected`;
   }
 
   return (
@@ -670,29 +688,19 @@ export default function App() {
         {!lectureFinished && !LECTURE_ID && !LOBBY_ID && (
         <>
         <div className="card" id="progress-card" style={{ display: progress ? "block" : "none" }}>
-          <h2>Submission progress</h2>
+          <h2>Class progress</h2>
           <div id="progress-text" style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
             {progress && submittedText(progress.submitted, progress.expected)}
           </div>
-          <div
-            id="progress-bar-track"
-            style={{
-              background: "#eceef3",
-              borderRadius: "999px",
-              height: "10px",
-              marginTop: "0.6rem",
-              overflow: "hidden",
-              display: progress && progress.expected != null ? "block" : "none",
-            }}
-          >
-            <div
-              id="progress-bar-fill"
-              style={{ background: "var(--navy)", height: "100%", width: `${progressPct}%` }}
+          {progress && (
+            <ClassProgress
+              subs={subRows}
+              expected={progress.expected}
+              // Activity only means something while students can still type --
+              // once time's up everyone's heartbeat stops and would read "away".
+              activity={secondsRemaining != null && secondsRemaining > 0 ? activity : null}
             />
-          </div>
-          <div id="progress-not-submitted" style={{ color: "var(--muted)", fontSize: "0.85rem", marginTop: "0.4rem" }}>
-            {progress && progress.expected != null ? notSubmittedText(progress.not_submitted) : ""}
-          </div>
+          )}
         </div>
         <div className="grid">
           <div className="card" id="issues-card">
@@ -829,41 +837,34 @@ export default function App() {
                 <div className="summary-status">No tasks were run this lecture.</div>
               )}
               {summary && summary.tasks.length > 0 && (
-                <table id="summary-table">
-                  <thead>
-                    <tr>
-                      <th>Task</th>
-                      <th>Submitted</th>
-                      <th>Verdict breakdown</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.tasks.map((t) => (
-                      <tr key={t.question_id}>
-                        <td>{t.title}</td>
-                        <td>{submittedText(t.submitted, t.expected)}</td>
-                        <td>
-                          <div className="verdict-breakdown">
-                            {Object.entries(t.verdict_counts).map(([verdict, count]) => (
-                              <span key={verdict} className={verdictClass(verdict)}>
-                                {verdictLabel(verdict)} {count}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td>
-                          <a
-                            className="drilldown-link"
-                            href={`lecturer.html?question_id=${encodeURIComponent(t.question_id)}`}
-                          >
-                            View task &rarr;
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                // Same chart as the live dashboard, one per task -- each
+                // student's best result, with their attempts behind "Show
+                // students". Replaces the old verdict-pill column, which
+                // counted latest (not best) results and would have disagreed
+                // with the chart right next to it.
+                <ul id="summary-task-list">
+                  {summary.tasks.map((t) => (
+                    <li key={t.question_id} className="summary-task">
+                      <div className="summary-task-head">
+                        <strong>{t.title}</strong>
+                        <span className="summary-task-count">{submittedText(t.submitted, t.expected)}</span>
+                        <a
+                          className="drilldown-link"
+                          href={`lecturer.html?question_id=${encodeURIComponent(t.question_id)}`}
+                        >
+                          View task &rarr;
+                        </a>
+                      </div>
+                      {taskSubs[t.question_id] ? (
+                        <ClassProgress subs={taskSubs[t.question_id]} expected={t.expected} activity={null} finished />
+                      ) : (
+                        <div className="summary-status">
+                          {taskSubsLoaded ? "Could not load this task's submissions." : "Loading..."}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
             <div className="card" id="carry-forward-card">

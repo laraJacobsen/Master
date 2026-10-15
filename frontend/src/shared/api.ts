@@ -1,5 +1,6 @@
 import type {
   ActiveLectureResponse,
+  ActivityResponse,
   ApiErrorBody,
   ClusterRow,
   JoinedCountResponse,
@@ -15,6 +16,7 @@ import type {
   PublicQuestion,
   QuestionPayload,
   QuestionRow,
+  StudentActivity,
   StudentRecap,
   SubmissionRow,
   SubmitResponse,
@@ -140,6 +142,22 @@ export function joinLecture(code: string, studentName: string): Promise<LectureJ
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code, student_name: studentName }),
   }).then((res) => asJson(res));
+}
+
+// Heartbeat from the student editor -- `edited` says whether they typed since
+// the previous one; the code itself is never sent here.
+export function sendActivity(studentName: string, questionId: string, edited: boolean): Promise<ActivityResponse> {
+  return fetch(`${API_BASE}/api/lecture/activity`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ student_name: studentName, question_id: questionId, edited }),
+  }).then((res) => asJson(res));
+}
+
+export function fetchActivity(questionId: string): Promise<StudentActivity[]> {
+  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/activity`).then((res) =>
+    asJson(res)
+  );
 }
 
 export function nextTask(currentQuestionId: string | null): Promise<LectureNextResponse> {
