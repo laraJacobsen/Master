@@ -545,6 +545,22 @@ def _run_question_setup_checks(client):
     assert r.json()["validated"] is True, r.json()
     print("Validation preview against reference solution   OK ->", r.json()["validated"])
 
+    # Only edits that can change the check's outcome reset it: renaming the
+    # question or changing its timing must not send the lecturer back to
+    # "Check solution", while changing the tests (or re-sending them
+    # unchanged, which isn't a change) is judged by content.
+    question = client.get(f"/api/lecturer/questions/{qid}").json()
+    r = client.put(f"/api/lecturer/questions/{qid}", json={"title": question["title"] + " (v2)", "duration_seconds": 900})
+    assert r.json()["validated"] is True, r.json()
+    r = client.put(f"/api/lecturer/questions/{qid}", json={"test_cases": question["test_cases"]})
+    assert r.json()["validated"] is True, "same tests re-sent is not a change"
+    changed = question["test_cases"] + [{"stdin": "21\n", "expected_stdout": "42"}]
+    r = client.put(f"/api/lecturer/questions/{qid}", json={"test_cases": changed})
+    assert r.json()["validated"] is False, "a changed test must reset the check"
+    r = client.post(f"/api/lecturer/questions/{qid}/validate")
+    assert r.json()["validated"] is True, r.json()
+    print("Only validation-relevant edits reset the check   OK")
+
     r = client.post(f"/api/lecturer/questions/{qid}/start")
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "live", r.json()

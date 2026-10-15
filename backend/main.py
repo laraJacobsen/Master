@@ -162,6 +162,14 @@ def api_lecturer_question_detail(question_id: str):
     return row
 
 
+# Question fields the validation preview depends on -- see
+# api_lecturer_update_question.
+_VALIDATION_FIELDS = (
+    "test_cases", "reference_solution", "language",
+    "cpu_time_limit_s", "memory_limit_kb", "extra_packages", "line_limit",
+)
+
+
 @app.put("/api/lecturer/questions/{question_id}")
 def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
     row = store.get_question_row(question_id)
@@ -181,8 +189,13 @@ def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
     if "idle_nudge_seconds" in fields and fields["idle_nudge_seconds"] is None:
         del fields["idle_nudge_seconds"]
     if fields:
-        # Editing config invalidates any earlier validation preview.
-        fields["validated"] = 0
+        # Only a change that can alter the validation result (running the
+        # reference solution against the tests under these limits) throws it
+        # away -- editing the title, task text, timing or class size can't, and
+        # un-validating on those made the setup page's "Save" after a passing
+        # check flip the question back to "needs a check".
+        if any(field in fields and fields[field] != row[field] for field in _VALIDATION_FIELDS):
+            fields["validated"] = 0
         store.update_question(question_id, fields)
     return store.get_question_row(question_id)
 
