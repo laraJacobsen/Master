@@ -179,6 +179,10 @@ export default function App() {
   // lecture starts, so unlike the polled state below there's no need to
   // re-fetch it).
   const [joinCode, setJoinCode] = useState<string | null>(null);
+  // Whether "Next task" would start anything -- polled, since a question added
+  // on setup mid-lecture brings it back. null = not known yet, so the button
+  // shows as usual until the first answer arrives.
+  const [hasNextTask, setHasNextTask] = useState<boolean | null>(null);
 
   // Powers the "Time remaining" banner and gates the Next task/Finish
   // lecture controls -- see api_lecture_next/finish in backend/main.py.
@@ -293,12 +297,18 @@ export default function App() {
         .catch(() => {
           // Leave the generic title in place.
         });
-      fetchActiveLecture()
-        .then((a) => setJoinCode(a.lecture?.join_code ?? null))
-        .catch(() => {
-          // Not critical -- the task-control card just omits the code.
-        });
     }
+    const pollActiveLecture = () => {
+      if (!QUESTION_ID) return;
+      fetchActiveLecture()
+        .then((a) => {
+          setJoinCode(a.lecture?.join_code ?? null);
+          setHasNextTask(a.has_next_task ?? null);
+        })
+        .catch(() => {
+          // Not critical -- the card omits the code and keeps "Next task".
+        });
+    };
 
     const poll = () => {
       fetchSubmissions(QUESTION_ID)
@@ -350,17 +360,20 @@ export default function App() {
     pollProgress();
     pollQuestion();
     pollActivity();
+    pollActiveLecture();
     const t1 = window.setInterval(poll, POLL_MS);
     const t2 = window.setInterval(pollClusters, POLL_MS);
     const t3 = window.setInterval(pollProgress, POLL_MS);
     const t4 = window.setInterval(pollQuestion, POLL_MS);
     const t5 = window.setInterval(pollActivity, POLL_MS);
+    const t6 = window.setInterval(pollActiveLecture, POLL_MS);
     return () => {
       window.clearInterval(t1);
       window.clearInterval(t2);
       window.clearInterval(t3);
       window.clearInterval(t4);
       window.clearInterval(t5);
+      window.clearInterval(t6);
     };
   }, []);
 
@@ -395,7 +408,8 @@ export default function App() {
       if (res.started) {
         window.location.href = `lecturer.html?question_id=${encodeURIComponent(res.started.id)}`;
       } else {
-        setAdvanceMessage("No more tasks left to start. Use \"End lecture...\" below to finish.");
+        // Someone started/removed the last draft since the last poll.
+        setHasNextTask(false);
         setAdvancing(false);
       }
     } catch (e) {
@@ -547,13 +561,19 @@ export default function App() {
     return `${submitted}/${expected} submitted`;
   }
 
+  const lastTask = hasNextTask === false;
+
   return (
     <>
       <NavBar />
       <ConfirmDialog
         open={confirmFinishOpen}
         title="End the whole lecture?"
-        message="Every student is sent to the end-of-lecture screen and can't submit anything more. Tasks you haven't started yet won't run. This can't be undone."
+        message={
+          "Every student is sent to the end-of-lecture screen and can't submit anything more." +
+          (lastTask ? "" : " Tasks you haven't started yet won't run.") +
+          " This can't be undone."
+        }
         confirmLabel="End lecture"
         cancelLabel="Keep going"
         focusCancel
@@ -656,31 +676,48 @@ export default function App() {
                         End task now
                       </button>
                     )}
-                    <button
-                      className={secondsRemaining === 0 ? undefined : "secondary"}
-                      onClick={handleNextTask}
-                      disabled={advancing}
-                    >
-                      Next task
-                    </button>
+                    {lastTask ? (
+                      <button
+                        className={secondsRemaining === 0 ? undefined : "secondary"}
+                        onClick={() => setConfirmFinishOpen(true)}
+                        disabled={advancing}
+                      >
+                        End lecture
+                      </button>
+                    ) : (
+                      <button
+                        className={secondsRemaining === 0 ? undefined : "secondary"}
+                        onClick={handleNextTask}
+                        disabled={advancing}
+                      >
+                        Next task
+                      </button>
+                    )}
                   </div>
                 </div>
                 {secondsRemaining === 0 && (
                   <div className="advance-message">
                     Students are on their waiting screen. Use "Show to students" on an issue below to go
-                    over it with them, then "Next task" when you're ready.
+                    over it with them, then {lastTask ? '"End lecture"' : '"Next task"'} when you're ready.
                   </div>
                 )}
+                {lastTask && secondsRemaining !== 0 && (
+                  <div className="advance-message">This is the last task.</div>
+                )}
                 {advanceMessage && <div className="advance-message">{advanceMessage}</div>}
-                <div className="end-lecture-row">
-                  <button
-                    className="end-lecture-link"
-                    onClick={() => setConfirmFinishOpen(true)}
-                    disabled={advancing}
-                  >
-                    End lecture...
-                  </button>
-                </div>
+                {/* Ending early, with tasks still to go -- once this is the last
+                    task, the main button above already does it. */}
+                {!lastTask && (
+                  <div className="end-lecture-row">
+                    <button
+                      className="end-lecture-link"
+                      onClick={() => setConfirmFinishOpen(true)}
+                      disabled={advancing}
+                    >
+                      End lecture early...
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>

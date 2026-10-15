@@ -1,8 +1,8 @@
-/* Lecturer-side look (home, setup, live dashboard/summary, history), loaded
-   after base.css by those pages only -- the student page never imports it, so
-   what students see is unchanged. Light and calm: white top bar, page titles on
-   the page background instead of navy blocks, Inter, more whitespace, navy kept
-   as the one accent colour. */
+/* App-wide look, loaded after base.css by every page -- lecturer pages
+   (home, setup, live dashboard/summary, history) and, so both sides read as
+   one product, the student page too. Light and calm: white top bar, page
+   titles on the page background instead of navy blocks, Inter, more
+   whitespace, navy kept as the one accent colour. */
 
 :root {
   --navy: #1f2a6b;

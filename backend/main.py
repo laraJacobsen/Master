@@ -323,12 +323,18 @@ def api_lecturer_active_lecture():
     live lecture", and -- via live_question_id -- whether resuming should
     land on the live task dashboard or back in task setup (a lecture can be
     active with no question currently live, e.g. right after creation or
-    between "Next task" clicks with no drafts left)."""
+    between "Next task" clicks with no drafts left). has_next_task is whether
+    "Next task" would start anything (see api_lecturer_lecture_next) -- the
+    live dashboard swaps that button for "End lecture" once it wouldn't."""
     lecture = store.get_active_lecture()
     if not lecture:
         return {"lecture": None, "live_question_id": None}
     live_question = store.live_question_row()
-    return {"lecture": lecture, "live_question_id": live_question["id"] if live_question else None}
+    return {
+        "lecture": lecture,
+        "live_question_id": live_question["id"] if live_question else None,
+        "has_next_task": store.next_draft_question() is not None,
+    }
 
 
 @app.get("/api/lecturer/lectures/review")

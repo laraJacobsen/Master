@@ -674,6 +674,7 @@ def _run_lecture_dashboard_checks(client):
     assert r.status_code == 200, r.text
     active = r.json()
     assert active["lecture"] is not None, active
+    assert isinstance(active["has_next_task"], bool), active
     seeded_lecture_id = active["lecture"]["id"]
     assert active["live_question_id"] is not None, active
     print("GET /api/lecturer/lectures/active     OK ->", active)

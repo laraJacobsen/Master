@@ -483,17 +483,16 @@ export default function App() {
 
   const verdictClass = (v: Verdict) => "verdict-badge verdict-" + v;
   const verdictLabel = (v: Verdict) => VERDICT_LABELS[v] || v;
+  const joinedName = joined ? name.trim() : "";
 
   if (phase === "join") {
     return (
       <>
-        <header>
-          <h1>Interactive Lecture</h1>
-          <p>Enter the code your lecturer shared to join.</p>
-        </header>
-        <main className="waiting-main">
-          <div className="card accent-navy waiting-card">
-            <h2>Enter the lecture</h2>
+        <StudentBar />
+        <main className="narrow-main">
+          <div className="card join-card fade-in-up">
+            <h1>Join a lecture</h1>
+            <p className="join-sub">Enter your name and the code your lecturer shared.</p>
             {joinNotice && <p className="join-notice">{joinNotice}</p>}
             <label htmlFor="join-name">Your name</label>
             <input
@@ -511,22 +510,19 @@ export default function App() {
             <input
               type="text"
               id="join-code"
-              placeholder="e.g. 482913"
+              placeholder="482913"
               inputMode="numeric"
+              autoComplete="off"
               value={joinCodeInput}
               onChange={(e) => setJoinCodeInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleJoin();
               }}
             />
-            <button onClick={handleJoin} disabled={joining}>
+            <button className="block" onClick={handleJoin} disabled={joining}>
               {joining ? "Joining..." : "Join"}
             </button>
-            {joinError && (
-              <div id="error-box" style={{ display: "block" }}>
-                {joinError}
-              </div>
-            )}
+            {joinError && <div className="error-box">{joinError}</div>}
           </div>
         </main>
       </>
@@ -536,11 +532,9 @@ export default function App() {
   if (phase === "loading") {
     return (
       <>
-        <header>
-          <h1>Interactive Lecture</h1>
-        </header>
-        <main>
-          <div className="card">Loading...</div>
+        <StudentBar name={joinedName} />
+        <main className="narrow-main">
+          <div className="card muted">Loading...</div>
         </main>
       </>
     );
@@ -550,17 +544,17 @@ export default function App() {
     const correctCount = recap ? recap.results.filter((r) => r.verdict === "correct").length : 0;
     return (
       <>
-        <header>
-          <h1>Interactive Lecture</h1>
-        </header>
-        <main className="waiting-main">
-          <div className="card accent-navy waiting-card">
+        <StudentBar name={joinedName} />
+        <main className="narrow-main">
+          <div className="card waiting-card fade-in-up">
             <h2>That's the lecture. Thanks for working through it.</h2>
             <p className="waiting-message">Nothing else needed from you here. It's safe to close this tab.</p>
             {/* The join screen is the student's "home" -- this tab's join was
                 already forgotten when the lecture ended (see applyStatus), so a
                 fresh load lands there, ready for the next lecture's code. */}
-            <button onClick={() => (window.location.href = "student.html")}>Back to home</button>
+            <button className="secondary" onClick={() => (window.location.href = "student.html")}>
+              Back to home
+            </button>
           </div>
           {recap && (
             <div className="card" id="recap-card">
@@ -614,38 +608,28 @@ export default function App() {
 
     return (
       <>
-        <header>
-          <h1>Interactive Lecture</h1>
-        </header>
-        <main className="waiting-main">
-          <div className="card accent-navy waiting-card">
+        <StudentBar name={joinedName} />
+        <main className="narrow-main">
+          <div className="card waiting-card fade-in-up">
             <h2>{title}</h2>
             <p className="waiting-message">{message}</p>
             {result && !submitting && (
               <div className="waiting-result">
                 <span className={verdictClass(result.verdict)}>{verdictLabel(result.verdict)}</span>
-                <span className="waiting-score">
+                <span className="score-text">
                   {result.tests_passed}/{result.tests_total} tests passed
                 </span>
               </div>
             )}
-            {errorMessage && !submitting && (
-              <div id="error-box" style={{ display: "block" }}>
-                {errorMessage}
-              </div>
-            )}
-            <div className="pulse-indicator waiting-pulse">
-              {submitting ? (
-                <span className="spinner waiting-spinner" />
-              ) : (
-                <span className="pulse-dot" />
-              )}
-              {submitting ? statusText || "Grading..." : "Waiting for your lecturer..."}
+            {errorMessage && !submitting && <div className="error-box">{errorMessage}</div>}
+            <div className="status-line">
+              {submitting ? <span className="spinner" /> : <span className="pulse-dot" />}
+              {submitting ? statusText || "Grading..." : "Waiting for your lecturer"}
             </div>
           </div>
 
           {shownExamples.length > 0 && (
-            <div className="card accent-navy" id="shown-examples-card">
+            <div className="card fade-in-up" id="shown-examples-card">
               <h2>Let's look at this together</h2>
               <p className="shown-examples-note">
                 {shownExamples.length > 1
@@ -655,30 +639,35 @@ export default function App() {
               {shownExamples.map((ex, i) => (
                 <div className="shown-example" key={i}>
                   {shownExamples.length > 1 && <div className="shown-example-label">Example {i + 1}</div>}
-                  <pre className="shown-example-code">{ex.source_code}</pre>
+                  <pre className="code-block">{ex.source_code}</pre>
                   {ex.failing_test && (
-                    <div className="shown-example-test">
-                      <div>
-                        <strong>Input:</strong> <code>{ex.failing_test.stdin.trimEnd()}</code>
-                      </div>
-                      <div>
-                        <strong>Expected:</strong> <code>{ex.failing_test.expected_stdout.trimEnd()}</code>
-                      </div>
-                      <div>
-                        <strong>Got:</strong> <code>{ex.failing_test.stdout.trim() || "(nothing)"}</code>
-                      </div>
+                    <dl className="io-table">
+                      <dt>Input</dt>
+                      <dd>
+                        <code>{ex.failing_test.stdin.trimEnd()}</code>
+                      </dd>
+                      <dt>Expected</dt>
+                      <dd>
+                        <code>{ex.failing_test.expected_stdout.trimEnd()}</code>
+                      </dd>
+                      <dt>Got</dt>
+                      <dd>
+                        <code>{ex.failing_test.stdout.trim() || "(nothing)"}</code>
+                      </dd>
                       {ex.failing_test.stderr && (
-                        <div>
-                          <strong>Error:</strong> <code>{ex.failing_test.stderr.trim().split("\n").pop()}</code>
-                        </div>
+                        <>
+                          <dt>Error</dt>
+                          <dd>
+                            <code>{ex.failing_test.stderr.trim().split("\n").pop()}</code>
+                          </dd>
+                        </>
                       )}
-                    </div>
+                    </dl>
                   )}
                 </div>
               ))}
             </div>
           )}
-
         </main>
       </>
     );
@@ -686,139 +675,151 @@ export default function App() {
 
   return (
     <>
-      <header>
-        <h1>Interactive Lecture</h1>
-        <p>Practice problems with instant feedback that gets more specific the more you try.</p>
-      </header>
-      <main>
+      <StudentBar name={joinedName || name} />
+      <main className="task-main">
         <div className="col-left">
-          <div className="card accent-navy">
-            <div className="timer-label">Joined as</div>
-            <div id="student-name">{name}</div>
-
-            <div id="timer-box" style={{ display: secondsRemaining != null ? "block" : "none" }}>
-              <div className="timer-label">Time remaining</div>
-              <div className={"timer-value" + (secondsRemaining === 0 ? " time-up" : "")}>
-                {secondsRemaining != null ? formatMMSS(secondsRemaining) : ""}
-              </div>
-              <div id="timer-bar-track">
-                <div
-                  id="timer-bar-fill"
-                  style={{
-                    width:
-                      durationSeconds && secondsRemaining != null
+          <div className="card">
+            {secondsRemaining != null && (
+              <div id="timer-box">
+                <div className="timer-row">
+                  <span className="timer-label">Time left</span>
+                  <span className={"timer-value" + (secondsRemaining === 0 ? " time-up" : "")}>
+                    {formatMMSS(secondsRemaining)}
+                  </span>
+                </div>
+                <div id="timer-bar-track">
+                  <div
+                    id="timer-bar-fill"
+                    style={{
+                      width: durationSeconds
                         ? `${Math.min(100, Math.max(0, (secondsRemaining / durationSeconds) * 100))}%`
                         : "0%",
-                  }}
-                />
+                    }}
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
-            <label>Question</label>
-            <div id="prompt-text">{promptText}</div>
-            <div id="example-box" style={{ display: example ? "block" : "none" }}>
-              {example && (
-                <>
-                  <div style={{ fontWeight: "bold", marginBottom: "0.3rem" }}>Example</div>
-                  <code>{`Input:  ${example.stdin.trimEnd()}\nOutput: ${example.expected_stdout}`}</code>
-                </>
-              )}
-            </div>
+            <h2>Task</h2>
+            <p id="prompt-text">{promptText}</p>
+            {example && (
+              <div className="example-block">
+                <div className="example-label">Example</div>
+                <dl className="code-block io-table">
+                  <dt>Input</dt>
+                  <dd>
+                    <code>{example.stdin.trimEnd()}</code>
+                  </dd>
+                  <dt>Output</dt>
+                  <dd>
+                    <code>{example.expected_stdout.trimEnd()}</code>
+                  </dd>
+                </dl>
+              </div>
+            )}
           </div>
 
-          <div className="card" id="history-card" style={{ display: history ? "block" : "none" }}>
-            <h2>Your attempts on this question</h2>
-            <div id="history-trail">
-              {(history ?? []).map((row) => (
-                <div
-                  key={row.id}
-                  className={"history-dot " + (row.verdict || "incorrect")}
-                  title={`Attempt ${row.attempt_number}: ${row.verdict || "unknown"}`}
-                >
-                  {row.attempt_number}
-                </div>
-              ))}
-            </div>
-            <div id="history-summary">
-              {history &&
-                (() => {
+          {history && (
+            <div className="card" id="history-card">
+              <h2>Your attempts</h2>
+              <div id="history-trail">
+                {history.map((row) => (
+                  <div
+                    key={row.id}
+                    className={"history-dot " + (row.verdict || "incorrect")}
+                    title={`Attempt ${row.attempt_number}: ${row.verdict || "unknown"}`}
+                  >
+                    {row.attempt_number}
+                  </div>
+                ))}
+              </div>
+              <div id="history-summary">
+                {(() => {
                   const passed = history.filter((r) => r.verdict === "correct").length;
                   return (
                     `${history.length} attempt${history.length === 1 ? "" : "s"} so far` +
                     (passed ? `, ${passed} correct` : "")
                   );
                 })()}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="col-right">
           {nudge && (
             <div className="card nudge-card" role="status">
               <p>{nudge}</p>
-              <button className="nudge-dismiss" onClick={() => setNudge(null)}>
+              <button className="secondary" onClick={() => setNudge(null)}>
                 Got it
               </button>
             </div>
           )}
           <div className="card">
-            <label>Your code (Python)</label>
+            <div className="card-head">
+              <h2>Your code</h2>
+              <span className="lang-tag">{language.charAt(0).toUpperCase() + language.slice(1)}</span>
+            </div>
             <Suspense fallback={<div className="code-editor code-editor-loading">Loading editor...</div>}>
               <CodeEditor key={questionId} language={language} onChange={handleEditorChange} />
             </Suspense>
-            <button id="submit-btn" disabled={submitting} onClick={handleSubmit}>
-              <span
-                id="submit-spinner"
-                className="spinner"
-                style={{ display: submitting ? "inline-block" : "none" }}
-              />
-              <span id="submit-btn-text">{submitting ? "Running..." : "Submit"}</span>
-            </button>
-            <div id="submit-status" style={{ display: submitting ? "block" : "none" }}>
-              {statusText}
+            <div className="editor-actions">
+              {submitting && statusText && <span id="submit-status">{statusText}</span>}
+              <button id="submit-btn" disabled={submitting} onClick={handleSubmit}>
+                {submitting && <span className="spinner" />}
+                {submitting ? "Running..." : "Submit"}
+              </button>
             </div>
-            <div id="error-box" style={{ display: errorMessage ? "block" : "none" }}>
-              {errorMessage}
-            </div>
+            {errorMessage && <div className="error-box">{errorMessage}</div>}
           </div>
-          <div className="card" id="result" style={{ display: result ? "block" : "none" }}>
-            {result && (
-              <>
-                <span id="verdict-badge" className={verdictClass(result.verdict)}>
-                  {verdictLabel(result.verdict)}
-                </span>
-                <span id="score-text" style={{ marginLeft: "0.6rem", color: "var(--muted)" }}>
+          {result && (
+            <div className="card fade-in-up" id="result">
+              <div className="result-head">
+                <span className={verdictClass(result.verdict)}>{verdictLabel(result.verdict)}</span>
+                <span className="score-text">
                   {result.tests_passed}/{result.tests_total} tests passed
                 </span>
-                <div id="tier-note" style={{ display: result.hint_tier ? "block" : "none" }}>
-                  {result.hint_tier ? (
-                    <>
-                      <div className="tier-label" id="tier-label">
-                        {`Hint ${result.hint_tier} of ${result.hint_ceiling}`}
-                      </div>
-                      <div id="tier-bar">
-                        {Array.from({ length: result.hint_ceiling ?? 0 }, (_, i) => i + 1).map(
-                          (i) => (
-                            <div
-                              key={i}
-                              className={"tier-seg" + (i <= (result.hint_tier ?? 0) ? " filled" : "")}
-                            />
-                          )
-                        )}
-                      </div>
-                    </>
-                  ) : null}
+              </div>
+              {result.hint_tier ? (
+                <div className="tier-note">
+                  <div className="tier-label">{`Hint ${result.hint_tier} of ${result.hint_ceiling}`}</div>
+                  <div className="tier-bar">
+                    {Array.from({ length: result.hint_ceiling ?? 0 }, (_, i) => i + 1).map((i) => (
+                      <div key={i} className={"tier-seg" + (i <= (result.hint_tier ?? 0) ? " filled" : "")} />
+                    ))}
+                  </div>
                 </div>
-                <div id="feedback-text">{result.feedback}</div>
-                <details id="traceback-box" style={{ display: result.traceback ? "block" : "none" }}>
+              ) : null}
+              <div id="feedback-text">{result.feedback}</div>
+              {result.traceback && (
+                <details id="traceback-box">
                   <summary>Your program's error output</summary>
-                  <pre id="traceback-text">{result.traceback}</pre>
+                  <pre>{result.traceback}</pre>
                 </details>
-              </>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       </main>
     </>
+  );
+}
+
+// Same top bar as the lecturer pages (shared/NavBar.tsx's look), minus the
+// links -- a student has nowhere else in the app to go. The right side shows
+// who this tab joined as once that's known.
+function StudentBar({ name }: { name?: string }) {
+  return (
+    <nav className="top-nav top-nav-student">
+      <span className="top-nav-brand">
+        <span className="top-nav-mark" aria-hidden="true">IL</span>
+        <span className="top-nav-name">Interactive Lecture</span>
+      </span>
+      {name && (
+        <span className="top-nav-who">
+          Joined as <strong>{name}</strong>
+        </span>
+      )}
+    </nav>
   );
 }

@@ -176,6 +176,8 @@ export interface LectureReview {
 export interface ActiveLectureResponse {
   lecture: LectureRow | null;
   live_question_id: string | null;
+  // Whether "Next task" would start anything -- only sent while a lecture is active.
+  has_next_task?: boolean;
 }
 
 // GET /api/lecturer/stats/totals
