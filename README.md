@@ -68,7 +68,9 @@ frontend/              React + TypeScript (Vite), one entry point per page -- sa
                         code box + submit + feedback/hint tier while a task runs, a
                         waiting screen between tasks (see "Running it" below)
   src/lecturer/         Lecturer page: live table of submissions + discussion points
-                        (polls every 3s) for one question, picked via ?question_id=
+                        (polls every 3s) for one question, picked via ?question_id=,
+                        plus a class-progress chart (ClassProgress.tsx; see
+                        feedback-research/class-progress-visualization-decision.md)
   src/shared/           TypeScript types + fetch wrappers for the API, shared by
                         all three pages
 smoke_test.py           Structural test with Judge0 + IDUN mocked out -- proves the

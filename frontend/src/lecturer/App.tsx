@@ -22,6 +22,7 @@ import {
   nextTask,
   raiseIssue,
 } from "../shared/api";
+import { ClassProgress } from "./ClassProgress";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
@@ -505,11 +506,6 @@ export default function App() {
     ...clusters.filter((c) => c.exec_verdict === "pass"),
   ];
 
-  const progressPct =
-    progress && progress.expected != null && progress.expected > 0
-      ? Math.min(100, Math.round((progress.submitted / progress.expected) * 100))
-      : 0;
-
   // `expected` is just a number the lecturer typed in at setup time (see
   // live-submission-progress-scoping-decision.md) -- there's no roster, so
   // it can be wrong in either direction. Submitted > expected is a normal
@@ -520,13 +516,6 @@ export default function App() {
     if (expected == null) return `${submitted} submitted`;
     if (submitted > expected) return `${submitted} submitted (more than the ${expected} expected)`;
     return `${submitted}/${expected} submitted`;
-  }
-
-  function notSubmittedText(notSubmitted: number | null): string {
-    if (notSubmitted == null) return "";
-    if (notSubmitted > 0) return `${notSubmitted} not yet submitted`;
-    if (notSubmitted === 0) return "Everyone has submitted.";
-    return `${-notSubmitted} more than expected`;
   }
 
   return (
@@ -670,29 +659,11 @@ export default function App() {
         {!lectureFinished && !LECTURE_ID && !LOBBY_ID && (
         <>
         <div className="card" id="progress-card" style={{ display: progress ? "block" : "none" }}>
-          <h2>Submission progress</h2>
+          <h2>Class progress</h2>
           <div id="progress-text" style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
             {progress && submittedText(progress.submitted, progress.expected)}
           </div>
-          <div
-            id="progress-bar-track"
-            style={{
-              background: "#eceef3",
-              borderRadius: "999px",
-              height: "10px",
-              marginTop: "0.6rem",
-              overflow: "hidden",
-              display: progress && progress.expected != null ? "block" : "none",
-            }}
-          >
-            <div
-              id="progress-bar-fill"
-              style={{ background: "var(--navy)", height: "100%", width: `${progressPct}%` }}
-            />
-          </div>
-          <div id="progress-not-submitted" style={{ color: "var(--muted)", fontSize: "0.85rem", marginTop: "0.4rem" }}>
-            {progress && progress.expected != null ? notSubmittedText(progress.not_submitted) : ""}
-          </div>
+          {progress && <ClassProgress subs={subRows} expected={progress.expected} />}
         </div>
         <div className="grid">
           <div className="card" id="issues-card">

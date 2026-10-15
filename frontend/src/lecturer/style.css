@@ -234,3 +234,62 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
   cursor: pointer;
 }
 .back-to-home-btn:hover { opacity: 0.9; }
+
+/* Class progress (ClassProgress.tsx). Status colours are local to this chart:
+   the pill colours above are too close (amber vs red) to tell apart at
+   square size, so these were re-stepped and checked for colour-blind
+   separation. Error also gets a hatch, so it never relies on colour alone. */
+.class-progress {
+  --cp-correct: #2e7d32;
+  --cp-partial: #c9a227;
+  --cp-incorrect: #b3453a;
+  --cp-none: #e3e5ec;
+  margin-top: 0.6rem;
+}
+.cp-bar { display: flex; gap: 2px; height: 12px; border-radius: 4px; overflow: hidden; }
+.cp-seg { flex-basis: 0; min-width: 4px; }
+.cp-correct { background: var(--cp-correct); }
+.cp-partially_correct { background: var(--cp-partial); }
+.cp-incorrect { background: var(--cp-incorrect); }
+.cp-error {
+  background: repeating-linear-gradient(135deg, var(--cp-incorrect) 0 2px, #fff 2px 4px);
+  box-shadow: inset 0 0 0 1px var(--cp-incorrect);
+}
+.cp-none { background: var(--cp-none); }
+
+.cp-legend {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  font-size: 0.85rem;
+}
+.cp-legend li { display: flex; align-items: center; gap: 0.35rem; }
+.cp-caption { color: var(--muted); font-size: 0.78rem; margin-top: 0.3rem; }
+.cp-toggle { margin-top: 0.75rem; }
+
+.cp-sq { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.cp-students { margin-top: 0.6rem; max-height: 20rem; overflow-y: auto; }
+.cp-group {
+  margin: 0.8rem 0 0.3rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.cp-rows { list-style: none; margin: 0; padding: 0; }
+.cp-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 10rem) 2.5rem 1fr;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.2rem 0;
+  font-size: 0.85rem;
+}
+@media (max-width: 600px) { .cp-row { grid-template-columns: 5.5rem 2.5rem 1fr; gap: 0.5rem; } }
+.cp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.cp-more { color: var(--muted); font-size: 0.72rem; margin-right: 0.2rem; }
+.cp-score { color: var(--muted); font-variant-numeric: tabular-nums; }
