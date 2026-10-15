@@ -2,10 +2,12 @@
 
 A thin end-to-end slice of the system from the thesis proposal: a student
 submits code, it's graded on Judge0 (the same execution engine from the
-scaling spike), a local Ollama model produces a verdict + lecturer discussion
-point, a deterministic tiered-hint taxonomy produces the student-facing
-feedback text (escalating across resubmissions), and the lecturer sees
-submissions and discussion points appear live.
+scaling spike), a deterministic tiered-hint taxonomy produces the verdict and
+the student-facing feedback text (escalating across resubmissions), and the
+lecturer sees submissions appear live, grouped into common issues with a
+discussion point per issue. Grading has no model in the loop; the only LLM
+call is IDUN (NTNU's hosted gateway) writing discussion points for groups of
+wrong-answer submissions on the lecturer side.
 
 One question ships pre-seeded (already `live`): "read space-separated
 integers from stdin, print their sum" (Python). Beyond that, a lecturer
@@ -28,8 +30,16 @@ backend/
                         disallowed-package) run before code ever reaches Judge0 --
                         line limit and package allow-list are per-question knobs
   questions.py        Question lookup, backed by store.py's `questions` table
-  ai_feedback.py       Local Ollama call -> verdict + discussion point; also calls
-                        hints.py for exec_verdict + the student-facing hint text
+  ai_feedback.py       Grading, fully deterministic (no model): verdict from the
+                        test pass/fail counts, exec_verdict/error_type + the
+                        student-facing hint text from hints.py. (Name is historical
+                        -- this used to be a local Ollama call; see its docstring.)
+  aggregation.py       Groups a question's submissions into common issues by
+                        (exec_verdict, error_type), counted per distinct student,
+                        with one discussion point per issue: a curated line for
+                        most categories, an IDUN LLM call for wrong_answer
+                        sub-clusters (code-similarity grouping). Also holds the
+                        lecturer's "Show to students" flags (in-memory only)
   hints.py             THE deterministic Judge0-result classifier (via
                         feedback-research/classify.py) plus tier-escalating hint
                         lookup (via feedback-research/feedback.py) -- one
@@ -54,12 +64,14 @@ frontend/              React + TypeScript (Vite), one entry point per page -- sa
                         files. See frontend/README.md.
   src/setup/            Lecturer question-setup/landing page: author a question,
                         set its grading config, run the validation preview, start it
-  src/student/          Student page: name, code box, submit, see feedback + hint tier
+  src/student/          Student page: join code, then whatever the lecturer has live --
+                        code box + submit + feedback/hint tier while a task runs, a
+                        waiting screen between tasks (see "Running it" below)
   src/lecturer/         Lecturer page: live table of submissions + discussion points
                         (polls every 3s) for one question, picked via ?question_id=
   src/shared/           TypeScript types + fetch wrappers for the API, shared by
                         all three pages
-smoke_test.py           Structural test with Judge0 + Ollama mocked out -- proves the
+smoke_test.py           Structural test with Judge0 + IDUN mocked out -- proves the
                           plumbing works without needing either service running, including
                           the full question-setup flow (draft -> validate -> start -> live,
                           plus per-question line_limit/package-allowlist enforcement).
@@ -74,26 +86,26 @@ requirements.txt
    found reasonable (4 was the sweet spot on the VM). Default expected URL
    is `http://localhost:2358` -- override with the `JUDGE0_BASE_URL`
    environment variable if yours is elsewhere.
-2. **Ollama running locally**, with a model pulled. Default expected model
-   is `llama3.2:3b` (`ollama pull llama3.2:3b`) -- override with
-   `OLLAMA_MODEL`. Default URL is `http://localhost:11434` -- override with
-   `OLLAMA_URL`. If Ollama isn't reachable or the model isn't pulled, the
-   backend falls back to mock verdict/discussion-point text automatically
-   (the tiered hint text still works either way -- it doesn't depend on
-   Ollama at all).
+2. **An IDUN API key** (optional) for the wrong-answer discussion points.
+   Put `IDUN_API_KEY=...` in `.idun.env` at the repo root (gitignored) and
+   load it before starting the backend (see below). IDUN needs the NTNU
+   network or VPN. Overrides: `IDUN_BASE_URL` (default
+   `https://llm.hpc.ntnu.no/v1`) and `IDUN_MODEL` (default
+   `openai/gpt-oss-120b`). Without a key, everything still works; wrong-answer
+   issues just get a generic discussion point instead of a generated one.
+   Grading and student hints never depend on IDUN.
 3. Python 3.9+.
 4. Node 18+ (to build the frontend).
 
 ## Running it
 
 ```bash
-cd prototype
+# from the repo root
 pip install -r requirements.txt
 
 cd frontend && npm install && npm run build && cd ..   # builds frontend/dist
 
-ollama pull llama3.2:3b                         # once, if not already pulled
-export OLLAMA_MODEL=llama3.2:3b                  # only if you want a different model
+set -a; . ./.idun.env; set +a                    # loads IDUN_API_KEY (skip if you have no key)
 export JUDGE0_BASE_URL=http://localhost:2358     # only if not the default
 
 uvicorn backend.main:app --reload --port 8000
@@ -108,13 +120,30 @@ Then open in a browser:
   question, set its grading config, run the validation preview against a
   reference solution, then start it. The pre-seeded `sum-ints` question is
   already live, so this step is only needed to add more questions.
-- Student page: `http://localhost:8000/student.html?question_id=sum-ints`
-  (or whatever question id you started; with no `question_id`, it falls back
-  to the first live question). First shows a Kahoot-style "enter the code"
-  screen -- the join code for the currently live lecture is shown on the
-  home page (and on the live task-control dashboard) once a lecture is
-  active; a fresh checkout's pre-seeded lecture already has one. Entering it
-  is remembered for the rest of that browser tab.
+- Student page: `http://localhost:8000/student.html`. First shows a
+  Kahoot-style "enter the code" screen -- the join code for the currently
+  live lecture is shown on the home page (and on the live task-control
+  dashboard) once a lecture is active; a fresh checkout's pre-seeded lecture
+  already has one. Entering it is remembered for the rest of that browser
+  tab. From there the page follows the lecture on its own (it polls
+  `/api/lecture/status` every 2s): no `question_id` needed, it always shows
+  the task the lecturer has live.
+
+  Whenever there's nothing to type, the student sees one centered waiting
+  screen whose text depends on what they just did:
+  - joined, no task started yet -- "You're in! Waiting for your lecturer to
+    start the first task."
+  - correct submission -- "Good job!", straight away, even with time left
+  - time's up after a wrong answer -- "Thanks for submitting", with their
+    verdict and last hint
+  - time's up with nothing submitted -- "Time's up, no code submitted"
+  - time's up mid-grading -- a spinner until the auto-submitted code is graded
+
+  A wrong answer does *not* go to the waiting screen while time remains: the
+  student stays on the editor with their hint and can resubmit, since
+  resubmitting is what escalates the hint tier. Issues the lecturer flags
+  with "Show to students" (anonymous code + failing test) appear on this
+  waiting screen once the task's time is up.
 - Lecturer page: `http://localhost:8000/lecturer.html?question_id=sum-ints`
   (the setup page's "Start"/"Live dashboard" links go here directly; with no
   `question_id` it shows submissions across every question, the old behavior)
@@ -131,53 +160,37 @@ authored through the setup page, back down to just the pre-seeded one).
 ## What's been verified
 
 `smoke_test.py` runs the full FastAPI app with Judge0's HTTP API and
-Ollama's HTTP API both mocked out (no live Judge0, no Ollama needed), and
-checks: the questions endpoint, a full submit -> grade -> feedback -> store
-round trip, the lecturer submissions list, a submission detail lookup, a
-404 on an unknown question, and that both frontend pages are served. All
-of that passes as of this build.
+IDUN's chat-completions API both mocked out (no live Judge0, no IDUN key or
+VPN needed), and checks: the questions endpoint, a full submit -> grade ->
+feedback -> store round trip, the lecturer submissions list, a submission
+detail lookup, a 404 on an unknown question, the question-setup and lecture
+flows, issue clustering (including that the IDUN call never sees student
+names or comments), and that the frontend pages are served. All of that
+passes as of this build.
 
-**Verified against a real, running Judge0 + Ollama (`llama3.2:3b`)**: 6
-real submissions through `/api/submit` (correct code, a wrong-answer bug,
-and a `NameError` resubmitted 4 times to watch the hint escalate). All 6
-came back with schema-valid, sensible `verdict`/`error_type`/
-`discussion_point` on the first try -- no retry or mock-fallback was
-triggered in this run. `error_type` was correct in every case
-(`"runtime"` for the `NameError`, `"logic"` for the wrong-answer bug), and
-`hint_tier` climbed 1 -> 2 -> 3 with different, correctly-escalating hint
-text each time, then held at tier 3/3 on the 4th resubmission rather than
-reaching the unshipped bottom-out tier. Sample size is small (one model,
-one session, no adversarial inputs) -- treat this as "worked, not flaky
-today," not a reliability guarantee; the retry-then-mock-fallback path
-exists precisely because a small local model won't always be this clean.
+The student page's join -> task -> waiting-screen flow (correct answer,
+wrong answer + retry, time's up with and without a submission, and a
+"Show to students" example) has been driven end to end in a real browser
+against live Judge0.
 
-Latency: the first call after starting the backend took ~38s (cold model
-load into RAM); subsequent calls to the same already-loaded model ranged
-~9-33s. That's noticeably slower than Claude's forced-tool-use call was --
-worth keeping in mind for how a live class period actually feels, not just
-whether the output is correct.
-
-Memory: this machine has only 7.6GB RAM and no GPU. With Judge0 (in
-Docker), the backend, and Ollama all running together, available memory
-dropped from ~2.0GB to ~1.2-1.3GB once the 3B model was loaded, and swap
-was already sitting at ~7.2-7.5GB/8GB used throughout (largely from other
-running applications, not this stack alone) -- close enough to the ceiling
-that a heavier concurrent load (several students submitting at once, or
-just more background apps open) could start swapping/thrashing. Not
-observed to fail in this test, but the margin is thin enough to watch
-before relying on this for an actual class.
+Earlier versions graded with a local Ollama model (`llama3.2:3b`). That was
+removed: it was unreliable at explaining causes, and slow (~9-38s per call)
+and memory-hungry on this 7.6GB, no-GPU laptop. See
+`feedback-research/pedagogical-feedback-design-decision.md` for the history.
 
 **Not yet verified**: the lecturer page's live-polling feel with more than
 one student submitting at once, and behavior under concurrent submissions
-(Judge0 + Ollama both serialize/queue under load in ways a single-student
-manual test doesn't exercise).
+(Judge0 serializes/queues under load in ways a single-student manual test
+doesn't exercise). The IDUN-generated wrong-answer discussion points haven't
+been through the human spot-check pass yet (see `backend/aggregation.py`'s
+module docstring).
 
 ## Known simplifications (MVP, not final)
 
 - Question authoring now goes through `frontend/setup.html`, but the student
-  page has no question *picker* -- it takes `?question_id=` (or falls back to
-  the first live question), so more than one live question at a time isn't
-  really usable from the student side yet.
+  page has no question *picker* -- it always shows the single task the
+  lecturer has live, so more than one live question at a time isn't
+  supported from the student side.
 - The live "X/N submitted" counter's denominator is just a number the
   lecturer typed in at setup time (see
   `feedback-research/live-submission-progress-scoping-decision.md`), so more
@@ -198,13 +211,14 @@ manual test doesn't exercise).
 - Lecturer page polls every 3 seconds rather than pushing updates (no
   websockets yet) -- fine for a lecture-sized class, revisit if this needs
   to feel more instant.
-- Two verdict fields per submission, deliberately not merged: `verdict`/
-  `error_type` are the local model's own judgment (feeds lecturer discussion
-  points), while `exec_verdict`/`rejection_reason` are a deterministic
-  classification of the raw Judge0 result (lecture-wide aggregation, e.g.
-  "how many students hit a timeout") -- computed by `backend/hints.py`, the
-  same classifier that drives the hint tier shown to the student, so there's
-  one deterministic classification per submission, not two. (There used to
+- Two verdict fields per submission: `verdict` is a coarse bucket for the
+  student-facing badge (correct/partially_correct/incorrect/error, a plain
+  threshold on tests passed), while `exec_verdict`/`error_type`/
+  `rejection_reason` are the detailed classification of the raw Judge0
+  result (lecture-wide aggregation, e.g. "how many students hit a
+  timeout") -- computed by `backend/hints.py`, the same classifier that
+  drives the hint tier shown to the student, so there's one deterministic
+  classification per submission, not two. (There used to
   be a second, coarser deterministic classifier -- `backend/exec_verdict.py`
   -- duplicating this job with less detail; retired once the hint-taxonomy
   classifier could do both jobs.) A rejected submission (empty/whitespace/
@@ -215,15 +229,12 @@ manual test doesn't exercise).
   counting existing rows -- fine for a single student's sequential
   submissions, not race-safe against truly concurrent double-submits from
   the same student.
-- Local Ollama call per submission for verdict + discussion point only;
-  student-facing feedback text no longer comes from the model at all --
-  it's the deterministic, tier-escalating hint from `feedback-research/`.
-  A JSON-mode call to a small local model doesn't have Claude's
-  forced-tool-use guarantee, so it's validated defensively and retried
-  once before falling back to mock text -- see `backend/ai_feedback.py`.
+- Discussion points (and "Show to students" flags) are cached in memory,
+  so restarting the backend regenerates them and forgets the flags.
 - No rate limiting -- if many students submit in the same second, you'll
-  send that many concurrent Judge0 + Ollama calls. Worth watching if this
-  becomes a real concern, informed by what you already know about Judge0's
-  worker-count ceiling from the scaling spike -- and Ollama itself may
-  serialize concurrent requests on constrained hardware.
+  send that many concurrent Judge0 calls. Worth watching if this becomes a
+  real concern, informed by what you already know about Judge0's
+  worker-count ceiling from the scaling spike. IDUN calls are capped at 8
+  in parallel and only happen when the lecturer dashboard asks for issues,
+  not per submission.
 # Master
