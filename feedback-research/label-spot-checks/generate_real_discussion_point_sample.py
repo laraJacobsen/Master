@@ -126,8 +126,12 @@ import sys
 import time
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# feedback-research/ is split into folders (corpora/, clustering-eval/, ...); the
+# scripts import each other across them, so all research folders go on the path.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "corpora"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "clustering-eval"))
 sys.path.insert(0, str(REPO_ROOT))
 
 # Must happen before `backend.aggregation` is imported -- it reads IDUN_API_KEY into

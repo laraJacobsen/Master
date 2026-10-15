@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ActivityStatus, StudentActivity, SubmissionRow, Verdict } from "../shared/types";
 
 // Class progress visualization for the live dashboard (see
-// feedback-research/class-progress-visualization-decision.md). Two layers:
+// docs/decisions/class-progress-visualization-decision.md). Two layers:
 //   1. Always visible: one stacked bar of every student's best result so far
 //      (plus the not-yet-submitted remainder when a class size is set), and
 //      while the task runs, how many unsolved students are active/idle/away

@@ -48,7 +48,11 @@ import random
 import sys
 from pathlib import Path
 
+# feedback-research/ is split into folders (corpora/, clustering-eval/, ...); the
+# scripts import each other across them, so all research folders go on the path.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "corpora"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "clustering-eval"))
 
 import corpus  # noqa: E402  (sys.path setup above -- feedback-research/ isn't a package, hyphen in the dir name)
 

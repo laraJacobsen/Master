@@ -31,8 +31,12 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+# feedback-research/ is split into folders (corpora/, clustering-eval/, ...); the
+# scripts import each other across them, so all research folders go on the path.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "corpora"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "clustering-eval"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.feature_extraction.text import TfidfVectorizer

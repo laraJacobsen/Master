@@ -17,7 +17,7 @@ lecturer discussion point per submission. Both jobs are gone now:
   generated deterministically, once per cluster of students who hit the same issue --
   see aggregation.py and feedback-research/feedback.py's discussion_point_for().
 
-See feedback-research/pedagogical-feedback-design-decision.md for the history (the
+See feedback-research/decisions/pedagogical-feedback-design-decision.md for the history (the
 latency/memory cost of running Ollama locally was the other reason it was cut, on top
 of the reliability problem above).
 """

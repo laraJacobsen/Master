@@ -48,7 +48,7 @@ pedagogical-feedback-design-decision.md's own methodology, real sub-cluster outp
 this pipeline is the trigger for the human/expert spot-check pass already committed to
 there -- this should not go near a live lecture before that happens.
 
-2026-09-16 finding, first real-corpus run (feedback-research/corpus.py's and
+2026-09-16 finding, first real-corpus run (feedback-research/corpora/corpus.py's and
 corpus_count_vowels.py's actual wrong_answer cases): WRONG_ANSWER_SUBCLUSTER_DISTANCE=0.4
 is too permissive for realistic short exercise solutions and merged every distinct bug
 into one group on both exercises tested. Measured pairwise cosine distances between the
@@ -112,8 +112,8 @@ None of this replaces the human/expert checkpoint -- it removes two concrete, re
 failure modes, not the general risk the checkpoint exists to catch.
 
 2026-09-21, signal swap based on labeled ground truth (see feedback-research/
-subcluster_ground_truth_sample.csv -- 29 real wrong_answer submissions across 3
-exercises, hand-labeled into bug groups -- and feedback-research/run_tfidf_baseline.py/
+clustering-eval/subcluster_ground_truth_sample.csv -- 29 real wrong_answer submissions across 3
+exercises, hand-labeled into bug groups -- and feedback-research/clustering-eval/run_tfidf_baseline.py/
 run_diff_baseline.py, which score any clustering against it with adjusted Rand index +
 pairwise precision/recall). Per the module docstring above, WRONG_ANSWER_SUBCLUSTER_DISTANCE
 was always a first guess, not tuned against labeled data -- this is the first real score:
@@ -137,11 +137,11 @@ Rescored against the same ground truth at the same threshold (0.05): mean ARI 0.
 is_palindrome 0.000 -> 1.000, with no regression on the other two exercises. This was a
 one-variable change -- WRONG_ANSWER_SUBCLUSTER_DISTANCE, linkage, and token_pattern are all
 unchanged from the 2026-09-16 retune, only _cluster_by_similarity()'s input representation
-differs. See feedback-research/run_diff_baseline.py for the full threshold-sweep results this
+differs. See feedback-research/clustering-eval/run_diff_baseline.py for the full threshold-sweep results this
 was chosen from (diff-against-reference stays well above the TF-IDF baseline across
 0.02-0.30, not just at 0.05).
 
-This does NOT close every gap: feedback-research/double-it-shape-vs-behavior-limitation-2026-09-21.md
+This does NOT close every gap: feedback-research/decisions/double-it-shape-vs-behavior-limitation-2026-09-21.md
 documents a case (three structurally different one-line edits that all diverge from the
 reference *differently* but happen to print identical output) that no code-similarity or
 code-diff signal can group correctly -- doing so would require an output/behavior-based
@@ -154,7 +154,7 @@ that step's own known issues (see the fabrication/over-generalization findings a
 tracked separately and weren't touched here.
 
 2026-10-13, Label call shown real code instead of canonicalized code. Round 3 of the real
-discussion-point spot-check (feedback-research/real_discussion_point_sample_2026-09-21_round3.csv)
+discussion-point spot-check (feedback-research/label-spot-checks/real_discussion_point_sample_2026-09-21_round3.csv)
 rated all 16 rows lecturer-facing, but 9 only partially grounded -- every one of them because
 _canonicalize() renames builtins and methods along with the students' own names, so the model
 could only describe a missing .replace(" ", "") as "the subsequent method call that takes the
@@ -164,7 +164,7 @@ canonicalized code, which is where name-independence actually matters. The VARn/
 backstop added in round 3 was removed along with the placeholders it guarded against.
 
 2026-10-15, output-signature level added in front of the diff signal. Closes the case in
-feedback-research/double-it-shape-vs-behavior-limitation-2026-09-21.md: DI-01/02/05/07 print the
+feedback-research/decisions/double-it-shape-vs-behavior-limitation-2026-09-21.md: DI-01/02/05/07 print the
 same wrong output (33, 1010) through three different code edits, so the diff signal kept them in
 3 groups. Every graded submission already stores its per-test stdout (raw_test_results), so a
 behavioral signal costs no extra execution.
@@ -180,7 +180,7 @@ behavioral signal costs no extra execution.
   failed the same way (_shared_failing_case()), with a prompt paragraph asking for the shared
   wrong behavior when snippets differ in shape. See "Label call: round 5" below.
 
-Measured with feedback-research/run_signature_baseline.py against the same 29-submission ground
+Measured with feedback-research/clustering-eval/run_signature_baseline.py against the same 29-submission ground
 truth and subcluster_eval.py, at the production threshold (0.05), each submission run against its
 own question's real stored test cases:
 
@@ -206,7 +206,7 @@ Not solved, and worth saying plainly:
 - Output that isn't deterministic (random numbers, set/dict ordering, timestamps) splits
   identical bugs into separate signatures.
 
-Label call: round 5 (feedback-research/real_discussion_point_sample_2026-09-21_round5.csv), same
+Label call: round 5 (feedback-research/label-spot-checks/real_discussion_point_sample_2026-09-21_round5.csv), same
 data as round 4 plus the shared failing test. Pass rule fixed before rating: no row less grounded
 or actionable than its round-4 counterpart, the double-it prints-twice row describes the shared
 behavior, no fabrications. Result: sum-ints and double-it all y/y/y, including the two new groups
@@ -548,7 +548,7 @@ def _shared_failing_case(group: list):
     """The first test case every row in `group` failed with the same (normalized)
     output, as {"stdin", "expected_stdout", "stdout"} -- or None if there isn't one.
     Not used by the Label call since the 2026-10-15 revert (see the module
-    docstring); kept for feedback-research/generate_real_discussion_point_sample.py's
+    docstring); kept for feedback-research/label-spot-checks/generate_real_discussion_point_sample.py's
     round-5 sample and a planned control run. Always found for a final signature group (its rows printed
     the same thing on every test); not guaranteed for a diff-clustered group, whose
     rows are alike in code, not necessarily in output."""

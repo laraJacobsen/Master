@@ -71,8 +71,8 @@ BUG_B_CODE = "nums = input().split()\nprint(len(nums))  # bug_b_count_instead_of
 # its own single-student sub-cluster.
 BUG_C_CODE = "nums = input().split()\nprint(sum(int(n) for n in nums) - 1)  # bug_c_subtract_one"
 # The same wrong behavior (sum + 10) written two different ways -- the double-it
-# shape-vs-behavior case (feedback-research/double-it-shape-vs-behavior-limitation-
-# 2026-09-21.md) in miniature. Their diffs against the reference differ; their outputs
+# shape-vs-behavior case (feedback-research/decisions/double-it-shape-vs-behavior-
+# limitation-2026-09-21.md) in miniature. Their diffs against the reference differ; their outputs
 # don't, so output-signature grouping must put them in ONE sub-cluster.
 BUG_D_INLINE_CODE = "nums = input().split()\nprint(sum(int(n) for n in nums) + 10)  # bug_d_plus_ten"
 BUG_D_LOOP_CODE = (

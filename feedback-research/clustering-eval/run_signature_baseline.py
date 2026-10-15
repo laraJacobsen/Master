@@ -56,8 +56,12 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+# feedback-research/ is split into folders (corpora/, clustering-eval/, ...); the
+# scripts import each other across them, so all research folders go on the path.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "corpora"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "clustering-eval"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import corpus  # noqa: E402
 from build_subcluster_ground_truth_io_table import EXERCISE_IO_CONFIG, run_code  # noqa: E402

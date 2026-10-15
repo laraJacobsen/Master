@@ -3,7 +3,7 @@ backend/aggregation.py (_cluster_by_similarity/_diff_tokens), run before calling
 switch done.
 
 The 29-submission ground truth sample only covers 3 exercises (sum-ints, double-it,
-is_palindrome), and feedback-research/corpus.py's own wrong_answer cases (3, all
+is_palindrome), and feedback-research/corpora/corpus.py's own wrong_answer cases (3, all
 already in that sample as PAL-01/02/03) don't add any new coverage on their own. This
 script instead runs the new production clustering function against the wrong_answer
 cases in ALL THREE corpus_*.py files -- is_palindrome (corpus.py), count_vowels
@@ -28,8 +28,12 @@ same as run_diff_baseline.py -- not a re-implementation.
 import sys
 from pathlib import Path
 
+# feedback-research/ is split into folders (corpora/, clustering-eval/, ...); the
+# scripts import each other across them, so all research folders go on the path.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "corpora"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "clustering-eval"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import corpus  # noqa: E402
 import corpus_count_vowels  # noqa: E402

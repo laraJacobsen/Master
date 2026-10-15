@@ -13,7 +13,7 @@ One question ships pre-seeded (already `live`): "read space-separated
 integers from stdin, print their sum" (Python). Beyond that, a lecturer
 authors questions through the setup/landing page (`frontend/setup.html`)
 rather than editing `backend/questions.py` directly -- see
-`feedback-research/landing-page-scoping-decision.md` for the scoping
+`docs/decisions/landing-page-scoping-decision.md` for the scoping
 decision behind that flow (prompt/rubric/language, per-question Judge0
 resource limits, a validation preview against a reference solution before
 a question can go live, and the "start" action that flips it live).
@@ -57,7 +57,17 @@ backend/
                         /api/lecturer/questions* (setup: create/list/detail/update/
                         validate/start)
 feedback-research/    Tiered-feedback taxonomy + eval corpus, imported from the
-                        classification-test work (see its own docs in this folder)
+                        classification-test work
+  classify.py,          Loaded by backend/hints.py at runtime -- the only files here
+  feedback.py           the app needs (with hint-taxonomy-draft.md, their design doc)
+  corpora/              Hand-written bug corpora per exercise (is_palindrome, ...)
+  clustering-eval/      wrong_answer sub-clustering ground truth + scoring scripts
+                        (run_*_baseline.py, subcluster_eval.py)
+  label-spot-checks/    Discussion-point Label rounds 1-5 (generated samples + ratings,
+                        latency) and the generator script
+  decisions/            Feedback/clustering design decisions and known limitations
+docs/decisions/        App feature scoping decisions (join code, landing page, live
+                        progress, class-progress visualization)
 frontend/              React + TypeScript (Vite), one entry point per page -- same
                         URLs/behavior as before, just a different tech stack. Built
                         to frontend/dist/, which backend/main.py serves as static
@@ -69,11 +79,11 @@ frontend/              React + TypeScript (Vite), one entry point per page -- sa
                         waiting screen between tasks (see "Running it" below).
                         The code box is Monaco (the VS Code editor, CodeEditor.tsx), which also
                         drives the activity heartbeat + idle nudge (see
-                        feedback-research/class-progress-visualization-decision.md)
+                        docs/decisions/class-progress-visualization-decision.md)
   src/lecturer/         Lecturer page: live table of submissions + discussion points
                         (polls every 3s) for one question, picked via ?question_id=,
                         plus a class-progress chart (ClassProgress.tsx; see
-                        feedback-research/class-progress-visualization-decision.md)
+                        docs/decisions/class-progress-visualization-decision.md)
   src/shared/           TypeScript types + fetch wrappers for the API, shared by
                         all three pages
 smoke_test.py           Structural test with Judge0 + IDUN mocked out -- proves the
@@ -200,7 +210,7 @@ against live Judge0.
 Earlier versions graded with a local Ollama model (`llama3.2:3b`). That was
 removed: it was unreliable at explaining causes, and slow (~9-38s per call)
 and memory-hungry on this 7.6GB, no-GPU laptop. See
-`feedback-research/pedagogical-feedback-design-decision.md` for the history.
+`feedback-research/decisions/pedagogical-feedback-design-decision.md` for the history.
 
 **Not yet verified**: the lecturer page's live-polling feel with more than
 one student submitting at once, and behavior under concurrent submissions
@@ -217,7 +227,7 @@ module docstring).
   supported from the student side.
 - The live "X/N submitted" counter's denominator is just a number the
   lecturer typed in at setup time (see
-  `feedback-research/live-submission-progress-scoping-decision.md`), so more
+  `docs/decisions/live-submission-progress-scoping-decision.md`), so more
   students can submit than were expected -- the lecturer dashboard shows
   that as "N submitted (more than the M expected)" rather than a raw
   numerator-over-denominator that reads like an error.
