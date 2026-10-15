@@ -70,6 +70,14 @@ BUG_B_CODE = "nums = input().split()\nprint(len(nums))  # bug_b_count_instead_of
 # One student only, for the "Raise in class" check -- a third shape, so it lands in
 # its own single-student sub-cluster.
 BUG_C_CODE = "nums = input().split()\nprint(sum(int(n) for n in nums) - 1)  # bug_c_subtract_one"
+# The same wrong behavior (sum + 10) written two different ways -- the double-it
+# shape-vs-behavior case (feedback-research/double-it-shape-vs-behavior-limitation-
+# 2026-09-21.md) in miniature. Their diffs against the reference differ; their outputs
+# don't, so output-signature grouping must put them in ONE sub-cluster.
+BUG_D_INLINE_CODE = "nums = input().split()\nprint(sum(int(n) for n in nums) + 10)  # bug_d_plus_ten"
+BUG_D_LOOP_CODE = (
+    "total = 10\nfor n in input().split():\n    total = total + int(n)\nprint(total)  # bug_d_plus_ten"
+)
 
 _idun_state = {"available": True}
 idun_chat_calls = []  # request bodies sent to IDUN's /chat/completions, for the no-leakage assertion
@@ -139,6 +147,8 @@ def fake_post(url, params=None, json=None, headers=None, timeout=None):
         stdout_val = str(len(nums))  # deliberately the wrong operation entirely
     elif "bug_c_subtract_one" in source:
         stdout_val = str(sum(nums) - 1)  # deliberately off by one, the other direction
+    elif "bug_d_plus_ten" in source:
+        stdout_val = str(sum(nums) + 10)  # same output from two differently-written programs
     else:
         stdout_val = str(sum(nums))
 
@@ -431,6 +441,33 @@ def _run_checks(client):
         r = client.post("/api/lecturer/clusters/raise", json={**raise_body, "submission_ids": [999999]})
         assert r.status_code == 404, r.text
         print("Show to students: singleton raised, example queued  OK")
+
+        # Output-signature grouping (aggregation.py's 2026-10-15 entry): two textually
+        # different programs that print the same thing on every test case are one
+        # sub-cluster, even though the diff signal alone would keep them apart -- and
+        # the Label call is NOT shown their failing test (tried and reverted 2026-10-15,
+        # see aggregation.py's module docstring).
+        from backend import store as store_mod
+        reference = store_mod.get_question_row("sum-ints")["reference_solution"]
+        assert len(agg_mod._cluster_by_similarity(
+            [{"id": 1, "source_code": BUG_D_INLINE_CODE}, {"id": 2, "source_code": BUG_D_LOOP_CODE}], reference
+        )) == 2, "precondition: the diff signal alone must split these two shapes"
+        calls_before = len(idun_chat_calls)
+        d_ids = []
+        for student, code in (("Mona", BUG_D_INLINE_CODE), ("Nils", BUG_D_LOOP_CODE)):
+            r = client.post("/api/submit", json={"student_name": student, "question_id": "sum-ints", "source_code": code})
+            assert r.status_code == 200 and r.json()["verdict"] == "incorrect", r.json()
+            d_ids.append(r.json()["submission_id"])
+        clusters = client.get("/api/lecturer/clusters", params={"question_id": "sum-ints"}).json()
+        d_clusters = [c for c in clusters if set(d_ids) & set(c["submission_ids"])]
+        assert len(d_clusters) == 1 and set(d_clusters[0]["submission_ids"]) == set(d_ids), d_clusters
+        assert d_clusters[0]["count"] == 2, d_clusters
+        assert len(idun_chat_calls) == calls_before + 1, "one Label call for the merged group"
+        sent = json_lib.dumps(idun_chat_calls[-1])
+        assert "what they all printed" not in sent, sent
+        for leaked in ("Mona", "Nils", "bug_d_plus_ten"):
+            assert leaked not in sent, (leaked, sent)
+        print("Same output, different code -> one sub-cluster   OK ->", d_clusters[0]["submission_ids"])
 
         r = client.post(
             "/api/submit",

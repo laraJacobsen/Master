@@ -1,5 +1,13 @@
 # Shape-vs-behavior limitation in wrong_answer sub-clustering (2026-09-21)
 
+> **Narrowed 2026-10-15.** Production now groups wrong_answer submissions by their output
+> signature (what they printed on each stored test case) before the diff signal, which puts
+> DI-01/02/05/07 in one group. double-it scores ARI 1.000 (was 0.798), mean 1.000 (was 0.899).
+> See the 2026-10-15 entry in `backend/aggregation.py`'s module docstring and
+> `run_signature_baseline.py`. The inverse failure this document predicted (unrelated bugs that
+> coincidentally print the same thing now merge) is real and is listed there as unsolved, along
+> with the fact that the labels being scored against were made with an output table's help.
+
 *Written by Claude Code while evaluating the diff-against-reference sub-clustering
 signal (see `backend/aggregation.py`'s 2026-09-21 docstring entry, `subcluster_eval.py`,
 and `run_diff_baseline.py`) against the hand-labeled ground truth in
