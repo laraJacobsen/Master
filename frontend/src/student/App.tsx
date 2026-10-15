@@ -103,7 +103,9 @@ function formatMMSS(totalSeconds: number): string {
 export default function App() {
   const [joined, setJoined] = useState(hasJoinedThisSession);
   const [phase, setPhase] = useState<Phase>(() => (hasJoinedThisSession() ? "loading" : "join"));
-  const [joinNameInput, setJoinNameInput] = useState("");
+  // Pre-filled with the name from this tab's last join, if any (e.g. coming
+  // back via "Back to home" after a lecture ended).
+  const [joinNameInput, setJoinNameInput] = useState(getJoinedName);
   const [joinCodeInput, setJoinCodeInput] = useState("");
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -506,6 +508,10 @@ export default function App() {
           <div className="card accent-navy waiting-card">
             <h2>That's the lecture. Thanks for working through it.</h2>
             <p className="waiting-message">Nothing else needed from you here. It's safe to close this tab.</p>
+            {/* The join screen is the student's "home" -- this tab's join was
+                already forgotten when the lecture ended (see applyStatus), so a
+                fresh load lands there, ready for the next lecture's code. */}
+            <button onClick={() => (window.location.href = "student.html")}>Back to home</button>
           </div>
           {recap && (
             <div className="card" id="recap-card">

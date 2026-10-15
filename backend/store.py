@@ -273,6 +273,13 @@ def init_db():
             """
         )
 
+        # Same invariant as end_lecture(): nothing stays live under a lecture
+        # that has already ended (DBs from before that was enforced).
+        conn.execute(
+            "UPDATE questions SET status = 'closed' WHERE status = 'live' AND lecture_id IN "
+            "(SELECT id FROM lectures WHERE ended_at IS NOT NULL)"
+        )
+
         # Seed the original MVP question directly as `live`/validated so a fresh
         # checkout keeps working exactly as before without anyone having to walk
         # it through the setup page first (see smoke_test.py, README.md).
@@ -679,6 +686,11 @@ def end_lecture(lecture_id: int) -> None:
             (lecture_id,),
         )
         if cur.rowcount:
+            # Hard invariant, not left to the caller passing the current
+            # question: a task still live after its lecture ended would be
+            # served to the *next* lecture's students (live_question_row()
+            # isn't lecture-scoped).
+            conn.execute("UPDATE questions SET status = 'closed' WHERE status = 'live'")
             conn.execute(
                 "UPDATE questions SET status = 'skipped', lecture_id = ? WHERE status = 'draft' AND lecture_id IS NULL",
                 (lecture_id,),

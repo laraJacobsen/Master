@@ -640,6 +640,9 @@ def _run_lecture_dashboard_checks(client):
     assert {t["question_id"] for t in summary["tasks"]} == {"sum-ints", "double-it"}, summary
     print("GET /api/lecturer/lecture/summary?lecture_id=   OK ->", summary["lecture_label"])
 
+    # finish was called with current_question_id=None above, but the seeded
+    # lecture's live task must still be closed rather than leak into the next.
+    assert client.get("/api/lecture/status").json()["question"] is None
     leftover = client.get(f"/api/lecturer/questions/{leftover_qid}").json()
     assert leftover["status"] == "skipped" and leftover["lecture_id"] == seeded_lecture_id, leftover
     assert leftover_qid not in [q["id"] for q in client.get("/api/lecturer/questions").json()]
