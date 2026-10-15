@@ -155,6 +155,8 @@ export interface LectureReviewTask {
     error_type: string | null;
     students: number;
     discussion_point: string | null;
+    // Wrong answers only: the most common first failing test among them.
+    example: { stdin: string; expected_stdout: string; stdout: string; students: number } | null;
   } | null;
 }
 

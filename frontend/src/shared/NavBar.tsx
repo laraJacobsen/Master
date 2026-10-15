@@ -42,8 +42,8 @@ export function NavBar() {
   }, []);
 
   const action = activeLectureAction(active);
-  const showHome = !isCurrentPage("index.html");
-  const showHistory = !isCurrentPage("history.html");
+  const onHome = isCurrentPage("index.html");
+  const onHistory = isCurrentPage("history.html");
   // "Resume lobby" is left off the nav bar's shortcut on purpose -- the home
   // page's own card already surfaces the join code for that state, and a
   // nav-bar link would just duplicate it without that context.
@@ -52,19 +52,26 @@ export function NavBar() {
   return (
     <nav className="top-nav">
       <a href="index.html" className="top-nav-brand">
-        Interactive Lecture
+        <span className="top-nav-mark" aria-hidden="true">IL</span>
+        <span className="top-nav-name">Interactive Lecture</span>
       </a>
       <div className="top-nav-actions">
-        {showHome && (
-          <a href="index.html" className="top-nav-home">
-            Home
-          </a>
-        )}
-        {showHistory && (
-          <a href="history.html" className="top-nav-home">
-            History
-          </a>
-        )}
+        {/* Always shown, marked when current -- a nav link that vanishes on its
+            own page makes the bar jump around between pages. */}
+        <a
+          href="index.html"
+          className={onHome ? "top-nav-home is-current" : "top-nav-home"}
+          aria-current={onHome ? "page" : undefined}
+        >
+          Home
+        </a>
+        <a
+          href="history.html"
+          className={onHistory ? "top-nav-home is-current" : "top-nav-home"}
+          aria-current={onHistory ? "page" : undefined}
+        >
+          History
+        </a>
         {showCta && (
           <a href={action.href} className="top-nav-cta">
             {action.label}

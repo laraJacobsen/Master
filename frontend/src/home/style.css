@@ -1,15 +1,10 @@
 main { max-width: 700px; margin: 1.5rem auto; padding: 0 1rem 3rem; }
 
-/* Landing-page hero -- a gradient variant of the shared navy header, with
-   room to breathe and centered copy, since this is the first thing a
-   lecturer sees each session. */
-header.hero {
-  background: linear-gradient(135deg, var(--navy) 0%, #2f3a8f 100%);
-  padding: 2.75rem 1.5rem 3rem;
-  text-align: center;
-}
-header.hero h1 { font-size: 1.9rem; letter-spacing: -0.01em; }
-header.hero p { font-size: 1rem; margin-top: 0.5rem; }
+/* Landing-page title -- centred and calm, on the page background like every
+   other lecturer page (see shared/lecturer-theme.css). */
+header.hero { text-align: center; padding: 3.25rem 1rem 0.5rem; max-width: 700px; }
+header.hero h1 { font-size: 2.1rem; letter-spacing: -0.03em; }
+header.hero p { font-size: 1.02rem; margin-top: 0.5rem; }
 
 .card { padding: 1.1rem 1.3rem; }
 .card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }

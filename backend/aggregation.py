@@ -1082,6 +1082,31 @@ def student_recap(lecture_id: int, student_name: str) -> dict:
 MIN_STUDENTS_FOR_REVIEW = 3
 
 
+def _most_common_wrong_output(rows: list):
+    """For "wrong answer" -- which on its own says nothing about what went wrong --
+    the most common concrete failure among `rows`: the first test each one failed,
+    grouped by (input, what was printed). Returns {"stdin", "expected_stdout",
+    "stdout", "students"} or None. Read from stored raw_test_results, no model."""
+    counts = defaultdict(int)
+    detail = {}
+    for row in rows:
+        try:
+            results = json.loads(row.get("raw_test_results") or "[]")
+        except (TypeError, ValueError):
+            continue
+        failing = next((r for r in results if isinstance(r, dict) and not r.get("passed")), None)
+        if not failing:
+            continue
+        stdout = " ".join((failing.get("stdout") or "").split())
+        key = (failing.get("stdin", ""), stdout)
+        counts[key] += 1
+        detail[key] = failing.get("expected_stdout", "")
+    if not counts:
+        return None
+    (stdin, stdout), n = max(counts.items(), key=lambda kv: kv[1])
+    return {"stdin": stdin, "expected_stdout": detail[(stdin, stdout)], "stdout": stdout, "students": n}
+
+
 def lecture_review(include_archived: bool = False) -> list:
     """How each finished lecture went, worst first -- the history page's "Needs
     revisiting" view, for deciding what a review lecture should go back over.
@@ -1113,18 +1138,19 @@ def lecture_review(include_archived: bool = False) -> list:
             solved_students = {
                 row["student_name"] for row in store.all_submissions(question["id"]) if row.get("verdict") == "correct"
             }
-            issue_students = defaultdict(int)
+            issue_rows = defaultdict(list)
             for name, row in latest.items():
                 if name not in solved_students:
-                    issue_students[(row.get("exec_verdict"), row.get("error_type"))] += 1
+                    issue_rows[(row.get("exec_verdict"), row.get("error_type"))].append(row)
             top_issue = None
-            if issue_students:
-                (exec_verdict, error_type), count = max(issue_students.items(), key=lambda kv: kv[1])
+            if issue_rows:
+                (exec_verdict, error_type), rows = max(issue_rows.items(), key=lambda kv: len(kv[1]))
                 top_issue = {
                     "exec_verdict": exec_verdict,
                     "error_type": error_type,
-                    "students": count,
-                    "discussion_point": _generate_discussion_point(exec_verdict, error_type, count),
+                    "students": len(rows),
+                    "discussion_point": _generate_discussion_point(exec_verdict, error_type, len(rows)),
+                    "example": _most_common_wrong_output(rows) if exec_verdict == "wrong_answer" else None,
                 }
             tasks.append(
                 {
