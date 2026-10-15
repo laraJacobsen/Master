@@ -1,15 +1,10 @@
 main { max-width: 700px; margin: 1.5rem auto; padding: 0 1rem 3rem; }
 
-/* Landing-page hero -- a gradient variant of the shared navy header, with
-   room to breathe and centered copy, since this is the first thing a
-   lecturer sees each session. */
-header.hero {
-  background: linear-gradient(135deg, var(--navy) 0%, #2f3a8f 100%);
-  padding: 2.75rem 1.5rem 3rem;
-  text-align: center;
-}
-header.hero h1 { font-size: 1.9rem; letter-spacing: -0.01em; }
-header.hero p { font-size: 1rem; margin-top: 0.5rem; }
+/* Landing-page title -- centred and calm, on the page background like every
+   other lecturer page (see shared/lecturer-theme.css). */
+header.hero { text-align: center; padding: 3.25rem 1rem 0.5rem; max-width: 700px; }
+header.hero h1 { font-size: 2.1rem; letter-spacing: -0.03em; }
+header.hero p { font-size: 1.02rem; margin-top: 0.5rem; }
 
 .card { padding: 1.1rem 1.3rem; }
 .card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
@@ -51,52 +46,6 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
   text-align: center;
   color: var(--muted);
   font-size: 0.85rem;
-  margin: -0.5rem 0 1.25rem;
+  margin: 0 0 1.25rem;
 }
-
-.history-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-.history-header h2 { margin: 0; }
-.archived-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-weight: normal;
-  font-size: 0.82rem;
-  color: var(--muted);
-  margin: 0;
-}
-.archived-toggle input { margin: 0; }
-
-#lecture-list { list-style: none; margin: 0; padding: 0; }
-#lecture-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.7rem 0.5rem;
-  margin: 0 -0.5rem;
-  border-bottom: 1px solid var(--border);
-  border-radius: 8px;
-  transition: background 0.15s ease;
-}
-#lecture-list li:hover { background: var(--bg); }
-#lecture-list li:last-child { border-bottom: none; }
-#lecture-list li.archived { opacity: 0.6; }
-
-.lecture-row-link {
-  flex: 1;
-  min-width: 0;
-  color: inherit;
-  text-decoration: none;
-}
-.lecture-row-link:hover .lecture-title { text-decoration: underline; }
-.lecture-title { font-weight: bold; font-size: 0.95rem; }
-.lecture-meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.15rem; }
-
-.archive-btn { font-size: 0.78rem; padding: 0.35rem 0.7rem; white-space: nowrap; }
+#totals-line a { color: var(--navy); }

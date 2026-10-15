@@ -249,7 +249,8 @@ def _run_checks(client):
         data = r.json()
         print("POST /api/submit               OK ->", data)
         assert data["verdict"] == "correct"
-        assert data["tests_passed"] == data["tests_total"] == 5
+        # 5 stored tests, but the first is the example students see and isn't graded.
+        assert data["tests_passed"] == data["tests_total"] == 4
 
         r = client.get("/api/lecturer/submissions")
         assert r.status_code == 200, r.text
@@ -286,7 +287,7 @@ def _run_checks(client):
         )
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["tests_passed"] == 0 and data["tests_total"] == 5, data
+        assert data["tests_passed"] == 0 and data["tests_total"] == 4, data
         rejected_row = client.get("/api/lecturer/submissions").json()[0]
         assert rejected_row["exec_verdict"] == "rejected", rejected_row
         assert rejected_row["rejection_reason"] == "whitespace_only", rejected_row
@@ -442,6 +443,29 @@ def _run_checks(client):
         assert r.status_code == 404, r.text
         print("Show to students: singleton raised, example queued  OK")
 
+        # Hard-coded output: printing the visible example's answer used to pass
+        # that test ("partially correct"). The example isn't graded any more, and
+        # a program that never reads its input is its own issue type.
+        r = client.post("/api/submit", json={"student_name": "Hardcoder", "question_id": "sum-ints", "source_code": "print(6)"})
+        hard = r.json()
+        # (This file's fake Judge0 prints the right sum for any unmarked code, so
+        # print(6) "passes" every test here -- which shows the ignores_input check
+        # catching even a fully passing hard-coded program.)
+        assert hard["verdict"] == "incorrect", hard
+        assert "never reads the input" in hard["feedback"], hard
+        row = client.get(f"/api/lecturer/submissions/{hard['submission_id']}").json()
+        assert row["exec_verdict"] == "ignores_input", row
+        assert len(json_lib.loads(row["raw_test_results"])) == 5, "all tests still run and stored"
+        issue = next(c for c in client.get("/api/lecturer/clusters", params={"question_id": "sum-ints"}).json()
+                     if c["exec_verdict"] == "ignores_input")
+        assert hard["submission_id"] in issue["submission_ids"], issue
+        # Reading the input (even wrongly) is not flagged, and neither is open(0).
+        for code in ("x = input()\nprint(6)", "print(sum(map(int, open(0).read().split())))"):
+            r = client.post("/api/submit", json={"student_name": "Reader", "question_id": "sum-ints", "source_code": code})
+            row = client.get(f"/api/lecturer/submissions/{r.json()['submission_id']}").json()
+            assert row["exec_verdict"] != "ignores_input", (code, row)
+        print("Hard-coded output: example ungraded, flagged as ignores_input   OK")
+
         # Output-signature grouping (aggregation.py's 2026-10-15 entry): two textually
         # different programs that print the same thing on every test case are one
         # sub-cluster, even though the diff signal alone would keep them apart -- and
@@ -544,6 +568,22 @@ def _run_question_setup_checks(client):
     assert r.status_code == 200, r.text
     assert r.json()["validated"] is True, r.json()
     print("Validation preview against reference solution   OK ->", r.json()["validated"])
+
+    # Only edits that can change the check's outcome reset it: renaming the
+    # question or changing its timing must not send the lecturer back to
+    # "Check solution", while changing the tests (or re-sending them
+    # unchanged, which isn't a change) is judged by content.
+    question = client.get(f"/api/lecturer/questions/{qid}").json()
+    r = client.put(f"/api/lecturer/questions/{qid}", json={"title": question["title"] + " (v2)", "duration_seconds": 900})
+    assert r.json()["validated"] is True, r.json()
+    r = client.put(f"/api/lecturer/questions/{qid}", json={"test_cases": question["test_cases"]})
+    assert r.json()["validated"] is True, "same tests re-sent is not a change"
+    changed = question["test_cases"] + [{"stdin": "21\n", "expected_stdout": "42"}]
+    r = client.put(f"/api/lecturer/questions/{qid}", json={"test_cases": changed})
+    assert r.json()["validated"] is False, "a changed test must reset the check"
+    r = client.post(f"/api/lecturer/questions/{qid}/validate")
+    assert r.json()["validated"] is True, r.json()
+    print("Only validation-relevant edits reset the check   OK")
 
     r = client.post(f"/api/lecturer/questions/{qid}/start")
     assert r.status_code == 200, r.text
@@ -677,6 +717,28 @@ def _run_lecture_dashboard_checks(client):
     assert {t["question_id"] for t in summary["tasks"]} == {"sum-ints", "double-it"}, summary
     print("GET /api/lecturer/lecture/summary?lecture_id=   OK ->", summary["lecture_label"])
 
+    # History page "Needs revisiting" (aggregation.lecture_review()): the lecture
+    # just finished is in it, solved counts match the real submissions, every task
+    # shares the lecture's participant count, and no student name is in the payload.
+    r = client.get("/api/lecturer/lectures/review")
+    assert r.status_code == 200, r.text  # not swallowed by /lectures/{lecture_id}
+    reviews = r.json()
+    seeded = next(rv for rv in reviews if rv["lecture_id"] == seeded_lecture_id)
+    subs = client.get("/api/lecturer/submissions").json()
+    names = {s["student_name"] for s in subs if s["question_id"] in ("sum-ints", "double-it")}
+    assert seeded["students"] >= len(names), seeded
+    for task in seeded["tasks"]:
+        solved = {s["student_name"] for s in subs if s["question_id"] == task["question_id"] and s["verdict"] == "correct"}
+        assert task["solved"] == len(solved) and task["students"] == seeded["students"], task
+    rates = [t["solve_rate"] for t in seeded["tasks"]]
+    assert rates == sorted(rates), "weakest task first"
+    assert seeded["enough_data"] and abs(seeded["solve_rate"] - sum(rates) / len(rates)) < 1e-9, seeded
+    sent = json_lib.dumps(reviews)
+    assert not any(n in sent for n in names), "review must be aggregate only"
+    ranked = [rv["solve_rate"] for rv in reviews if rv["enough_data"]]
+    assert ranked == sorted(ranked), "worst lecture first"
+    print("GET /api/lecturer/lectures/review (needs revisiting)   OK ->", round(seeded["solve_rate"], 2))
+
     # finish was called with current_question_id=None above, but the seeded
     # lecture's live task must still be closed rather than leak into the next.
     assert client.get("/api/lecture/status").json()["question"] is None
@@ -727,7 +789,7 @@ def _run_lecture_dashboard_checks(client):
             "title": "Sum Again",
             "prompt": "Read space-separated integers and print their sum.",
             "language": "python",
-            "test_cases": [{"stdin": "4 5\n", "expected_stdout": "9"}],
+            "test_cases": [{"stdin": "4 5\n", "expected_stdout": "9"}, {"stdin": "1 1\n", "expected_stdout": "2"}],
             # Matches fake_post's fallback branch (plain sum) -- see module docstring.
             "reference_solution": "print(sum(int(x) for x in input().split()))",
         },

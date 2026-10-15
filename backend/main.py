@@ -30,6 +30,7 @@ from backend import store
 from backend.aggregation import (
     carry_forward_discussion_points,
     cluster_submissions,
+    lecture_review,
     raise_issue,
     shown_examples,
     session_summary,
@@ -38,7 +39,7 @@ from backend.aggregation import (
 from backend.ai_feedback import judge_and_feedback
 from backend.judge0_client import Judge0Error, run_test_cases
 from backend.questions import get_question, list_questions
-from backend.validation import pre_execution_check, DEFAULT_LINE_LIMIT
+from backend.validation import pre_execution_check, reads_input, DEFAULT_LINE_LIMIT
 
 app = FastAPI(title="Interactive Lecture Prototype")
 
@@ -161,6 +162,14 @@ def api_lecturer_question_detail(question_id: str):
     return row
 
 
+# Question fields the validation preview depends on -- see
+# api_lecturer_update_question.
+_VALIDATION_FIELDS = (
+    "test_cases", "reference_solution", "language",
+    "cpu_time_limit_s", "memory_limit_kb", "extra_packages", "line_limit",
+)
+
+
 @app.put("/api/lecturer/questions/{question_id}")
 def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
     row = store.get_question_row(question_id)
@@ -180,8 +189,13 @@ def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
     if "idle_nudge_seconds" in fields and fields["idle_nudge_seconds"] is None:
         del fields["idle_nudge_seconds"]
     if fields:
-        # Editing config invalidates any earlier validation preview.
-        fields["validated"] = 0
+        # Only a change that can alter the validation result (running the
+        # reference solution against the tests under these limits) throws it
+        # away -- editing the title, task text, timing or class size can't, and
+        # un-validating on those made the setup page's "Save" after a passing
+        # check flip the question back to "needs a check".
+        if any(field in fields and fields[field] != row[field] for field in _VALIDATION_FIELDS):
+            fields["validated"] = 0
         store.update_question(question_id, fields)
     return store.get_question_row(question_id)
 
@@ -214,6 +228,13 @@ def api_lecturer_validate_question(question_id: str):
     if not question.get("reference_solution"):
         raise HTTPException(
             status_code=400, detail="Add a reference (known-correct) solution before validating."
+        )
+    if len(question["test_cases"]) < 2:
+        # The first test is shown to students and doesn't count towards the
+        # verdict (see _graded), so at least one more is needed to grade on.
+        raise HTTPException(
+            status_code=400,
+            detail="Add at least 2 test cases. The first is shown to students, so it isn't graded.",
         )
 
     try:
@@ -308,6 +329,16 @@ def api_lecturer_active_lecture():
         return {"lecture": None, "live_question_id": None}
     live_question = store.live_question_row()
     return {"lecture": lecture, "live_question_id": live_question["id"] if live_question else None}
+
+
+@app.get("/api/lecturer/lectures/review")
+def api_lecturer_lecture_review(include_archived: bool = False):
+    """Declared before /lectures/{lecture_id} so "review" isn't read as an id.
+
+    Finished lectures ranked by how many students solved their tasks, worst
+    first, with each lecture's weakest tasks and their most common issue -- the
+    history page's "Needs revisiting" view. See aggregation.lecture_review()."""
+    return lecture_review(include_archived=include_archived)
 
 
 @app.get("/api/lecturer/lectures/{lecture_id}")
@@ -597,6 +628,22 @@ def api_lecture_activity(req: ActivityRequest):
     return {"nudge": None}
 
 
+# Shown to a student whose program never reads its input (see api_submit).
+IGNORES_INPUT_FEEDBACK = (
+    "Your program never reads the input, so it prints the same thing every time. "
+    "Read the input with input() and work the answer out from it."
+)
+
+
+def _graded(test_results: list) -> list:
+    """The test results that decide a submission's verdict: every test except
+    the first, which students see as the worked example -- otherwise printing
+    the example's answer passes it (print(6) for "1 2 3" -> 6). A question with a
+    single test has nothing else to grade on, so that test counts; validation
+    now requires a second test for new questions."""
+    return test_results[1:] if len(test_results) > 1 else test_results
+
+
 @app.post("/api/submit")
 def api_submit(req: SubmitRequest):
     question = get_question(req.question_id)
@@ -606,7 +653,7 @@ def api_submit(req: SubmitRequest):
         raise HTTPException(status_code=409, detail="This question isn't live (not started yet, or already closed).")
 
     attempt_number = store.next_attempt_number(req.student_name, req.question_id)
-    tests_total = len(question["test_cases"])
+    tests_total = len(_graded(question["test_cases"]))
 
     rejection_reason = pre_execution_check(
         req.source_code, line_limit=question["line_limit"], extra_packages=question["extra_packages"]
@@ -657,12 +704,32 @@ def api_submit(req: SubmitRequest):
         feedback = judge_and_feedback(
             question["prompt"],
             req.source_code,
-            test_results,
+            _graded(test_results),
             language=question["language"],
             attempt_number=attempt_number,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI feedback failed: {e}")
+
+    # Hard-coded output: a program that ran fine but never reads its input can
+    # only pass by printing an expected answer it was given or guessed. Its own
+    # issue type (not wrong_answer), so the lecturer sees it as one clear group.
+    # Raw test results are stored unchanged.
+    takes_input = any(tc["stdin"].strip() for tc in question["test_cases"])
+    if (
+        takes_input
+        and feedback["exec_verdict"] in ("pass", "wrong_answer")
+        and not reads_input(req.source_code, question["language"])
+    ):
+        feedback.update(
+            verdict="incorrect",
+            exec_verdict="ignores_input",
+            error_type=None,
+            feedback=IGNORES_INPUT_FEEDBACK,
+            hint_tier=None,
+            hint_ceiling=None,
+            traceback=None,
+        )
 
     sub_id = store.save_submission(
         {

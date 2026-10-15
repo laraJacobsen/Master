@@ -1,0 +1,181 @@
+:root { --page-width: 1040px; }
+main { max-width: var(--page-width); margin: 1.5rem auto; padding: 0 1rem 3rem; }
+
+.card { padding: 1.2rem 1.35rem; margin-bottom: 1.25rem; }
+.card h2 { margin: 0; font-size: 1rem; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.card-caption { color: var(--muted); font-size: 0.8rem; }
+.card-intro { color: var(--muted); font-size: 0.86rem; margin: 0.35rem 0 0.9rem; }
+.notice { color: var(--muted); }
+.muted { color: var(--muted); }
+.text-link { color: var(--navy); font-size: 0.84rem; font-weight: 500; text-decoration: none; white-space: nowrap; }
+.text-link:hover { text-decoration: underline; }
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  background: var(--tint);
+  border-radius: 5px;
+  padding: 0.05rem 0.35rem;
+  white-space: pre-wrap;
+}
+
+/* Meters: one neutral hue on every bar -- a low share says "go back over
+   this", not "failed", so no red/amber/green here. */
+.meter { display: inline-block; background: #e9ebf3; border-radius: 999px; overflow: hidden; vertical-align: middle; }
+.meter-md { width: 110px; height: 8px; }
+.meter-sm { width: 100%; max-width: 200px; height: 6px; }
+.meter-fill { display: block; height: 100%; background: var(--navy); border-radius: 999px; }
+
+/* Headline numbers */
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.25rem; }
+.stat {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.stat-label { color: var(--muted); font-size: 0.8rem; font-weight: 500; }
+.stat-value { font-size: 1.9rem; font-weight: 650; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.stat-value-text { font-size: 1.3rem; line-height: 1.25; padding: 0.3rem 0 0.15rem; }
+.stat-sub { color: var(--muted); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Trend: one column per lecture, oldest to newest */
+.trend { margin-top: 0.9rem; }
+.trend-plot {
+  position: relative;
+  height: 130px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-evenly;
+  gap: 10px;
+  border-bottom: 1px solid #d9dce7;
+  padding-right: 2.2rem; /* room for the gridline labels */
+}
+.trend-grid { position: absolute; left: 0; right: 0; border-top: 1px dashed #e6e8f0; }
+.trend-grid-label {
+  position: absolute;
+  right: 0;
+  transform: translateY(50%);
+  font-size: 0.7rem;
+  color: var(--muted);
+  background: var(--card);
+  padding-left: 0.25rem;
+}
+.trend-col { position: relative; flex: 1; max-width: 96px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+.trend-bar { width: 100%; background: #b9c1e6; border-radius: 4px 4px 0 0; min-height: 2px; transition: background 0.15s ease; }
+.trend-col:hover .trend-bar { background: #8f9bd6; }
+.trend-bar.is-weakest { background: var(--navy); }
+.trend-label { font-size: 0.75rem; font-weight: 600; color: var(--navy); margin-bottom: 0.2rem; }
+.trend-axis { display: flex; justify-content: space-evenly; gap: 10px; margin-top: 0.35rem; padding-right: 2.2rem; }
+.trend-axis span { flex: 1; max-width: 96px; text-align: center; color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+
+/* Lectures and topics side by side on wide screens */
+.layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.layout > .card { margin-bottom: 0; }
+.layout { margin-bottom: 1.25rem; }
+
+/* Lectures accordion */
+.lecture-list { list-style: none; margin: 0; padding: 0; }
+.lecture-item { border-top: 1px solid var(--border); }
+.lecture-item:first-child { border-top: none; }
+.lecture-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  background: none;
+  color: inherit;
+  text-align: left;
+  padding: 0.8rem 0.5rem;
+  margin: 0 -0.5rem;
+  width: calc(100% + 1rem);
+  border-radius: 10px;
+  font-weight: inherit;
+}
+.lecture-toggle:hover:not(:disabled) { background: var(--tint); }
+.lecture-rank {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--tint);
+  color: var(--navy);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.lecture-item:first-child .lecture-rank { background: var(--navy); color: #fff; }
+.lecture-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.lecture-name { font-weight: 600; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lecture-sub { color: var(--muted); font-size: 0.8rem; }
+.lecture-score { flex: none; display: flex; align-items: center; gap: 0.6rem; }
+.lecture-pct { font-weight: 650; font-variant-numeric: tabular-nums; min-width: 2.6rem; text-align: right; }
+.chevron {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  margin: 0 0.25rem 0.2rem;
+  transition: transform 0.15s ease;
+}
+.is-open .chevron { transform: rotate(225deg); margin-bottom: -0.15rem; }
+
+.lecture-panel { padding: 0.1rem 0 0.95rem 2.55rem; }
+.task-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.8rem; }
+.task-row { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.85rem; }
+.task-row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+.task-title { font-weight: 600; font-size: 0.9rem; }
+.task-meter { display: flex; align-items: center; gap: 0.6rem; margin: 0.4rem 0 0.1rem; }
+.task-meter .meter-sm { max-width: 140px; }
+.task-count { font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.issue-line { margin: 0.35rem 0 0; font-size: 0.84rem; line-height: 1.5; }
+.issue-hint { color: var(--muted); }
+.panel-link { display: inline-block; margin-top: 0.8rem; }
+.footnote { color: var(--muted); font-size: 0.8rem; margin: 0.9rem 0 0; }
+
+/* Topics */
+.topic-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; }
+.topic { display: grid; gap: 0.3rem; }
+.topic + .topic { border-top: 1px solid var(--border); padding-top: 1rem; }
+.topic-head { display: flex; justify-content: space-between; align-items: baseline; }
+.topic-pct { font-weight: 650; font-variant-numeric: tabular-nums; }
+.topic .meter-sm { max-width: none; }
+.topic-sub { color: var(--muted); font-size: 0.78rem; }
+.topic .issue-line { margin-top: 0.1rem; }
+
+/* All lectures */
+.archived-toggle { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--muted); }
+.archived-toggle input { margin: 0; }
+#lecture-list { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+#lecture-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.5rem;
+  margin: 0 -0.5rem;
+  border-top: 1px solid var(--border);
+}
+#lecture-list li:first-child { border-top: none; }
+#lecture-list li.archived { opacity: 0.55; }
+.lecture-row-link { flex: 1; min-width: 0; color: inherit; text-decoration: none; display: flex; flex-direction: column; gap: 0.1rem; }
+.lecture-row-link:hover .lecture-name { text-decoration: underline; }
+.archive-btn { font-size: 0.78rem; padding: 0.35rem 0.75rem; white-space: nowrap; }
+
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .stats { grid-template-columns: 1fr; gap: 0.75rem; }
+  .lecture-score .meter { display: none; }
+  .lecture-panel { padding-left: 0; }
+  .trend-plot, .trend-axis { gap: 6px; }
+}

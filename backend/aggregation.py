@@ -835,6 +835,10 @@ def _wrong_answer_subclusters(members: list) -> list:
 
 
 def _generate_discussion_point(exec_verdict: str, error_type: str, student_count: int):
+    if exec_verdict == "ignores_input":
+        # Set in main.api_submit, not by the classifier, so it has no curated
+        # line in feedback-research/feedback.py.
+        return "Prints a fixed answer without reading the input. Worth showing why that only passes by luck."
     try:
         return hints.discussion_point_for_cluster(exec_verdict, error_type, student_count)
     except Exception:
@@ -1073,3 +1077,109 @@ def student_recap(lecture_id: int, student_name: str) -> dict:
         "total": len(results),
         "results": results,
     }
+
+
+# A lecture with fewer students than this isn't ranked in lecture_review() --
+# with two students, one bad attempt swings the solve rate by 50 points, which
+# would put dev-test and tiny sessions at the top of "needs revisiting" for no
+# real reason. They're still returned, flagged, so the page can list them apart.
+MIN_STUDENTS_FOR_REVIEW = 3
+
+
+def _most_common_wrong_output(rows: list):
+    """For "wrong answer" -- which on its own says nothing about what went wrong --
+    the most common concrete failure among `rows`: the first test each one failed,
+    grouped by (input, what was printed). Returns {"stdin", "expected_stdout",
+    "stdout", "students"} or None. Read from stored raw_test_results, no model."""
+    counts = defaultdict(int)
+    detail = {}
+    for row in rows:
+        try:
+            results = json.loads(row.get("raw_test_results") or "[]")
+        except (TypeError, ValueError):
+            continue
+        failing = next((r for r in results if isinstance(r, dict) and not r.get("passed")), None)
+        if not failing:
+            continue
+        stdout = " ".join((failing.get("stdout") or "").split())
+        key = (failing.get("stdin", ""), stdout)
+        counts[key] += 1
+        detail[key] = failing.get("expected_stdout", "")
+    if not counts:
+        return None
+    (stdin, stdout), n = max(counts.items(), key=lambda kv: kv[1])
+    return {"stdin": stdin, "expected_stdout": detail[(stdin, stdout)], "stdout": stdout, "students": n}
+
+
+def lecture_review(include_archived: bool = False) -> list:
+    """How each finished lecture went, worst first -- the history page's "Needs
+    revisiting" view, for deciding what a review lecture should go back over.
+
+    Per task: students is everyone who took part in the lecture -- the larger of
+    how many joined and how many distinct students submitted to any of its tasks
+    (lectures from before join tracking have no joins) -- the same number for
+    every task, so a student who skipped a task counts as not having solved it. solved is the
+    distinct students with at least one correct submission (best result, same as
+    the dashboard's Class progress chart). top_issue is the most common way the
+    *unsolved* students' latest submissions went wrong, by (exec_verdict,
+    error_type), with the curated line for it (hints, no model call -- this
+    runs over every past lecture on each page load).
+
+    Per lecture: solve_rate is the mean of its tasks' solve rates, so one big
+    task doesn't drown out the others. Aggregate only, no student names --
+    same rule as the rest of the history view."""
+    reviews = []
+    for lecture in store.list_lectures(include_archived=include_archived):
+        if not lecture["ended_at"]:
+            continue  # still running -- nothing settled to review yet
+        questions = store.questions_for_lecture(lecture["id"])
+        latest_by_question = {q["id"]: _latest_submission_per_student(q["id"]) for q in questions}
+        submitters = set().union(*latest_by_question.values()) if questions else set()
+        students = max(store.joined_count(lecture["id"]), len(submitters))
+        tasks = []
+        for question in questions:
+            latest = latest_by_question[question["id"]]
+            solved_students = {
+                row["student_name"] for row in store.all_submissions(question["id"]) if row.get("verdict") == "correct"
+            }
+            issue_rows = defaultdict(list)
+            for name, row in latest.items():
+                if name not in solved_students:
+                    issue_rows[(row.get("exec_verdict"), row.get("error_type"))].append(row)
+            top_issue = None
+            if issue_rows:
+                (exec_verdict, error_type), rows = max(issue_rows.items(), key=lambda kv: len(kv[1]))
+                top_issue = {
+                    "exec_verdict": exec_verdict,
+                    "error_type": error_type,
+                    "students": len(rows),
+                    "discussion_point": _generate_discussion_point(exec_verdict, error_type, len(rows)),
+                    "example": _most_common_wrong_output(rows) if exec_verdict == "wrong_answer" else None,
+                }
+            tasks.append(
+                {
+                    "question_id": question["id"],
+                    "title": question["title"],
+                    "students": students,
+                    "submitted": len(latest),
+                    "solved": len(solved_students),
+                    "solve_rate": len(solved_students) / students if students else None,
+                    "top_issue": top_issue,
+                }
+            )
+        rated = [t["solve_rate"] for t in tasks if t["solve_rate"] is not None]
+        reviews.append(
+            {
+                "lecture_id": lecture["id"],
+                "display_label": lecture["display_label"],
+                "started_at": lecture["started_at"],
+                "archived": lecture["archived"],
+                "students": students,
+                "solve_rate": sum(rated) / len(rated) if rated else None,
+                "enough_data": students >= MIN_STUDENTS_FOR_REVIEW and bool(rated),
+                # Weakest first, so the page can show "what to go back over" at a glance.
+                "tasks": sorted(tasks, key=lambda t: (t["solve_rate"] is None, t["solve_rate"] or 0)),
+            }
+        )
+    reviews.sort(key=lambda r: (not r["enough_data"], r["solve_rate"] if r["solve_rate"] is not None else 1))
+    return reviews

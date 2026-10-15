@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import type { LectureRow, QuestionRow, QuestionStatus, ValidationTestResult } from "../shared/types";
 import {
@@ -15,6 +15,13 @@ import {
 import { NavBar } from "../shared/NavBar";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 
+// Lecture preparation. Top: the lecture itself and its one next action (open
+// the lobby, or go back to it / the live dashboard). Left: the questions in
+// the order they'll run. Right: the question editor, split into three steps
+// so a new question isn't one 15-field form -- what students see, the tests
+// and a known-correct solution (checked in one click), then timing. Rarely
+// changed grading limits sit under "Advanced" in step 3.
+
 interface TestCaseDraft {
   stdin: string;
   expected: string;
@@ -22,17 +29,33 @@ interface TestCaseDraft {
 
 interface ValidationResultState {
   pass: boolean;
+  total: number;
   failing: ValidationTestResult[];
 }
 
 const emptyTestCase = (): TestCaseDraft => ({ stdin: "", expected: "" });
+
+const STEPS = ["Task", "Tests & solution", "Timing & class"] as const;
+
+// Autosave waits this long after the last edit, so typing doesn't send a
+// request per keystroke.
+const AUTOSAVE_MS = 900;
+
+// Plain-language status for the question list.
+function statusLabel(q: QuestionRow): { text: string; kind: string } {
+  if (q.status === "live") return { text: "Live", kind: "live" };
+  if (q.status === "closed") return { text: "Done", kind: "done" };
+  if (q.status === "skipped") return { text: "Skipped", kind: "done" };
+  return q.validated ? { text: "Ready", kind: "ready" } : { text: "Needs a check", kind: "check" };
+}
 
 export default function App() {
   const [questions, setQuestions] = useState<QuestionRow[]>([]);
 
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [currentStatus, setCurrentStatus] = useState<QuestionStatus>("draft");
-  const [formHeading, setFormHeading] = useState("New question");
+  const [currentValidated, setCurrentValidated] = useState(false);
+  const [step, setStep] = useState(0);
 
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -46,15 +69,31 @@ export default function App() {
   const [durationMinutes, setDurationMinutes] = useState("10");
   const [idleNudgeMinutes, setIdleNudgeMinutes] = useState("3");
   const [referenceSolution, setReferenceSolution] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  // Autosave bookkeeping. editVersion counts edits; savedVersion is the edit
+  // count the last successful save contained -- so a save that was in flight
+  // while the lecturer kept typing doesn't mark those newer edits as saved,
+  // and the server's reply never overwrites what's in the form.
+  const [editVersion, setEditVersion] = useState(0);
+  const [savedVersion, setSavedVersion] = useState(0);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
+  const savingRef = useRef(false);
+  // Bumped whenever the editor switches question, so a save that finishes
+  // after the switch doesn't write its id into the newly opened question.
+  const generationRef = useRef(0);
+  const dirty = editVersion !== savedVersion;
+  function markEdited() {
+    setEditVersion((v) => v + 1);
+  }
 
   const [formStatusText, setFormStatusText] = useState("");
-  const [formStatusColor, setFormStatusColor] = useState("var(--muted)");
+  const [formStatusKind, setFormStatusKind] = useState<"muted" | "ok" | "bad">("muted");
+  const [busy, setBusy] = useState<null | "saving" | "checking" | "starting">(null);
   const [validationResult, setValidationResult] = useState<ValidationResultState | null>(null);
-  const [startDisabled, setStartDisabled] = useState(true);
 
   // The lecture this setup session belongs to (see the lobby-scoping-
-  // decision) -- fetched once so the "Open lobby" banner knows whether the
-  // lobby's already open (show a link back to it instead of the button).
+  // decision) -- fetched once so the lecture bar knows whether the lobby's
+  // already open (link back to it instead of the button).
   const [activeLecture, setActiveLecture] = useState<LectureRow | null>(null);
   // If a question is already live, "back to the lobby" must actually mean
   // "back to the live dashboard" -- see the lobby-view fix in
@@ -70,7 +109,12 @@ export default function App() {
   const [confirmDeleteLectureOpen, setConfirmDeleteLectureOpen] = useState(false);
   const [questionPendingDelete, setQuestionPendingDelete] = useState<QuestionRow | null>(null);
 
-  const locked = currentStatus === "live";
+  const locked = currentStatus !== "draft";
+
+  function setStatus(text: string, kind: "muted" | "ok" | "bad" = "muted") {
+    setFormStatusText(text);
+    setFormStatusKind(kind);
+  }
 
   function loadQuestionList() {
     fetchQuestionList()
@@ -87,7 +131,7 @@ export default function App() {
         setLiveQuestionId(a.live_question_id);
       })
       .catch(() => {
-        // Not critical -- the lobby banner just won't show.
+        // Not critical -- the lecture bar just won't show.
       });
   }
 
@@ -128,7 +172,7 @@ export default function App() {
   }
 
   function handleDeleteQuestion(q: QuestionRow, e: MouseEvent) {
-    e.stopPropagation(); // don't also trigger the row's own onClick (load into form)
+    e.stopPropagation(); // don't also open it in the editor
     setQuestionPendingDelete(q);
   }
 
@@ -141,8 +185,7 @@ export default function App() {
       if (currentId === q.id) resetForm();
       loadQuestionList();
     } catch (err) {
-      setFormStatusText(err instanceof Error ? err.message : "Could not delete this question.");
-      setFormStatusColor("var(--bad)");
+      setStatus(err instanceof Error ? err.message : "Could not delete this question.", "bad");
     }
   }
 
@@ -153,8 +196,7 @@ export default function App() {
   // testing.
   async function addTestQuestions() {
     setAddingTestQuestions(true);
-    setFormStatusText("Adding test questions...");
-    setFormStatusColor("var(--muted)");
+    setStatus("Adding...");
     const samples = [
       {
         title: "Double It",
@@ -168,13 +210,19 @@ export default function App() {
       {
         title: "Sum Two",
         prompt: "Read two integers on one line and print their sum.",
-        test_cases: [{ stdin: "3 4\n", expected: "7" }],
+        test_cases: [
+          { stdin: "3 4\n", expected: "7" },
+          { stdin: "10 -2\n", expected: "8" },
+        ],
         reference_solution: "a, b = map(int, input().split()); print(a + b)",
       },
       {
         title: "Reverse It",
         prompt: "Read a line of text and print it reversed.",
-        test_cases: [{ stdin: "hello\n", expected: "olleh" }],
+        test_cases: [
+          { stdin: "hello\n", expected: "olleh" },
+          { stdin: "abc\n", expected: "cba" },
+        ],
         reference_solution: "print(input()[::-1])",
       },
     ];
@@ -196,12 +244,10 @@ export default function App() {
         });
         await validateQuestionApi(created.id);
       }
-      setFormStatusText("Added 3 validated test questions.");
-      setFormStatusColor("var(--ok)");
+      setStatus("Added 3 sample questions.", "ok");
       loadQuestionList();
     } catch (err) {
-      setFormStatusText(err instanceof Error ? err.message : "Could not add test questions.");
-      setFormStatusColor("var(--bad)");
+      setStatus(err instanceof Error ? err.message : "Could not add test questions.", "bad");
     } finally {
       setAddingTestQuestions(false);
     }
@@ -210,7 +256,8 @@ export default function App() {
   function resetForm() {
     setCurrentId(null);
     setCurrentStatus("draft");
-    setFormHeading("New question");
+    setCurrentValidated(false);
+    setStep(0);
     setTitle("");
     setPrompt("");
     setLanguage("python");
@@ -223,15 +270,20 @@ export default function App() {
     setIdleNudgeMinutes("3");
     setReferenceSolution("");
     setTestCases([emptyTestCase()]);
-    setFormStatusText("");
+    setShowAdvanced(false);
+    generationRef.current += 1;
+    setEditVersion(0);
+    setSavedVersion(0);
+    setSaveState("idle");
+    setStatus("");
     setValidationResult(null);
-    setStartDisabled(true);
   }
 
-  function loadQuestionIntoForm(q: QuestionRow) {
+  function loadQuestionIntoForm(q: QuestionRow, keepStep = false) {
     setCurrentId(q.id);
     setCurrentStatus(q.status);
-    setFormHeading(q.title);
+    setCurrentValidated(q.validated);
+    if (!keepStep) setStep(0);
     setTitle(q.title);
     setPrompt(q.prompt);
     setLanguage(q.language);
@@ -251,16 +303,22 @@ export default function App() {
         ? q.test_cases.map((tc) => ({ stdin: tc.stdin, expected: tc.expected_stdout }))
         : [emptyTestCase()]
     );
-    setFormStatusText("");
-    setValidationResult(null);
-    setStartDisabled(!q.validated);
+    if (!keepStep) {
+      generationRef.current += 1;
+      setEditVersion(0);
+      setSavedVersion(0);
+      setSaveState("idle");
+      setStatus("");
+      setValidationResult(null);
+    }
   }
 
   function addTestCaseRow() {
     setTestCases((prev) => [...prev, emptyTestCase()]);
   }
   function removeTestCaseRow(index: number) {
-    setTestCases((prev) => prev.filter((_, i) => i !== index));
+    markEdited();
+    setTestCases((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : [emptyTestCase()]));
   }
   function updateTestCase(index: number, field: "stdin" | "expected", value: string) {
     setTestCases((prev) => prev.map((tc, i) => (i === index ? { ...tc, [field]: value } : tc)));
@@ -275,7 +333,10 @@ export default function App() {
       title: title.trim(),
       prompt: prompt.trim(),
       language,
-      test_cases: testCases.map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected })),
+      // An untouched blank row isn't a test case.
+      test_cases: testCases
+        .filter((tc) => tc.stdin.trim() || tc.expected.trim())
+        .map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected })),
       reference_solution: referenceSolution || null,
       cpu_time_limit_s: parseFloat(timeLimit),
       memory_limit_kb: Math.round(parseFloat(memoryLimit) * 1024),
@@ -288,421 +349,567 @@ export default function App() {
     };
   }
 
-  async function saveDraft() {
-    const payload = formPayload();
-    if (!payload.title || !payload.prompt || payload.test_cases.length === 0) {
-      setFormStatusText("Title, prompt, and at least one test case are required.");
-      setFormStatusColor("var(--bad)");
-      return;
-    }
-    if (!payload.duration_seconds || payload.duration_seconds <= 0) {
-      setFormStatusText("Time limit must be a positive number of minutes.");
-      setFormStatusColor("var(--bad)");
-      return;
-    }
-    setFormStatusText("Saving...");
-    setFormStatusColor("var(--muted)");
+  // What each step still needs -- drives the step checkmarks.
+  const payloadNow = formPayload();
+  const stepDone = [
+    Boolean(payloadNow.title && payloadNow.prompt),
+    Boolean(payloadNow.test_cases.length && referenceSolution.trim() && currentValidated),
+    // Defaults fill this step in already, so it only counts once the question is saved.
+    Boolean(currentId && payloadNow.duration_seconds > 0),
+  ];
+
+  // A question can be saved as soon as it has a title -- everything else can
+  // be filled in later (it only runs once "Check solution" passes).
+  const canAutosave = currentStatus === "draft" && title.trim() !== "" && payloadNow.duration_seconds > 0;
+
+  // Saves the form as it is now (create or update). Never touches the form's
+  // fields, so edits made while it's in flight survive. Returns the saved row,
+  // or null if it failed or another save was already running.
+  async function persist(): Promise<QuestionRow | null> {
+    if (savingRef.current) return null;
+    savingRef.current = true;
+    setSaveState("saving");
+    const version = editVersion;
+    const generation = generationRef.current;
     try {
+      const payload = formPayload();
       const data = currentId ? await updateQuestion(currentId, payload) : await createQuestion(payload);
-      loadQuestionIntoForm(data);
-      setFormStatusText("Saved.");
-      setFormStatusColor("var(--ok)");
+      if (generation === generationRef.current) {
+        setCurrentId(data.id);
+        setCurrentStatus(data.status);
+        setCurrentValidated(data.validated);
+        setSavedVersion(version);
+      }
+      setSaveState("idle");
       loadQuestionList();
+      return data;
     } catch (e) {
-      setFormStatusText(e instanceof Error ? e.message : "Save failed.");
-      setFormStatusColor("var(--bad)");
+      setSaveState("error");
+      setStatus(e instanceof Error ? `Not saved: ${e.message}` : "Not saved.", "bad");
+      return null;
+    } finally {
+      savingRef.current = false;
     }
   }
 
-  async function runValidation() {
-    if (!currentId) {
-      setFormStatusText("Save the question as a draft first.");
-      setFormStatusColor("var(--bad)");
+  async function waitForSave() {
+    while (savingRef.current) await new Promise((resolve) => setTimeout(resolve, 80));
+  }
+
+  // Before leaving this question (another one, or a new one): save what's
+  // there if it can be saved. A question without a title has nothing worth
+  // keeping yet.
+  async function flushThen(next: () => void) {
+    await waitForSave();
+    if (dirty && canAutosave) await persist();
+    next();
+  }
+
+  // Autosave: shortly after the last edit.
+  useEffect(() => {
+    if (!dirty || !canAutosave || saveState === "saving") return;
+    const t = window.setTimeout(() => {
+      persist();
+    }, AUTOSAVE_MS);
+    return () => window.clearTimeout(t);
+    // persist() reads the current render's form state; re-running on each
+    // edit (editVersion) is what keeps that fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editVersion, savedVersion, saveState, canAutosave]);
+
+  // Closing the tab with an unsaved edit or a save still in flight.
+  useEffect(() => {
+    if (!dirty && saveState !== "saving") return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty, saveState]);
+
+  // Step 2's one button: save, then run the reference solution against the
+  // tests (the backend refuses to validate an unsaved question anyway).
+  async function checkSolution() {
+    const payload = formPayload();
+    if (!payload.title || !payload.prompt) {
+      setStep(0);
+      setStatus("Add a title and task description first.", "bad");
       return;
     }
-    setFormStatusText("Running the reference solution against the rubric on Judge0...");
-    setFormStatusColor("var(--muted)");
+    if (payload.test_cases.length < 2) {
+      // The first test is the example students see and isn't graded (main._graded).
+      setStatus("Add at least 2 test cases. The first is shown to students and isn't graded.", "bad");
+      return;
+    }
+    if (!referenceSolution.trim()) {
+      setStatus("Add a reference solution first.", "bad");
+      return;
+    }
+    if (!canAutosave) {
+      setStep(2);
+      setStatus("Time limit must be at least 1 minute.", "bad");
+      return;
+    }
+    await waitForSave();
+    const saved = dirty || !currentId ? await persist() : questions.find((q) => q.id === currentId) ?? null;
+    if (!saved) return;
+    setBusy("checking");
+    setStatus("Checking...");
     setValidationResult(null);
     try {
-      const data = await validateQuestionApi(currentId);
-      setFormStatusText("");
+      const data = await validateQuestionApi(saved.id);
+      setStatus("");
       setValidationResult({
         pass: data.validated,
+        total: (data.results || []).length,
         failing: (data.results || []).filter((r) => !r.passed),
       });
-      setStartDisabled(!data.validated);
+      setCurrentValidated(data.validated);
+      loadQuestionList();
     } catch (e) {
-      setFormStatusText(e instanceof Error ? e.message : "Validation failed.");
-      setFormStatusColor("var(--bad)");
+      setStatus(e instanceof Error ? e.message : "Check failed.", "bad");
+    } finally {
+      setBusy(null);
     }
   }
 
   async function startQuestion() {
     if (!currentId) return;
-    setFormStatusText("Starting...");
-    setFormStatusColor("var(--muted)");
+    setBusy("starting");
+    setStatus("Starting...");
     try {
       await startQuestionApi(currentId);
-      setFormStatusText("Live. Redirecting to the dashboard...");
-      setFormStatusColor("var(--ok)");
+      setStatus("Live.", "ok");
       loadQuestionList();
       setTimeout(() => {
         window.location.href = `lecturer.html?question_id=${encodeURIComponent(currentId)}`;
       }, 700);
     } catch (e) {
-      setFormStatusText(e instanceof Error ? e.message : "Could not start this question.");
-      setFormStatusColor("var(--bad)");
+      setStatus(e instanceof Error ? e.message : "Could not start this question.", "bad");
+      setBusy(null);
     }
   }
+
+  const readyCount = questions.filter((q) => q.status === "draft" && q.validated).length;
+  const draftCount = questions.filter((q) => q.status === "draft").length;
+  const lobbyOpen = Boolean(activeLecture?.lobby_opened_at);
+  const canStartNow = lobbyOpen && !liveQuestionId && currentStatus === "draft" && currentValidated;
 
   return (
     <>
       <NavBar />
       <header>
-        <h1>Question Setup</h1>
-        <p>Author a question, set its grading config, validate it against a known-correct solution, then start it.</p>
+        <h1>Prepare lecture</h1>
       </header>
       <main>
         {activeLecture && (
-          <div className="card" id="lobby-banner">
-            {liveQuestionId ? (
-              <>
-                <h2>Lecture is live</h2>
-                <p className="hint" style={{ marginBottom: "0.6rem" }}>
-                  A question is already running. You can still add, edit, or delete draft questions here for
-                  later in the lecture.
-                </p>
-                <a href={`lecturer.html?question_id=${encodeURIComponent(liveQuestionId)}`}>
-                  <button type="button">Back to live dashboard &rarr;</button>
-                </a>
-              </>
-            ) : activeLecture.lobby_opened_at ? (
-              <>
-                <h2>Lobby is open</h2>
-                <p className="hint" style={{ marginBottom: "0.6rem" }}>
-                  Students can already join with code <strong>{activeLecture.join_code}</strong>. Add, edit, or
-                  delete draft questions here any time before you start the lecture.
-                </p>
-                <a href={`lecturer.html?lobby=${activeLecture.id}`}>
-                  <button type="button">Back to lobby &rarr;</button>
-                </a>
-              </>
-            ) : (
-              <>
-                <h2>Ready for class?</h2>
-                <p className="hint" style={{ marginBottom: "0.6rem" }}>
-                  Prepare as many questions as you like first. Nothing is joinable and no timer starts until you
-                  open the lobby.
-                </p>
-                <button type="button" onClick={handleOpenLobby} disabled={openingLobby}>
-                  {openingLobby ? "Opening..." : "Open lobby"}
-                </button>
-                {lobbyError && <div style={{ color: "var(--bad)", marginTop: "0.5rem" }}>{lobbyError}</div>}
-              </>
-            )}
-            {!liveQuestionId && (
-              <div style={{ marginTop: "0.9rem" }}>
+          <section className="card lecture-bar" aria-label="Lecture">
+            <div className="lecture-bar-info">
+              <div className="lecture-bar-title">
+                <span className="lecture-bar-name">{activeLecture.display_label}</span>
+                <span className={`chip chip-${liveQuestionId ? "live" : lobbyOpen ? "open" : "prep"}`}>
+                  {liveQuestionId ? "Live" : lobbyOpen ? "Lobby open" : "Preparing"}
+                </span>
+              </div>
+              <div className="lecture-bar-sub">
+                {questions.length === 0
+                  ? "No questions yet"
+                  : `${readyCount}/${draftCount} ready`}
+                {lobbyOpen && activeLecture.join_code && (
+                  <>
+                    {" "}
+                    · Code <strong className="join-code">{activeLecture.join_code}</strong>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="lecture-bar-actions">
+              {!liveQuestionId && (
                 <button
-                  className="danger"
+                  type="button"
+                  className="link-button danger-link"
                   onClick={() => setConfirmDeleteLectureOpen(true)}
                   disabled={deletingLecture}
                 >
                   {deletingLecture ? "Deleting..." : "Delete lecture"}
                 </button>
-                {deleteLectureError && (
-                  <div style={{ color: "var(--bad)", marginTop: "0.5rem" }}>{deleteLectureError}</div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        <div className="grid">
-          <div className="card">
-            <h2>Questions</h2>
-            <div id="empty-list" style={{ display: questions.length === 0 ? "block" : "none" }}>
-              No questions yet. Create one on the right.
-            </div>
-            <ul id="question-list" style={{ display: questions.length === 0 ? "none" : "block" }}>
-              {questions.map((q) => (
-                <li
-                  key={q.id}
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).tagName === "A") return;
-                    loadQuestionIntoForm(q);
-                  }}
+              )}
+              {liveQuestionId ? (
+                <a className="button-link" href={`lecturer.html?question_id=${encodeURIComponent(liveQuestionId)}`}>
+                  Back to live dashboard &rarr;
+                </a>
+              ) : lobbyOpen ? (
+                <a className="button-link" href={`lecturer.html?lobby=${activeLecture.id}`}>
+                  Back to lobby &rarr;
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleOpenLobby}
+                  disabled={openingLobby || readyCount === 0}
+                  title={readyCount === 0 ? "No questions ready yet" : undefined}
                 >
-                  <div>
-                    <div className="q-title">{q.title}</div>
-                    <div className="q-meta">
-                      <span
-                        className={
-                          "status-pill " +
-                          (q.status === "live"
-                            ? "status-live"
-                            : q.status === "closed"
-                            ? "status-closed"
-                            : "status-draft")
-                        }
-                      >
-                        {q.status}
-                      </span>{" "}
-                      {q.id}
-                    </div>
-                  </div>
-                  {q.status === "live" && (
-                    <a href={`lecturer.html?question_id=${encodeURIComponent(q.id)}`}>Live dashboard &rarr;</a>
-                  )}
-                  {q.status === "draft" && (
-                    <button
-                      type="button"
-                      className="danger delete-question-btn"
-                      onClick={(e) => handleDeleteQuestion(q, e)}
+                  {openingLobby ? "Opening..." : "Open lobby"}
+                </button>
+              )}
+            </div>
+            {(lobbyError || deleteLectureError) && (
+              <div className="form-status bad lecture-bar-error">{lobbyError || deleteLectureError}</div>
+            )}
+          </section>
+        )}
+
+        <div className="grid">
+          <section className="card question-panel" aria-label="Questions">
+            <div className="panel-head">
+              <h2>Questions</h2>
+              <span className="panel-count">{questions.length}</span>
+            </div>
+            {questions.length === 0 ? (
+              <div className="empty">No questions yet</div>
+            ) : (
+              <ol className="question-list">
+                {/* Run order: questions start oldest first (store.next_draft_question),
+                    and the API lists newest first, so reversed is exactly that order. */}
+                {[...questions].reverse().map((q, i) => {
+                  const s = statusLabel(q);
+                  return (
+                    <li
+                      key={q.id}
+                      className={q.id === currentId ? "is-selected" : undefined}
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest("a")) return;
+                        if (q.id === currentId) return;
+                        flushThen(() => loadQuestionIntoForm(q));
+                      }}
                     >
-                      Delete
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-            <button className="secondary" id="new-question-btn" style={{ marginTop: "0.9rem" }} onClick={resetForm}>
+                      <span className="q-index">{i + 1}</span>
+                      <span className="q-body">
+                        <span className="q-title">{q.title}</span>
+                        <span className={`q-status q-status-${s.kind}`}>{s.text}</span>
+                      </span>
+                      {q.status === "live" && (
+                        <a className="text-link" href={`lecturer.html?question_id=${encodeURIComponent(q.id)}`}>
+                          Dashboard
+                        </a>
+                      )}
+                      {q.status === "draft" && (
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label={`Delete ${q.title}`}
+                          title="Delete"
+                          onClick={(e) => handleDeleteQuestion(q, e)}
+                        >
+                          &times;
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+            <button type="button" className="new-question-btn" onClick={() => flushThen(resetForm)}>
               + New question
             </button>
             <button
-              className="secondary"
-              id="add-test-questions-btn"
-              style={{ marginTop: "0.9rem" }}
+              type="button"
+              className="link-button dev-link"
               onClick={addTestQuestions}
               disabled={addingTestQuestions}
-              title="Dev convenience: adds 3 real, pre-validated questions so you don't have to type one in by hand to test the flow."
+              title="Adds 3 checked sample questions, for testing"
             >
-              {addingTestQuestions ? "Adding..." : "+ Add 3 test questions"}
+              {addingTestQuestions ? "Adding..." : "Add sample questions"}
             </button>
-          </div>
+          </section>
 
-          <div className="card">
-            <h2 id="form-heading">{formHeading}</h2>
-            <div id="locked-banner" style={{ display: locked ? "block" : "none" }}>
-              This question is live. Its config is locked. Create a new question to change anything.
+          <section className="card editor" aria-label="Question editor">
+            <div className="editor-head">
+              <h2>{currentId ? title || "Untitled question" : "New question"}</h2>
+              {currentId && (
+                <span className={`q-status q-status-${currentValidated ? "ready" : locked ? "done" : "check"}`}>
+                  {currentStatus === "live"
+                    ? "Live"
+                    : currentStatus !== "draft"
+                    ? "Done"
+                    : currentValidated
+                    ? "Ready"
+                    : "Needs a check"}
+                </span>
+              )}
             </div>
+            {locked && (
+              <div className="locked-banner">
+                Already run, so it can't be edited.
+              </div>
+            )}
 
-            <label htmlFor="f-title">Title</label>
-            <input
-              type="text"
-              id="f-title"
-              placeholder="e.g. Sum of Integers"
-              value={title}
-              disabled={locked}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-
-            <label htmlFor="f-prompt">
-              Prompt <span className="hint">(shown to students)</span>
-            </label>
-            <textarea
-              id="f-prompt"
-              placeholder="Read a single line of space-separated integers..."
-              value={prompt}
-              disabled={locked}
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-
-            <label htmlFor="f-language">Language</label>
-            <select id="f-language" value={language} disabled={locked} onChange={(e) => setLanguage(e.target.value)}>
-              <option value="python">Python</option>
-              <option value="c">C</option>
-              <option value="java">Java</option>
-            </select>
-
-            <h3>
-              Test cases <span className="hint">(the first one is shown to students as a worked example)</span>
-            </h3>
-            <div id="test-cases">
-              {testCases.map((tc, i) => (
-                <div className="test-case-row" key={i}>
-                  <textarea
-                    className="tc-stdin"
-                    placeholder="stdin"
-                    value={tc.stdin}
-                    disabled={locked}
-                    onChange={(e) => updateTestCase(i, "stdin", e.target.value)}
-                  />
-                  <textarea
-                    className="tc-expected"
-                    placeholder="expected stdout"
-                    value={tc.expected}
-                    disabled={locked}
-                    onChange={(e) => updateTestCase(i, "expected", e.target.value)}
-                  />
+            <ol className="stepper">
+              {STEPS.map((name, i) => (
+                <li key={name}>
                   <button
                     type="button"
-                    className="danger remove-tc"
-                    disabled={locked}
-                    onClick={() => removeTestCaseRow(i)}
+                    className={["step", i === step && "is-current", stepDone[i] && "is-done"].filter(Boolean).join(" ")}
+                    aria-current={i === step ? "step" : undefined}
+                    onClick={() => setStep(i)}
                   >
-                    Remove
+                    <span className="step-dot">{stepDone[i] && i !== step ? "✓" : i + 1}</span>
+                    <span className="step-name">{name}</span>
                   </button>
-                </div>
+                </li>
               ))}
-            </div>
-            <button type="button" className="secondary" id="add-testcase-btn" disabled={locked} onClick={addTestCaseRow}>
-              + Add test case
-            </button>
+            </ol>
 
-            <h3>Grading config</h3>
-            <div className="row2">
-              <div>
-                <label htmlFor="f-time">
-                  Time limit (seconds) <span className="hint">default 5, capped by the server</span>
-                </label>
-                <input
-                  type="number"
-                  id="f-time"
-                  min={0.5}
-                  step={0.5}
-                  value={timeLimit}
-                  disabled={locked}
-                  onChange={(e) => setTimeLimit(e.target.value)}
-                />
-              </div>
-              <div>
-                <label htmlFor="f-memory">
-                  Memory limit (MB) <span className="hint">default 125, capped by the server</span>
-                </label>
-                <input
-                  type="number"
-                  id="f-memory"
-                  min={16}
-                  step={1}
-                  value={memoryLimit}
-                  disabled={locked}
-                  onChange={(e) => setMemoryLimit(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="row2">
-              <div>
-                <label htmlFor="f-lines">Submission line limit</label>
-                <input
-                  type="number"
-                  id="f-lines"
-                  min={10}
-                  step={10}
-                  value={lineLimit}
-                  disabled={locked}
-                  onChange={(e) => setLineLimit(e.target.value)}
-                />
-              </div>
-              <div>
-                <label htmlFor="f-packages">
-                  Extra allowed packages <span className="hint">comma-separated, beyond stdlib</span>
-                </label>
-                <input
-                  type="text"
-                  id="f-packages"
-                  placeholder="e.g. numpy, requests"
-                  value={packages}
-                  disabled={locked}
-                  onChange={(e) => setPackages(e.target.value)}
-                />
-              </div>
-            </div>
+            {/* onInput catches every typed edit in the steps (inputs, textareas, the select). */}
+            <fieldset className="step-body" disabled={locked || busy !== null} onInput={markEdited}>
+              {step === 0 && (
+                <>
+                  <label htmlFor="f-title">Title</label>
+                  <input
+                    type="text"
+                    id="f-title"
+                    placeholder="e.g. Sum of integers"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                  <label htmlFor="f-prompt">Task description</label>
+                  <textarea
+                    id="f-prompt"
+                    className="prose"
+                    placeholder="Read a line of space-separated integers and print their sum."
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                  />
+                  <label htmlFor="f-language">Language</label>
+                  <select id="f-language" value={language} onChange={(e) => setLanguage(e.target.value)}>
+                    <option value="python">Python</option>
+                    <option value="c">C</option>
+                    <option value="java">Java</option>
+                  </select>
+                </>
+              )}
 
-            <h3>Class</h3>
-            <label htmlFor="f-expected">
-              Expected number of students{" "}
-              <span className="hint">optional, powers the live "X/N submitted" counter on the dashboard</span>
-            </label>
-            <input
-              type="number"
-              id="f-expected"
-              min={1}
-              step={1}
-              placeholder="e.g. 22"
-              value={expectedStudents}
-              disabled={locked}
-              onChange={(e) => setExpectedStudents(e.target.value)}
-            />
+              {step === 1 && (
+                <>
+                  <div className="field-head">
+                    <span className="field-label">Test cases</span>
+                  </div>
+                  <div className="tc-table">
+                    <div className="tc-header" aria-hidden="true">
+                      <span>Input</span>
+                      <span>Expected output</span>
+                      <span />
+                    </div>
+                    {testCases.map((tc, i) => (
+                      <div className="tc-row" key={i}>
+                        <textarea
+                          aria-label={`Test ${i + 1} input`}
+                          placeholder="1 2 3"
+                          value={tc.stdin}
+                          onChange={(e) => updateTestCase(i, "stdin", e.target.value)}
+                        />
+                        <textarea
+                          aria-label={`Test ${i + 1} expected output`}
+                          placeholder="6"
+                          value={tc.expected}
+                          onChange={(e) => updateTestCase(i, "expected", e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label={`Remove test ${i + 1}`}
+                          title="Remove"
+                          onClick={() => removeTestCaseRow(i)}
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" className="secondary small" onClick={addTestCaseRow}>
+                    + Add test case
+                  </button>
 
-            <label htmlFor="f-duration">
-              Time limit for students (minutes){" "}
-              <span className="hint">
-                countdown shown on the student page; their code auto-submits when it hits zero
-              </span>
-            </label>
-            <input
-              type="number"
-              id="f-duration"
-              min={1}
-              step={1}
-              value={durationMinutes}
-              disabled={locked}
-              onChange={(e) => setDurationMinutes(e.target.value)}
-            />
+                  <label htmlFor="f-reference" className="spaced">
+                    Reference solution <span className="hint">hidden from students</span>
+                  </label>
+                  <textarea
+                    id="f-reference"
+                    className="code"
+                    placeholder="print(sum(int(x) for x in input().split()))"
+                    value={referenceSolution}
+                    onChange={(e) => setReferenceSolution(e.target.value)}
+                  />
+                  <div className="check-row">
+                    <button type="button" className="secondary" onClick={checkSolution}>
+                      {busy === "checking" ? "Checking..." : "Check solution"}
+                    </button>
+                  </div>
+                  {validationResult && (
+                    <div className={validationResult.pass ? "check-result pass" : "check-result fail"} role="status">
+                      {validationResult.pass ? (
+                        <>
+                          <strong>All {validationResult.total} tests pass.</strong>
+                        </>
+                      ) : (
+                        <>
+                          <strong>
+                            {validationResult.failing.length} of {validationResult.total} tests fail
+                          </strong>
+                          <ul>
+                            {validationResult.failing.map((r, i) => (
+                              <li key={i}>
+                                input <code>{r.stdin.trim() || "(empty)"}</code>: expected{" "}
+                                <code>{r.expected_stdout}</code>, got <code>{(r.stdout || "").trim() || "(nothing)"}</code>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
 
-            <label htmlFor="f-idle-nudge">
-              Nudge idle students after (minutes){" "}
-              <span className="hint">
-                a student who hasn't typed for this long gets a gentle reminder; 0 turns it off
-              </span>
-            </label>
-            <input
-              type="number"
-              id="f-idle-nudge"
-              min={0}
-              step={0.5}
-              value={idleNudgeMinutes}
-              disabled={locked}
-              onChange={(e) => setIdleNudgeMinutes(e.target.value)}
-            />
+              {step === 2 && (
+                <>
+                  <div className="row2">
+                    <div>
+                      <label htmlFor="f-duration">Time limit (min)</label>
+                      <input
+                        type="number"
+                        id="f-duration"
+                        min={1}
+                        step={1}
+                        value={durationMinutes}
+                        onChange={(e) => setDurationMinutes(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="f-expected">
+                        Class size <span className="hint">optional</span>
+                      </label>
+                      <input
+                        type="number"
+                        id="f-expected"
+                        min={1}
+                        step={1}
+                        placeholder="e.g. 22"
+                        value={expectedStudents}
+                        onChange={(e) => setExpectedStudents(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <label htmlFor="f-idle-nudge">
+                    Idle nudge after (min) <span className="hint">0 = off</span>
+                  </label>
+                  <input
+                    type="number"
+                    id="f-idle-nudge"
+                    className="narrow"
+                    min={0}
+                    step={0.5}
+                    value={idleNudgeMinutes}
+                    onChange={(e) => setIdleNudgeMinutes(e.target.value)}
+                  />
 
-            <h3>
-              Reference solution <span className="hint">(a known-correct solution, used only for the validation preview below)</span>
-            </h3>
-            <textarea
-              id="f-reference"
-              placeholder="print(sum(int(x) for x in input().split()))"
-              value={referenceSolution}
-              disabled={locked}
-              onChange={(e) => setReferenceSolution(e.target.value)}
-            />
+                  <button
+                    type="button"
+                    className="disclosure"
+                    aria-expanded={showAdvanced}
+                    onClick={() => setShowAdvanced((v) => !v)}
+                  >
+                    <span className="chevron" aria-hidden="true" /> Advanced
+                  </button>
+                  {showAdvanced && (
+                    <div className="advanced">
+                      <div className="row2">
+                        <div>
+                          <label htmlFor="f-time">CPU time per test (s)</label>
+                          <input
+                            type="number"
+                            id="f-time"
+                            min={0.5}
+                            step={0.5}
+                            value={timeLimit}
+                            onChange={(e) => setTimeLimit(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="f-memory">Memory (MB)</label>
+                          <input
+                            type="number"
+                            id="f-memory"
+                            min={16}
+                            step={1}
+                            value={memoryLimit}
+                            onChange={(e) => setMemoryLimit(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div className="row2">
+                        <div>
+                          <label htmlFor="f-lines">Max lines</label>
+                          <input
+                            type="number"
+                            id="f-lines"
+                            min={10}
+                            step={10}
+                            value={lineLimit}
+                            onChange={(e) => setLineLimit(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="f-packages">
+                            Extra packages <span className="hint">comma-separated</span>
+                          </label>
+                          <input
+                            type="text"
+                            id="f-packages"
+                            placeholder="e.g. numpy, requests"
+                            value={packages}
+                            onChange={(e) => setPackages(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </fieldset>
 
-            <div id="form-status" style={{ color: formStatusColor }}>
+            <div className={`form-status ${formStatusKind}`} role="status">
               {formStatusText}
             </div>
 
-            <div style={{ marginTop: "1rem" }}>
-              <button id="save-btn" style={{ display: locked ? "none" : "inline-block" }} onClick={saveDraft}>
-                Save draft
+            <div className="editor-footer">
+              <button type="button" className="secondary" disabled={step === 0} onClick={() => setStep((s) => s - 1)}>
+                Back
               </button>
-              <button className="secondary" id="validate-btn" onClick={runValidation}>
-                Run validation preview
-              </button>
-              <button className="secondary" id="start-btn" disabled={startDisabled} onClick={startQuestion}>
-                Start (go live)
-              </button>
-            </div>
-
-            {validationResult && (
-              <div id="validation-result" className={validationResult.pass ? "pass" : "fail"} style={{ display: "block" }}>
-                {validationResult.pass ? (
-                  "All test cases passed against the reference solution. Ready to start."
-                ) : (
-                  <>
-                    The reference solution did not pass every test case. Fix the rubric or the solution before
-                    starting:
-                    <ul>
-                      {validationResult.failing.map((r, i) => (
-                        <li key={i}>
-                          stdin <code>{r.stdin}</code>, expected <code>{r.expected_stdout}</code>, got{" "}
-                          <code>{(r.stdout || "").trim()}</code>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
+              {!locked && (
+                <span className={`save-indicator save-${saveState}`} role="status">
+                  {saveState === "saving"
+                    ? "Saving…"
+                    : saveState === "error"
+                    ? "Not saved"
+                    : dirty && !canAutosave
+                    ? "Add a title to save"
+                    : currentId && !dirty
+                    ? "Saved"
+                    : ""}
+                </span>
+              )}
+              <div className="editor-footer-right">
+                {step < STEPS.length - 1 ? (
+                  <button type="button" onClick={() => setStep((s) => s + 1)}>
+                    Next: {STEPS[step + 1]}
+                  </button>
+                ) : canStartNow ? (
+                  <button type="button" onClick={startQuestion} disabled={busy !== null}>
+                    {busy === "starting" ? "Starting..." : "Start now"}
+                  </button>
+                ) : null}
               </div>
-            )}
-          </div>
+            </div>
+          </section>
         </div>
       </main>
       <ConfirmDialog

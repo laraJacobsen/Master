@@ -8,6 +8,7 @@ import type {
   LectureHistoryRow,
   LectureJoinResponse,
   LectureNextResponse,
+  LectureReview,
   LectureRow,
   LectureStatus,
   LectureSummary,
@@ -217,6 +218,10 @@ export function openLobby(lectureId: number): Promise<LectureRow> {
 
 export function fetchJoinedCount(lectureId: number): Promise<JoinedCountResponse> {
   return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/joined_count`).then((res) => asJson(res));
+}
+
+export function fetchLectureReview(): Promise<LectureReview[]> {
+  return fetch(`${API_BASE}/api/lecturer/lectures/review`).then((res) => asJson(res));
 }
 
 export function fetchLectureHistory(includeArchived = false): Promise<LectureHistoryRow[]> {

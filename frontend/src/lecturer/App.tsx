@@ -602,7 +602,7 @@ export default function App() {
                 </div>
                 <div style={{ textAlign: "center" }}>
                   <button onClick={handleStartLecture} disabled={startingLecture}>
-                    {startingLecture ? "Starting..." : "Start lecture (earliest question)"}
+                    {startingLecture ? "Starting..." : "Start lecture"}
                   </button>
                 </div>
                 {startError && (
@@ -824,8 +824,9 @@ export default function App() {
         {(lectureFinished || LECTURE_ID) && (
           <>
           <div id="back-to-home-row">
-            <a href="index.html" className="back-to-home-btn">
-              &larr; Back to home
+            {/* Summaries are opened from the history page, so that's where "back" goes. */}
+            <a href="history.html" className="back-to-home-btn">
+              &larr; Lecture history
             </a>
           </div>
           <div className="grid" id="session-summary">

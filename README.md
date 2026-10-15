@@ -84,8 +84,12 @@ frontend/              React + TypeScript (Vite), one entry point per page -- sa
                         (polls every 3s) for one question, picked via ?question_id=,
                         plus a class-progress chart (ClassProgress.tsx; see
                         docs/decisions/class-progress-visualization-decision.md)
+  src/history/          Lecture history (nav bar "History"): "Needs revisiting" ranks
+                        finished lectures by share of students who solved each task,
+                        worst first, with each one's weakest tasks and most common issue
+                        (GET /api/lecturer/lectures/review); plus the full lecture list
   src/shared/           TypeScript types + fetch wrappers for the API, shared by
-                        all three pages
+                        all pages
 smoke_test.py           Structural test with Judge0 + IDUN mocked out -- proves the
                           plumbing works without needing either service running, including
                           the full question-setup flow (draft -> validate -> start -> live,

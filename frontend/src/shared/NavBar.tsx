@@ -22,7 +22,8 @@ function isCurrentPage(href: string): boolean {
 // live dashboard) -- not on student.html, which is a different audience
 // with nothing on this bar relevant to it. The brand link is the "go back"
 // affordance (clicking it always returns to the one hub every flow starts
-// from), and the right-hand shortcut is always the single obvious next
+// from), "History" opens the past-lectures page (history.html) from
+// anywhere, and the right-hand shortcut is always the single obvious next
 // step for wherever the lecture currently stands, using the exact same
 // logic the home page's own resume button uses. That shortcut is a labeled
 // action ("New lecture", "Continue setup", ...) rather than a plain "go
@@ -41,7 +42,8 @@ export function NavBar() {
   }, []);
 
   const action = activeLectureAction(active);
-  const showHome = !isCurrentPage("index.html");
+  const onHome = isCurrentPage("index.html");
+  const onHistory = isCurrentPage("history.html");
   // "Resume lobby" is left off the nav bar's shortcut on purpose -- the home
   // page's own card already surfaces the join code for that state, and a
   // nav-bar link would just duplicate it without that context.
@@ -50,14 +52,26 @@ export function NavBar() {
   return (
     <nav className="top-nav">
       <a href="index.html" className="top-nav-brand">
-        Interactive Lecture
+        <span className="top-nav-mark" aria-hidden="true">IL</span>
+        <span className="top-nav-name">Interactive Lecture</span>
       </a>
       <div className="top-nav-actions">
-        {showHome && (
-          <a href="index.html" className="top-nav-home">
-            Home
-          </a>
-        )}
+        {/* Always shown, marked when current -- a nav link that vanishes on its
+            own page makes the bar jump around between pages. */}
+        <a
+          href="index.html"
+          className={onHome ? "top-nav-home is-current" : "top-nav-home"}
+          aria-current={onHome ? "page" : undefined}
+        >
+          Home
+        </a>
+        <a
+          href="history.html"
+          className={onHistory ? "top-nav-home is-current" : "top-nav-home"}
+          aria-current={onHistory ? "page" : undefined}
+        >
+          History
+        </a>
         {showCta && (
           <a href={action.href} className="top-nav-cta">
             {action.label}
