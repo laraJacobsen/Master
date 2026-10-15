@@ -654,11 +654,6 @@ export default function App() {
                         >
                           &times;
                         </button>
-                        {i === 0 && (
-                          <span className="tc-example" title="Shown to students">
-                            Example
-                          </span>
-                        )}
                       </div>
                     ))}
                   </div>

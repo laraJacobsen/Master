@@ -602,7 +602,7 @@ export default function App() {
                 </div>
                 <div style={{ textAlign: "center" }}>
                   <button onClick={handleStartLecture} disabled={startingLecture}>
-                    {startingLecture ? "Starting..." : "Start lecture (earliest question)"}
+                    {startingLecture ? "Starting..." : "Start lecture"}
                   </button>
                 </div>
                 {startError && (
