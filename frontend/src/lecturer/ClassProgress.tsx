@@ -181,11 +181,14 @@ export function ClassProgress({
   subs,
   expected,
   activity,
+  finished = false,
 }: {
   subs: SubmissionRow[];
   expected: number | null;
   // Null when activity doesn't apply (task not running) -- hides it entirely.
   activity: StudentActivity[] | null;
+  // The task is over (end-of-lecture summary) -- wording only.
+  finished?: boolean;
 }) {
   // Collapsed by default: the per-student rows carry names, and this
   // dashboard is often on the projector. The summary above stays visible
@@ -244,7 +247,7 @@ export function ClassProgress({
             <span
               className="cp-seg cp-none"
               style={{ flexGrow: notSubmitted }}
-              title={`${notSubmitted} not yet submitted`}
+              title={`${notSubmitted} ${finished ? "didn't submit" : "not yet submitted"}`}
             />
           )}
         </div>
@@ -259,11 +262,11 @@ export function ClassProgress({
         {expected != null && (
           <li>
             <span className="cp-sq cp-none" aria-hidden="true" />
-            {notSubmitted} not yet submitted
+            {notSubmitted} {finished ? "didn't submit" : "not yet submitted"}
           </li>
         )}
       </ul>
-      <div className="cp-caption">Best result so far per student.</div>
+      <div className="cp-caption">{finished ? "Each student's best result." : "Best result so far per student."}</div>
 
       {showActivity && unsolved.length > 0 && (
         <ul className="cp-legend cp-activity-summary" aria-label="Students still working, by activity">

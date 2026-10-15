@@ -202,6 +202,10 @@ export default function App() {
   const [summary, setSummary] = useState<LectureSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  // Every task's submissions, for the per-task Class progress charts in the
+  // summary -- keyed by question_id; a task missing here failed to load.
+  const [taskSubs, setTaskSubs] = useState<Record<string, SubmissionRow[]>>({});
+  const [taskSubsLoaded, setTaskSubsLoaded] = useState(false);
 
   // Lobby mode (?lobby=) -- the lecture row itself (for its code/label,
   // fetched once) and the live joined-count (polled, same cadence as the
@@ -222,6 +226,16 @@ export default function App() {
       .then((s) => {
         setSummary(s);
         setPageTitle(`${s.lecture_label} summary`);
+        return Promise.all(
+          s.tasks.map((t) =>
+            fetchSubmissions(t.question_id)
+              .then((rows) => [t.question_id, rows] as const)
+              .catch(() => null),
+          ),
+        ).then((results) => {
+          setTaskSubs(Object.fromEntries(results.filter((r) => r !== null)));
+          setTaskSubsLoaded(true);
+        });
       })
       .catch((e) => {
         setSummaryError(e instanceof Error ? e.message : "Could not load this lecture's summary.");
@@ -823,41 +837,34 @@ export default function App() {
                 <div className="summary-status">No tasks were run this lecture.</div>
               )}
               {summary && summary.tasks.length > 0 && (
-                <table id="summary-table">
-                  <thead>
-                    <tr>
-                      <th>Task</th>
-                      <th>Submitted</th>
-                      <th>Verdict breakdown</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.tasks.map((t) => (
-                      <tr key={t.question_id}>
-                        <td>{t.title}</td>
-                        <td>{submittedText(t.submitted, t.expected)}</td>
-                        <td>
-                          <div className="verdict-breakdown">
-                            {Object.entries(t.verdict_counts).map(([verdict, count]) => (
-                              <span key={verdict} className={verdictClass(verdict)}>
-                                {verdictLabel(verdict)} {count}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td>
-                          <a
-                            className="drilldown-link"
-                            href={`lecturer.html?question_id=${encodeURIComponent(t.question_id)}`}
-                          >
-                            View task &rarr;
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                // Same chart as the live dashboard, one per task -- each
+                // student's best result, with their attempts behind "Show
+                // students". Replaces the old verdict-pill column, which
+                // counted latest (not best) results and would have disagreed
+                // with the chart right next to it.
+                <ul id="summary-task-list">
+                  {summary.tasks.map((t) => (
+                    <li key={t.question_id} className="summary-task">
+                      <div className="summary-task-head">
+                        <strong>{t.title}</strong>
+                        <span className="summary-task-count">{submittedText(t.submitted, t.expected)}</span>
+                        <a
+                          className="drilldown-link"
+                          href={`lecturer.html?question_id=${encodeURIComponent(t.question_id)}`}
+                        >
+                          View task &rarr;
+                        </a>
+                      </div>
+                      {taskSubs[t.question_id] ? (
+                        <ClassProgress subs={taskSubs[t.question_id]} expected={t.expected} activity={null} finished />
+                      ) : (
+                        <div className="summary-status">
+                          {taskSubsLoaded ? "Could not load this task's submissions." : "Loading..."}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
             <div className="card" id="carry-forward-card">

@@ -157,3 +157,14 @@ student's row.
 - Nudge effectiveness (does it bring idle students back?) is unmeasured.
   `student_activity` keeps `nudged_at`/`nudge_count`/`last_edit_at`, enough to
   check in a pilot whether typing resumes after a nudge.
+
+## End-of-lecture summary (2026-10-15, follow-up)
+
+The post-lecture summary (`lecturer.html?lecture_id=`) now shows the same
+Class progress chart for every task: the bar, the legend and the collapsible
+per-student attempt strips. Activity is left out, because it is meaningless
+once the lecture is over. The chart replaces the summary table's
+verdict-pill column. That column counted each student's *latest* result,
+while the chart counts their *best*, so keeping both would have shown two
+different breakdowns of the same task side by side. The task title, the
+submitted count and "View task →" stay as each task's header row.
