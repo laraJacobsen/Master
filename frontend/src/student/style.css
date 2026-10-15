@@ -25,6 +25,13 @@ input[type=text] {
   font-size: 1rem;
   margin-bottom: 1rem;
 }
+#student-name {
+  font-size: 1.05rem;
+  font-weight: bold;
+  color: var(--navy);
+  margin-bottom: 1rem;
+  overflow-wrap: anywhere;
+}
 /* Countdown timer */
 #timer-box { margin-bottom: 1rem; }
 .timer-label {

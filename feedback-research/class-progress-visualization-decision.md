@@ -145,15 +145,21 @@ student's row.
 
 ### Activity limitations
 
-- Browsers throttle timers in background tabs, so a student reading notes in
-  another tab drifts to *away* after about 30s. That is arguably accurate (they
-  left the task), but it means *away* doesn't always mean *gave up*.
+- A student who switches to another tab keeps sending heartbeats (without
+  typing), so they read as *idle*, not *away*. Chrome only slows background
+  timers to once a minute after a tab has been hidden for 5 minutes ("intensive
+  throttling", Chrome 88+), and only then do they drop to *away*. So *away*
+  means the tab was closed, the laptop slept, the network dropped, or the
+  student has been elsewhere for 5+ minutes. It doesn't always mean they gave
+  up. A nudge can arrive while they're in another tab; they see it when they
+  come back.
 - Idle is measured as "no keystrokes". Thinking, reading the prompt or
   working on paper also count as idle. That's why the nudge is phrased as an
   offer, not a warning, and why the lecturer sees "idle 4m" rather than a
   judgement.
-- The heartbeat goes under the name on the answering screen. A student who
-  renames themselves mid-task shows up as two rows.
+- The student's name is fixed after joining (shown as "Joined as", not
+  editable), so submissions, heartbeats and the lecturer's rows can't split
+  across two spellings. Fixing a typo means re-joining from a new tab.
 - Nudge effectiveness (does it bring idle students back?) is unmeasured.
   `student_activity` keeps `nudged_at`/`nudge_count`/`last_edit_at`, enough to
   check in a pilot whether typing resumes after a nudge.

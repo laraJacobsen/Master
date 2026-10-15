@@ -46,6 +46,7 @@ export function CodeEditor({
           wordBasedSuggestions: "off",
           parameterHints: { enabled: false },
           placeholder: "# Your code here.",
+          ariaLabel: "Your code",
         }}
       />
     </div>

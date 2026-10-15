@@ -129,8 +129,10 @@ export default function App() {
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
 
-  // Pre-filled from the join screen's name (see JOIN_NAME_KEY) if this tab
-  // already joined -- still editable here in case of a typo.
+  // The name typed on the join screen (see JOIN_NAME_KEY) -- fixed for the
+  // rest of the lecture, so submissions, the activity heartbeat and the
+  // lecturer's per-student rows all stay under one name. Fixing a typo means
+  // re-joining from a new tab.
   const [name, setName] = useState(getJoinedName);
   const [code, setCode] = useState("");
   // Mirrors of `name`/`code` for the auto-submit-on-timeout path, which can
@@ -423,7 +425,7 @@ export default function App() {
       const joinedLecture = await joinLectureApi(code, trimmedName);
       markJoinedThisSession(trimmedName, joinedLecture.lecture_id);
       setJoinNotice(null);
-      updateName(trimmedName); // carries forward to the answering screen's own name field
+      updateName(trimmedName); // the name for the rest of this lecture (shown, not editable, while answering)
       setJoined(true);
       setPhase("loading");
     } catch (e) {
@@ -691,15 +693,8 @@ export default function App() {
       <main>
         <div className="col-left">
           <div className="card accent-navy">
-            <label htmlFor="name">Your name</label>
-            <input
-              type="text"
-              id="name"
-              placeholder="e.g. Lara Pinheiro"
-              value={name}
-              onChange={(e) => updateName(e.target.value)}
-              onBlur={(e) => loadHistory(e.target.value.trim(), questionId)}
-            />
+            <div className="timer-label">Joined as</div>
+            <div id="student-name">{name}</div>
 
             <div id="timer-box" style={{ display: secondsRemaining != null ? "block" : "none" }}>
               <div className="timer-label">Time remaining</div>
