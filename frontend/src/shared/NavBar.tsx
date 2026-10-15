@@ -22,7 +22,8 @@ function isCurrentPage(href: string): boolean {
 // live dashboard) -- not on student.html, which is a different audience
 // with nothing on this bar relevant to it. The brand link is the "go back"
 // affordance (clicking it always returns to the one hub every flow starts
-// from), and the right-hand shortcut is always the single obvious next
+// from), "History" opens the past-lectures page (history.html) from
+// anywhere, and the right-hand shortcut is always the single obvious next
 // step for wherever the lecture currently stands, using the exact same
 // logic the home page's own resume button uses. That shortcut is a labeled
 // action ("New lecture", "Continue setup", ...) rather than a plain "go
@@ -42,6 +43,7 @@ export function NavBar() {
 
   const action = activeLectureAction(active);
   const showHome = !isCurrentPage("index.html");
+  const showHistory = !isCurrentPage("history.html");
   // "Resume lobby" is left off the nav bar's shortcut on purpose -- the home
   // page's own card already surfaces the join code for that state, and a
   // nav-bar link would just duplicate it without that context.
@@ -56,6 +58,11 @@ export function NavBar() {
         {showHome && (
           <a href="index.html" className="top-nav-home">
             Home
+          </a>
+        )}
+        {showHistory && (
+          <a href="history.html" className="top-nav-home">
+            History
           </a>
         )}
         {showCta && (

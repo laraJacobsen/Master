@@ -30,6 +30,7 @@ from backend import store
 from backend.aggregation import (
     carry_forward_discussion_points,
     cluster_submissions,
+    lecture_review,
     raise_issue,
     shown_examples,
     session_summary,
@@ -308,6 +309,16 @@ def api_lecturer_active_lecture():
         return {"lecture": None, "live_question_id": None}
     live_question = store.live_question_row()
     return {"lecture": lecture, "live_question_id": live_question["id"] if live_question else None}
+
+
+@app.get("/api/lecturer/lectures/review")
+def api_lecturer_lecture_review(include_archived: bool = False):
+    """Declared before /lectures/{lecture_id} so "review" isn't read as an id.
+
+    Finished lectures ranked by how many students solved their tasks, worst
+    first, with each lecture's weakest tasks and their most common issue -- the
+    history page's "Needs revisiting" view. See aggregation.lecture_review()."""
+    return lecture_review(include_archived=include_archived)
 
 
 @app.get("/api/lecturer/lectures/{lecture_id}")

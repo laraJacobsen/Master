@@ -1,33 +1,9 @@
 import { useEffect, useState } from "react";
-import type { ActiveLectureResponse, LectureHistoryRow, LectureTotals } from "../shared/types";
-import {
-  archiveLecture,
-  createLecture,
-  deleteLecture,
-  fetchActiveLecture,
-  fetchLectureHistory,
-  fetchLectureTotals,
-  unarchiveLecture,
-} from "../shared/api";
+import type { ActiveLectureResponse, LectureTotals } from "../shared/types";
+import { createLecture, deleteLecture, fetchActiveLecture, fetchLectureTotals } from "../shared/api";
 import { activeLectureAction } from "../shared/lectureNav";
 import { NavBar } from "../shared/NavBar";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-
-// A short, aggregate-only snapshot -- total distinct-student submissions and
-// a correct-count, never a per-student breakdown (see the product decision
-// against any per-student identification on this dashboard).
-function statsSnapshot(row: LectureHistoryRow): string {
-  if (row.submitted_total === 0) return "No submissions.";
-  const correct = row.verdict_counts.correct || 0;
-  return `${row.submitted_total} submission${row.submitted_total === 1 ? "" : "s"}, ${correct} correct`;
-}
-
-function formatDate(isoLike: string): string {
-  // Server timestamps are "YYYY-MM-DD HH:MM:SS" UTC, no offset marker --
-  // append one so the Date parses as UTC rather than local time.
-  const d = new Date(isoLike.replace(" ", "T") + "Z");
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
 
 export default function App() {
   const [active, setActive] = useState<ActiveLectureResponse | null>(null);
@@ -35,10 +11,6 @@ export default function App() {
   const [label, setLabel] = useState("");
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
-
-  const [history, setHistory] = useState<LectureHistoryRow[] | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
-  const [archiving, setArchiving] = useState<number | null>(null);
 
   const [totals, setTotals] = useState<LectureTotals | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -53,28 +25,14 @@ export default function App() {
       .finally(() => setActiveLoading(false));
   }
 
-  function loadHistory(includeArchived: boolean) {
-    fetchLectureHistory(includeArchived)
-      .then(setHistory)
-      .catch(() => {
-        // Backend not reachable -- leave the last-known list in place.
-      });
-  }
-
   useEffect(() => {
     loadActive();
-    loadHistory(showArchived);
     fetchLectureTotals()
       .then(setTotals)
       .catch(() => {
         // Optional stats line -- fine to just not show it.
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    loadHistory(showArchived);
-  }, [showArchived]);
 
   async function handleNewLecture() {
     setStarting(true);
@@ -114,17 +72,6 @@ export default function App() {
     }
   }
 
-  async function handleArchiveToggle(row: LectureHistoryRow) {
-    setArchiving(row.id);
-    try {
-      if (row.archived) await unarchiveLecture(row.id);
-      else await archiveLecture(row.id);
-      loadHistory(showArchived);
-    } finally {
-      setArchiving(null);
-    }
-  }
-
   const hasActive = !activeLoading && active?.lecture != null;
 
   return (
@@ -132,7 +79,7 @@ export default function App() {
       <NavBar />
       <header className="hero">
         <h1>Interactive Lecture</h1>
-        <p>Start a new lecture, resume one in progress, or browse past ones.</p>
+        <p>Start a new lecture or resume one in progress.</p>
       </header>
       <main>
         <div className="card fade-in-up" id="start-card">
@@ -188,52 +135,15 @@ export default function App() {
           )}
         </div>
 
-        {totals && (
-          <div id="totals-line" className="fade-in-up" style={{ animationDelay: "0.08s" }}>
-            {totals.lectures_run} lecture{totals.lectures_run === 1 ? "" : "s"} run, {totals.total_submissions}{" "}
-            total submission{totals.total_submissions === 1 ? "" : "s"}
-          </div>
-        )}
-
-        <div className="card fade-in-up" id="history-card" style={{ animationDelay: "0.15s" }}>
-          <div className="history-header">
-            <h2>Lecture history</h2>
-            <label className="archived-toggle">
-              <input
-                type="checkbox"
-                checked={showArchived}
-                onChange={(e) => setShowArchived(e.target.checked)}
-              />
-              Show archived
-            </label>
-          </div>
-          {history && history.length === 0 && (
-            <div className="muted-note">No lectures yet. Start one above.</div>
+        {/* Past lectures live on their own page now (nav bar "History"). */}
+        <div id="totals-line" className="fade-in-up" style={{ animationDelay: "0.08s" }}>
+          {totals && (
+            <>
+              {totals.lectures_run} lecture{totals.lectures_run === 1 ? "" : "s"} run, {totals.total_submissions}{" "}
+              total submission{totals.total_submissions === 1 ? "" : "s"} &middot;{" "}
+            </>
           )}
-          {history && history.length > 0 && (
-            <ul id="lecture-list">
-              {history.map((row) => (
-                <li key={row.id} className={row.archived ? "archived" : ""}>
-                  <a className="lecture-row-link" href={`lecturer.html?lecture_id=${row.id}`}>
-                    <div className="lecture-row-main">
-                      <div className="lecture-title">{row.display_label}</div>
-                      <div className="lecture-meta">
-                        {formatDate(row.started_at)} &middot; {row.task_count} task
-                        {row.task_count === 1 ? "" : "s"} &middot; {statsSnapshot(row)}
-                      </div>
-                    </div>
-                  </a>
-                  <button
-                    className="secondary archive-btn"
-                    disabled={archiving === row.id}
-                    onClick={() => handleArchiveToggle(row)}
-                  >
-                    {row.archived ? "Unarchive" : "Archive"}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <a href="history.html">Lecture history &rarr;</a>
         </div>
       </main>
       <ConfirmDialog

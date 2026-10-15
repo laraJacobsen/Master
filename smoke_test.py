@@ -677,6 +677,28 @@ def _run_lecture_dashboard_checks(client):
     assert {t["question_id"] for t in summary["tasks"]} == {"sum-ints", "double-it"}, summary
     print("GET /api/lecturer/lecture/summary?lecture_id=   OK ->", summary["lecture_label"])
 
+    # History page "Needs revisiting" (aggregation.lecture_review()): the lecture
+    # just finished is in it, solved counts match the real submissions, every task
+    # shares the lecture's participant count, and no student name is in the payload.
+    r = client.get("/api/lecturer/lectures/review")
+    assert r.status_code == 200, r.text  # not swallowed by /lectures/{lecture_id}
+    reviews = r.json()
+    seeded = next(rv for rv in reviews if rv["lecture_id"] == seeded_lecture_id)
+    subs = client.get("/api/lecturer/submissions").json()
+    names = {s["student_name"] for s in subs if s["question_id"] in ("sum-ints", "double-it")}
+    assert seeded["students"] >= len(names), seeded
+    for task in seeded["tasks"]:
+        solved = {s["student_name"] for s in subs if s["question_id"] == task["question_id"] and s["verdict"] == "correct"}
+        assert task["solved"] == len(solved) and task["students"] == seeded["students"], task
+    rates = [t["solve_rate"] for t in seeded["tasks"]]
+    assert rates == sorted(rates), "weakest task first"
+    assert seeded["enough_data"] and abs(seeded["solve_rate"] - sum(rates) / len(rates)) < 1e-9, seeded
+    sent = json_lib.dumps(reviews)
+    assert not any(n in sent for n in names), "review must be aggregate only"
+    ranked = [rv["solve_rate"] for rv in reviews if rv["enough_data"]]
+    assert ranked == sorted(ranked), "worst lecture first"
+    print("GET /api/lecturer/lectures/review (needs revisiting)   OK ->", round(seeded["solve_rate"], 2))
+
     # finish was called with current_question_id=None above, but the seeded
     # lecture's live task must still be closed rather than leak into the next.
     assert client.get("/api/lecture/status").json()["question"] is None

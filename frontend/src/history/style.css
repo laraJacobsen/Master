@@ -1,0 +1,82 @@
+main { max-width: 760px; margin: 1.5rem auto; padding: 0 1rem 3rem; }
+
+.card { padding: 1.1rem 1.3rem; }
+.card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+
+button { padding: 0.55rem 1.1rem; font-size: 0.9rem; }
+button:disabled { background: #b6bacb; cursor: not-allowed; }
+
+.muted-note { color: var(--muted); font-size: 0.88rem; margin: 0 0 0.9rem; line-height: 1.45; }
+.form-error { color: var(--bad); font-size: 0.85rem; margin-top: 0.6rem; }
+.drilldown-link { color: var(--navy); font-size: 0.82rem; text-decoration: none; white-space: nowrap; }
+.drilldown-link:hover { text-decoration: underline; }
+
+/* Needs revisiting. The meter is one neutral hue, not red/amber/green: a low
+   solve rate says "go back over this", not "this lecture failed". */
+.review-list { list-style: none; margin: 0; padding: 0; }
+.review-row { padding: 0.9rem 0; border-bottom: 1px solid var(--border); }
+.review-row:first-child { padding-top: 0.2rem; }
+.review-row:last-child { border-bottom: none; }
+.review-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
+.review-title { font-weight: bold; color: inherit; text-decoration: none; }
+.review-title:hover { text-decoration: underline; }
+.review-meta { color: var(--muted); font-size: 0.82rem; }
+
+.review-meter { display: flex; align-items: center; gap: 0.6rem; margin: 0.45rem 0 0.35rem; }
+.review-meter-track { flex: 1; max-width: 320px; height: 8px; background: #eceef3; border-radius: 4px; overflow: hidden; }
+.review-meter-fill { height: 100%; background: var(--navy); border-radius: 4px; }
+.review-meter-value { font-size: 0.85rem; font-weight: bold; color: var(--navy); font-variant-numeric: tabular-nums; }
+
+.review-tasks { list-style: none; margin: 0.35rem 0 0; padding: 0 0 0 0.75rem; border-left: 3px solid var(--ice); }
+.review-task + .review-task { margin-top: 0.55rem; }
+.review-task-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; font-size: 0.9rem; }
+.review-task-title { font-weight: bold; }
+.review-task-count { color: var(--muted); font-size: 0.85rem; }
+.review-task-head .drilldown-link { margin-left: auto; }
+.review-issue { font-size: 0.85rem; margin-top: 0.15rem; }
+.review-issue-point { color: var(--muted); margin-top: 0.1rem; line-height: 1.4; }
+.show-all-btn { margin-top: 0.75rem; font-size: 0.82rem; padding: 0.35rem 0.8rem; }
+.review-footnote { color: var(--muted); font-size: 0.8rem; margin-top: 0.8rem; }
+
+/* All lectures -- moved from the home page unchanged. */
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.history-header h2 { margin: 0; }
+.archived-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0;
+}
+.archived-toggle input { margin: 0; }
+
+#lecture-list { list-style: none; margin: 0; padding: 0; }
+#lecture-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.5rem;
+  margin: 0 -0.5rem;
+  border-bottom: 1px solid var(--border);
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+#lecture-list li:hover { background: var(--bg); }
+#lecture-list li:last-child { border-bottom: none; }
+#lecture-list li.archived { opacity: 0.6; }
+
+.lecture-row-link { flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+.lecture-row-link:hover .lecture-title { text-decoration: underline; }
+.lecture-title { font-weight: bold; font-size: 0.95rem; }
+.lecture-meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.15rem; }
+
+.archive-btn { font-size: 0.78rem; padding: 0.35rem 0.7rem; white-space: nowrap; }

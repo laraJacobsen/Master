@@ -139,6 +139,37 @@ export interface LectureHistoryRow extends LectureRow {
   verdict_counts: Partial<Record<Verdict, number>>;
 }
 
+// GET /api/lecturer/lectures/review -- one finished lecture, for the history
+// page's "Needs revisiting" ranking. See aggregation.lecture_review().
+export interface LectureReviewTask {
+  question_id: string;
+  title: string;
+  // Everyone who took part in the lecture (same for every task).
+  students: number;
+  submitted: number;
+  solved: number;
+  solve_rate: number | null;
+  // Most common way the unsolved students' latest submissions went wrong.
+  top_issue: {
+    exec_verdict: string | null;
+    error_type: string | null;
+    students: number;
+    discussion_point: string | null;
+  } | null;
+}
+
+export interface LectureReview {
+  lecture_id: number;
+  display_label: string;
+  started_at: string;
+  archived: boolean;
+  students: number;
+  solve_rate: number | null;
+  // False below MIN_STUDENTS_FOR_REVIEW students -- listed, but not ranked.
+  enough_data: boolean;
+  tasks: LectureReviewTask[]; // weakest first
+}
+
 // GET /api/lecturer/lectures/active
 export interface ActiveLectureResponse {
   lecture: LectureRow | null;
