@@ -538,6 +538,7 @@ export default function App() {
         message="Every student is sent to the end-of-lecture screen and can't submit anything more. Tasks you haven't started yet won't run. This can't be undone."
         confirmLabel="End lecture"
         cancelLabel="Keep going"
+        focusCancel
         onConfirm={handleFinishLecture}
         onCancel={() => setConfirmFinishOpen(false)}
       />
