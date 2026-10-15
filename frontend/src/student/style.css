@@ -223,8 +223,6 @@ button:disabled { background: #9aa0b5; cursor: not-allowed; }
   border-color: rgba(30, 39, 97, 0.25);
   border-top-color: var(--navy);
 }
-#waiting-feedback h2 { margin: 0 0 0.3rem; font-size: 1.05rem; }
-#waiting-feedback #feedback-text { margin-top: 0.5rem; }
 
 /* STATE 2: student personal recap */
 #recap-summary-line { font-size: 1rem; font-weight: bold; color: var(--navy); margin-bottom: 0.9rem; }

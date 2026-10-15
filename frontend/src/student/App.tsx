@@ -624,12 +624,6 @@ export default function App() {
             </div>
           )}
 
-          {result && !submitting && result.verdict !== "correct" && result.feedback && (
-            <div className="card" id="waiting-feedback">
-              <h2>Feedback on your last attempt</h2>
-              <div id="feedback-text">{result.feedback}</div>
-            </div>
-          )}
         </main>
       </>
     );

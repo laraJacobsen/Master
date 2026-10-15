@@ -135,7 +135,7 @@ Then open in a browser:
     start the first task."
   - correct submission -- "Good job!", straight away, even with time left
   - time's up after a wrong answer -- "Thanks for submitting", with their
-    verdict and last hint
+    verdict (the hint stays on the task page)
   - time's up with nothing submitted -- "Time's up, no code submitted"
   - time's up mid-grading -- a spinner until the auto-submitted code is graded
 
