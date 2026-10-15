@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import type { LectureRow, QuestionRow, QuestionStatus, ValidationTestResult } from "../shared/types";
 import {
@@ -37,6 +37,10 @@ const emptyTestCase = (): TestCaseDraft => ({ stdin: "", expected: "" });
 
 const STEPS = ["Task", "Tests & solution", "Timing & class"] as const;
 
+// Autosave waits this long after the last edit, so typing doesn't send a
+// request per keystroke.
+const AUTOSAVE_MS = 900;
+
 // Plain-language status for the question list.
 function statusLabel(q: QuestionRow): { text: string; kind: string } {
   if (q.status === "live") return { text: "Live", kind: "live" };
@@ -66,8 +70,21 @@ export default function App() {
   const [idleNudgeMinutes, setIdleNudgeMinutes] = useState("3");
   const [referenceSolution, setReferenceSolution] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
-  // Anything edited since the question was loaded or last saved.
-  const [dirty, setDirty] = useState(false);
+  // Autosave bookkeeping. editVersion counts edits; savedVersion is the edit
+  // count the last successful save contained -- so a save that was in flight
+  // while the lecturer kept typing doesn't mark those newer edits as saved,
+  // and the server's reply never overwrites what's in the form.
+  const [editVersion, setEditVersion] = useState(0);
+  const [savedVersion, setSavedVersion] = useState(0);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
+  const savingRef = useRef(false);
+  // Bumped whenever the editor switches question, so a save that finishes
+  // after the switch doesn't write its id into the newly opened question.
+  const generationRef = useRef(0);
+  const dirty = editVersion !== savedVersion;
+  function markEdited() {
+    setEditVersion((v) => v + 1);
+  }
 
   const [formStatusText, setFormStatusText] = useState("");
   const [formStatusKind, setFormStatusKind] = useState<"muted" | "ok" | "bad">("muted");
@@ -193,13 +210,19 @@ export default function App() {
       {
         title: "Sum Two",
         prompt: "Read two integers on one line and print their sum.",
-        test_cases: [{ stdin: "3 4\n", expected: "7" }],
+        test_cases: [
+          { stdin: "3 4\n", expected: "7" },
+          { stdin: "10 -2\n", expected: "8" },
+        ],
         reference_solution: "a, b = map(int, input().split()); print(a + b)",
       },
       {
         title: "Reverse It",
         prompt: "Read a line of text and print it reversed.",
-        test_cases: [{ stdin: "hello\n", expected: "olleh" }],
+        test_cases: [
+          { stdin: "hello\n", expected: "olleh" },
+          { stdin: "abc\n", expected: "cba" },
+        ],
         reference_solution: "print(input()[::-1])",
       },
     ];
@@ -248,7 +271,10 @@ export default function App() {
     setReferenceSolution("");
     setTestCases([emptyTestCase()]);
     setShowAdvanced(false);
-    setDirty(false);
+    generationRef.current += 1;
+    setEditVersion(0);
+    setSavedVersion(0);
+    setSaveState("idle");
     setStatus("");
     setValidationResult(null);
   }
@@ -277,8 +303,11 @@ export default function App() {
         ? q.test_cases.map((tc) => ({ stdin: tc.stdin, expected: tc.expected_stdout }))
         : [emptyTestCase()]
     );
-    setDirty(false);
     if (!keepStep) {
+      generationRef.current += 1;
+      setEditVersion(0);
+      setSavedVersion(0);
+      setSaveState("idle");
       setStatus("");
       setValidationResult(null);
     }
@@ -288,7 +317,7 @@ export default function App() {
     setTestCases((prev) => [...prev, emptyTestCase()]);
   }
   function removeTestCaseRow(index: number) {
-    setDirty(true);
+    markEdited();
     setTestCases((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : [emptyTestCase()]));
   }
   function updateTestCase(index: number, field: "stdin" | "expected", value: string) {
@@ -329,63 +358,98 @@ export default function App() {
     Boolean(currentId && payloadNow.duration_seconds > 0),
   ];
 
-  // Saves the draft (create or update). Returns the saved row, or null after
-  // showing why it couldn't. Editing anything un-validates the question on
-  // the backend, so currentValidated follows the saved row.
-  async function saveDraft(): Promise<QuestionRow | null> {
-    const payload = formPayload();
-    if (!payload.title || !payload.prompt) {
-      setStep(0);
-      setStatus("Title and task description are required.", "bad");
-      return null;
-    }
-    if (payload.test_cases.length === 0) {
-      setStep(1);
-      setStatus("Add at least one test case.", "bad");
-      return null;
-    }
-    if (!payload.duration_seconds || payload.duration_seconds <= 0) {
-      setStep(2);
-      setStatus("Time limit must be at least 1 minute.", "bad");
-      return null;
-    }
-    setBusy("saving");
-    setStatus("Saving...");
+  // A question can be saved as soon as it has a title -- everything else can
+  // be filled in later (it only runs once "Check solution" passes).
+  const canAutosave = currentStatus === "draft" && title.trim() !== "" && payloadNow.duration_seconds > 0;
+
+  // Saves the form as it is now (create or update). Never touches the form's
+  // fields, so edits made while it's in flight survive. Returns the saved row,
+  // or null if it failed or another save was already running.
+  async function persist(): Promise<QuestionRow | null> {
+    if (savingRef.current) return null;
+    savingRef.current = true;
+    setSaveState("saving");
+    const version = editVersion;
+    const generation = generationRef.current;
     try {
+      const payload = formPayload();
       const data = currentId ? await updateQuestion(currentId, payload) : await createQuestion(payload);
-      loadQuestionIntoForm(data, true);
+      if (generation === generationRef.current) {
+        setCurrentId(data.id);
+        setCurrentStatus(data.status);
+        setCurrentValidated(data.validated);
+        setSavedVersion(version);
+      }
+      setSaveState("idle");
       loadQuestionList();
       return data;
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : "Save failed.", "bad");
+      setSaveState("error");
+      setStatus(e instanceof Error ? `Not saved: ${e.message}` : "Not saved.", "bad");
       return null;
     } finally {
-      setBusy(null);
+      savingRef.current = false;
     }
   }
 
-  async function handleSave() {
-    if (currentId && !dirty) {
-      setStatus("No changes.", "muted");
-      return;
-    }
-    const saved = await saveDraft();
-    if (saved) {
-      setStatus(
-        saved.validated ? "Saved." : "Saved. Needs a check before it can run.",
-        "ok"
-      );
-    }
+  async function waitForSave() {
+    while (savingRef.current) await new Promise((resolve) => setTimeout(resolve, 80));
   }
+
+  // Before leaving this question (another one, or a new one): save what's
+  // there if it can be saved. A question without a title has nothing worth
+  // keeping yet.
+  async function flushThen(next: () => void) {
+    await waitForSave();
+    if (dirty && canAutosave) await persist();
+    next();
+  }
+
+  // Autosave: shortly after the last edit.
+  useEffect(() => {
+    if (!dirty || !canAutosave || saveState === "saving") return;
+    const t = window.setTimeout(() => {
+      persist();
+    }, AUTOSAVE_MS);
+    return () => window.clearTimeout(t);
+    // persist() reads the current render's form state; re-running on each
+    // edit (editVersion) is what keeps that fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editVersion, savedVersion, saveState, canAutosave]);
+
+  // Closing the tab with an unsaved edit or a save still in flight.
+  useEffect(() => {
+    if (!dirty && saveState !== "saving") return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty, saveState]);
 
   // Step 2's one button: save, then run the reference solution against the
   // tests (the backend refuses to validate an unsaved question anyway).
   async function checkSolution() {
+    const payload = formPayload();
+    if (!payload.title || !payload.prompt) {
+      setStep(0);
+      setStatus("Add a title and task description first.", "bad");
+      return;
+    }
+    if (payload.test_cases.length < 2) {
+      // The first test is the example students see and isn't graded (main._graded).
+      setStatus("Add at least 2 test cases. The first is shown to students and isn't graded.", "bad");
+      return;
+    }
     if (!referenceSolution.trim()) {
       setStatus("Add a reference solution first.", "bad");
       return;
     }
-    const saved = await saveDraft();
+    if (!canAutosave) {
+      setStep(2);
+      setStatus("Time limit must be at least 1 minute.", "bad");
+      return;
+    }
+    await waitForSave();
+    const saved = dirty || !currentId ? await persist() : questions.find((q) => q.id === currentId) ?? null;
     if (!saved) return;
     setBusy("checking");
     setStatus("Checking...");
@@ -503,7 +567,9 @@ export default function App() {
               <div className="empty">No questions yet</div>
             ) : (
               <ol className="question-list">
-                {questions.map((q, i) => {
+                {/* Run order: questions start oldest first (store.next_draft_question),
+                    and the API lists newest first, so reversed is exactly that order. */}
+                {[...questions].reverse().map((q, i) => {
                   const s = statusLabel(q);
                   return (
                     <li
@@ -511,7 +577,8 @@ export default function App() {
                       className={q.id === currentId ? "is-selected" : undefined}
                       onClick={(e) => {
                         if ((e.target as HTMLElement).closest("a")) return;
-                        loadQuestionIntoForm(q);
+                        if (q.id === currentId) return;
+                        flushThen(() => loadQuestionIntoForm(q));
                       }}
                     >
                       <span className="q-index">{i + 1}</span>
@@ -540,7 +607,7 @@ export default function App() {
                 })}
               </ol>
             )}
-            <button type="button" className="new-question-btn" onClick={resetForm}>
+            <button type="button" className="new-question-btn" onClick={() => flushThen(resetForm)}>
               + New question
             </button>
             <button
@@ -592,7 +659,7 @@ export default function App() {
             </ol>
 
             {/* onInput catches every typed edit in the steps (inputs, textareas, the select). */}
-            <fieldset className="step-body" disabled={locked || busy !== null} onInput={() => setDirty(true)}>
+            <fieldset className="step-body" disabled={locked || busy !== null} onInput={markEdited}>
               {step === 0 && (
                 <>
                   <label htmlFor="f-title">Title</label>
@@ -817,18 +884,20 @@ export default function App() {
               <button type="button" className="secondary" disabled={step === 0} onClick={() => setStep((s) => s - 1)}>
                 Back
               </button>
+              {!locked && (
+                <span className={`save-indicator save-${saveState}`} role="status">
+                  {saveState === "saving"
+                    ? "Saving…"
+                    : saveState === "error"
+                    ? "Not saved"
+                    : dirty && !canAutosave
+                    ? "Add a title to save"
+                    : currentId && !dirty
+                    ? "Saved"
+                    : ""}
+                </span>
+              )}
               <div className="editor-footer-right">
-                {!locked && (
-                  // The main action on the last step, unless "Start now" is.
-                  <button
-                    type="button"
-                    className={step === STEPS.length - 1 && !canStartNow ? undefined : "secondary"}
-                    onClick={handleSave}
-                    disabled={busy !== null}
-                  >
-                    {busy === "saving" ? "Saving..." : step === STEPS.length - 1 && !canStartNow ? "Save question" : "Save"}
-                  </button>
-                )}
                 {step < STEPS.length - 1 ? (
                   <button type="button" onClick={() => setStep((s) => s + 1)}>
                     Next: {STEPS[step + 1]}

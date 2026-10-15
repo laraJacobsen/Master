@@ -835,6 +835,10 @@ def _wrong_answer_subclusters(members: list) -> list:
 
 
 def _generate_discussion_point(exec_verdict: str, error_type: str, student_count: int):
+    if exec_verdict == "ignores_input":
+        # Set in main.api_submit, not by the classifier, so it has no curated
+        # line in feedback-research/feedback.py.
+        return "Prints a fixed answer without reading the input. Worth showing why that only passes by luck."
     try:
         return hints.discussion_point_for_cluster(exec_verdict, error_type, student_count)
     except Exception:

@@ -81,3 +81,31 @@ def _first_disallowed_import(source_code: str, extra_packages: list) -> str | No
                     return top_level
 
     return None
+
+
+# Names a Python program uses to read standard input. `open` counts too
+# (open(0) / open("/dev/stdin")): erring towards "reads input" means an unusual
+# but honest solution is never accused of hard-coding.
+_INPUT_NAMES = {"input", "stdin", "fileinput", "open"}
+
+
+def reads_input(source_code: str, language: str = "python") -> bool:
+    """Whether the program reads standard input at all. A program that doesn't
+    can only print fixed text, so it can pass a test only by hard-coding that
+    test's expected output (see api_submit's ignores_input handling). Python
+    only: other languages, and code that can't be tokenized, return True so
+    nothing is flagged on a guess."""
+    if language != "python":
+        return True
+    import io
+    import tokenize
+
+    try:
+        names = {
+            tok.string
+            for tok in tokenize.generate_tokens(io.StringIO(source_code).readline)
+            if tok.type == tokenize.NAME
+        }
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return True
+    return bool(names & _INPUT_NAMES)

@@ -249,7 +249,8 @@ def _run_checks(client):
         data = r.json()
         print("POST /api/submit               OK ->", data)
         assert data["verdict"] == "correct"
-        assert data["tests_passed"] == data["tests_total"] == 5
+        # 5 stored tests, but the first is the example students see and isn't graded.
+        assert data["tests_passed"] == data["tests_total"] == 4
 
         r = client.get("/api/lecturer/submissions")
         assert r.status_code == 200, r.text
@@ -286,7 +287,7 @@ def _run_checks(client):
         )
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["tests_passed"] == 0 and data["tests_total"] == 5, data
+        assert data["tests_passed"] == 0 and data["tests_total"] == 4, data
         rejected_row = client.get("/api/lecturer/submissions").json()[0]
         assert rejected_row["exec_verdict"] == "rejected", rejected_row
         assert rejected_row["rejection_reason"] == "whitespace_only", rejected_row
@@ -441,6 +442,29 @@ def _run_checks(client):
         r = client.post("/api/lecturer/clusters/raise", json={**raise_body, "submission_ids": [999999]})
         assert r.status_code == 404, r.text
         print("Show to students: singleton raised, example queued  OK")
+
+        # Hard-coded output: printing the visible example's answer used to pass
+        # that test ("partially correct"). The example isn't graded any more, and
+        # a program that never reads its input is its own issue type.
+        r = client.post("/api/submit", json={"student_name": "Hardcoder", "question_id": "sum-ints", "source_code": "print(6)"})
+        hard = r.json()
+        # (This file's fake Judge0 prints the right sum for any unmarked code, so
+        # print(6) "passes" every test here -- which shows the ignores_input check
+        # catching even a fully passing hard-coded program.)
+        assert hard["verdict"] == "incorrect", hard
+        assert "never reads the input" in hard["feedback"], hard
+        row = client.get(f"/api/lecturer/submissions/{hard['submission_id']}").json()
+        assert row["exec_verdict"] == "ignores_input", row
+        assert len(json_lib.loads(row["raw_test_results"])) == 5, "all tests still run and stored"
+        issue = next(c for c in client.get("/api/lecturer/clusters", params={"question_id": "sum-ints"}).json()
+                     if c["exec_verdict"] == "ignores_input")
+        assert hard["submission_id"] in issue["submission_ids"], issue
+        # Reading the input (even wrongly) is not flagged, and neither is open(0).
+        for code in ("x = input()\nprint(6)", "print(sum(map(int, open(0).read().split())))"):
+            r = client.post("/api/submit", json={"student_name": "Reader", "question_id": "sum-ints", "source_code": code})
+            row = client.get(f"/api/lecturer/submissions/{r.json()['submission_id']}").json()
+            assert row["exec_verdict"] != "ignores_input", (code, row)
+        print("Hard-coded output: example ungraded, flagged as ignores_input   OK")
 
         # Output-signature grouping (aggregation.py's 2026-10-15 entry): two textually
         # different programs that print the same thing on every test case are one
@@ -765,7 +789,7 @@ def _run_lecture_dashboard_checks(client):
             "title": "Sum Again",
             "prompt": "Read space-separated integers and print their sum.",
             "language": "python",
-            "test_cases": [{"stdin": "4 5\n", "expected_stdout": "9"}],
+            "test_cases": [{"stdin": "4 5\n", "expected_stdout": "9"}, {"stdin": "1 1\n", "expected_stdout": "2"}],
             # Matches fake_post's fallback branch (plain sum) -- see module docstring.
             "reference_solution": "print(sum(int(x) for x in input().split()))",
         },

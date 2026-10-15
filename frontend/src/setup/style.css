@@ -240,3 +240,7 @@ code {
   .step.is-current .step-name { display: inline; }
   .lecture-bar-actions { width: 100%; justify-content: space-between; }
 }
+
+/* Autosave state, next to Back -- quiet unless something went wrong. */
+.save-indicator { flex: 1; color: var(--muted); font-size: 0.82rem; }
+.save-indicator.save-error { color: var(--bad); font-weight: 550; }
