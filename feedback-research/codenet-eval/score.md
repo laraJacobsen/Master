@@ -20,14 +20,14 @@
 | Java | Runtime Error | 198 | 80% | 88% | 90% |
 | Java | Compile Error | 200 | 97% | 99% | 98% |
 | Java | Time Limit Exceeded | 134 | 60% | 61% | 99% |
-| Java | Memory Limit Exceeded (low n) | 26 | 0% | 27% | 0% |
-| Java | WA: Presentation Error | 188 | 79% | 100% | 79% |
+| Java | Memory Limit Exceeded (low n) | 26 | 0% | 23% | 0% |
+| Java | WA: Presentation Error | 188 | 80% | 100% | 80% |
 | Python | Accepted | 200 | 100% | 100% | 100% |
 | Python | Wrong Answer | 200 | 72% | 72% | 100% |
 | Python | Runtime Error | 200 | 94% | 95% | 99% |
 | Python | Time Limit Exceeded | 108 | 19% | 62% | 30% |
 | Python | Memory Limit Exceeded (low n) | 17 | 0% | 12% | 0% |
-| Python | WA: Presentation Error | 157 | 64% | 100% | 64% |
+| Python | WA: Presentation Error | 157 | 71% | 100% | 71% |
 
 ## Runtime errors with a specific error type
 
@@ -60,8 +60,8 @@ The agreement table only checks the verdict. A runtime_error's hint depends on i
 | Runtime Error | 23 | 3 | 10 |  | 57 | 53 | 15 | 7 | 6 | 5 | 5 | 5 | 4 | 3 | 1 | 1 |
 | Compile Error | 2 | 194 | 1 |  | 2 | 1 |  |  |  |  |  |  |  |  |  |  |
 | Time Limit Exceeded | 52 |  |  | 81 | 1 |  |  |  |  |  |  |  |  |  |  |  |
-| Memory Limit Exceeded | 19 |  | 6 | 1 |  |  |  |  |  |  |  |  |  |  |  |  |
-| WA: Presentation Error | 149 |  | 39 |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| Memory Limit Exceeded | 20 |  | 5 | 1 |  |  |  |  |  |  |  |  |  |  |  |  |
+| WA: Presentation Error | 150 |  | 38 |  |  |  |  |  |  |  |  |  |  |  |  |  |
 
 ## Python: CodeNet status x production verdict
 
@@ -72,7 +72,7 @@ The agreement table only checks the verdict. A runtime_error's hint depends on i
 | Runtime Error | 10 | 1 | 89 |  | 29 | 25 |  | 18 | 16 | 5 | 3 | 2 | 2 |
 | Time Limit Exceeded | 41 | 2 |  | 45 |  |  | 20 |  |  |  |  |  |  |
 | Memory Limit Exceeded | 15 |  |  |  |  |  | 2 |  |  |  |  |  |  |
-| WA: Presentation Error | 101 | 56 |  |  |  |  |  |  |  |  |  |  |  |
+| WA: Presentation Error | 111 | 46 |  |  |  |  |  |  |  |  |  |  |  |
 
 ## What the classifier doesn't recognize yet
 

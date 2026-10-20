@@ -21,9 +21,11 @@ loader.config({ monaco });
 // the activity heartbeat counts (see student/App.tsx).
 export function CodeEditor({
   language,
+  initialValue,
   onChange,
 }: {
   language: string;
+  initialValue: string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -31,7 +33,7 @@ export function CodeEditor({
       <Editor
         height="320px"
         defaultLanguage={language}
-        defaultValue=""
+        defaultValue={initialValue}
         onChange={(v) => onChange(v ?? "")}
         loading="Loading editor..."
         options={{

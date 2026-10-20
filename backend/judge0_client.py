@@ -149,11 +149,28 @@ def run_test_cases(
             cpu_time_limit=cpu_time_limit,
             memory_limit_kb=memory_limit_kb,
         )
-        actual = (result["stdout"] or "").strip()
-        expected = case["expected_stdout"].strip()
         result["case_index"] = i
         result["stdin"] = case["stdin"]
         result["expected_stdout"] = case["expected_stdout"]
-        result["passed"] = (result["status_description"] == "Accepted" and actual == expected)
+        result["passed"] = (
+            result["status_description"] == "Accepted"
+            and outputs_match(result["stdout"], case["expected_stdout"])
+        )
         results.append(result)
     return results
+
+
+def _normalize_output(text: str) -> str:
+    return "\n".join(line.rstrip() for line in (text or "").strip().splitlines())
+
+
+def outputs_match(actual: str, expected: str) -> bool:
+    """Whether a program's stdout counts as the expected output.
+
+    Leading/trailing whitespace of the whole output is ignored, and so is
+    trailing whitespace at the end of each line (e.g. "5 4 3 2 1 " for
+    "5 4 3 2 1"): it's invisible to a student and not what an exercise tests.
+    In the CodeNet eval this alone failed a third of the judges' Presentation
+    Errors. Whitespace inside a line, and blank lines between lines, still count.
+    """
+    return _normalize_output(actual) == _normalize_output(expected)

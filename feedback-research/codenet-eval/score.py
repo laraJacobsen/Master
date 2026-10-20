@@ -33,7 +33,7 @@ from select_problems import HERE, LANGUAGES, STATUSES
 from run_judge0 import JUDGE0_LANGUAGE
 
 sys.path.insert(0, str(HERE.parents[1]))
-from backend import hints  # noqa: E402
+from backend import hints, judge0_client  # noqa: E402
 
 # What production's verdict should be for each CodeNet status. Python has no compile
 # step, so AIZU files Python syntax errors under Runtime Error -- syntax_error counts
@@ -79,6 +79,12 @@ def main():
             if r.get("skipped"):
                 skipped[(r["language"], r["codenet_status"], r["skipped"])] += 1
                 continue
+            # Re-grade with production's current output comparison, so a change to
+            # it shows up here without re-running Judge0 (results.jsonl stores the
+            # `passed` from whatever comparison was current when it ran).
+            res = r["result"]
+            res["passed"] = (res["status_description"] == "Accepted"
+                             and judge0_client.outputs_match(res["stdout"], res["expected_stdout"]))
             r["verdict"], r["error_type"] = hints.classify_submission(
                 [r["result"]], language=JUDGE0_LANGUAGE[r["language"]])
             records.append(r)

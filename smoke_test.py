@@ -229,6 +229,13 @@ def _run_classify_submission_checks():
 
     assert "exit_code" in judge0_client.RESPONSE_FIELDS.split(",")
 
+    # Trailing whitespace per line is ignored; spacing inside a line and blank lines still count.
+    assert judge0_client.outputs_match("5 4 3 2 1 \n", "5 4 3 2 1")
+    assert judge0_client.outputs_match("a \r\nb\t\n", "a\nb\n")
+    assert not judge0_client.outputs_match("Case1: 3", "Case 1: 3")
+    assert not judge0_client.outputs_match("2  3", "2 3")
+    assert not judge0_client.outputs_match("a\n\nb", "a\nb")
+
     print("classify_submission() CodeNet-eval fixes OK")
 
 

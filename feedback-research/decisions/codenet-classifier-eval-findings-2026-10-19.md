@@ -109,10 +109,18 @@ hints had.
 
 ## Still open
 
-- **Presentation Error: only 64–79% pass.** The test comparison strips only the ends of
-  the whole output, so a trailing space on any line fails (e.g. `5 4 3 2 1 ` vs
-  `5 4 3 2 1`). Whether to ignore trailing whitespace per line is a grading-policy
-  decision, not yet taken.
+- **Presentation Error: 67–80% pass.** Decided 2026-10-20: trailing whitespace at the
+  end of each line is now ignored (`judge0_client.outputs_match()`, e.g. `5 4 3 2 1 `
+  for `5 4 3 2 1`), since it's invisible to a student. That moved Python 64% → 71%,
+  Java 79% → 80%, C unchanged at 67%: it explains less than first assumed. What still
+  fails is visible formatting, and stays a failure on purpose: missing spaces inside a
+  line (`Case1:3` for `Case 1: 3`, the largest group in every language: AIZU counts it
+  as a Presentation Error because its judge ignores all whitespace), missing/extra
+  blank lines, and double spaces between values.
+- **Starter code** (2026-10-20): the student editor now opens Java questions with a
+  `public class Main` skeleton and C questions with `#include <stdio.h>` / `int
+  main(void) { ... return 0; }`, which removes the two structural mistakes behind
+  `MainNotFound` and `NonZeroExit` before they happen.
 - **Java needs ≥ ~3 s CPU on this Judge0.** JVM startup alone measured 1.2–2.1 s (CPU
   time is summed across the JVM's threads) and up to ~140 MB, so at AIZU's 1 s / 128 MB
   every Java submission timed out. The eval gives Java +3 s and 256 MB; a Java question

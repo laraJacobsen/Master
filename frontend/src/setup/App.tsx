@@ -655,7 +655,17 @@ export default function App() {
                 })}
               </ol>
             )}
-            <button type="button" className="new-question-btn" onClick={() => flushThen(resetForm)}>
+            {/* Disabled while the editor already is a new, not-yet-saved question
+                (it saves itself once it has a title) -- clicking it then did
+                nothing visible, or reset a language picked before the title back
+                to Python. */}
+            <button
+              type="button"
+              className="new-question-btn"
+              onClick={() => flushThen(resetForm)}
+              disabled={!currentId}
+              title={!currentId ? "The editor is already a new question" : undefined}
+            >
               + New question
             </button>
             <button
