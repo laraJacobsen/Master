@@ -199,8 +199,42 @@ def _run_canonicalize_boundary_checks():
     print("_canonicalize() statement-boundary fix   OK")
 
 
+def _run_classify_submission_checks():
+    """Regression tests for the two hints.classify_submission() fixes from the
+    CodeNet eval (feedback-research/codenet-eval/): a program that didn't compile
+    was graded wrong_answer, and a failing test whose last printed line happened to
+    match was graded "pass" with no hint. Plus judge0_client asking Judge0 for
+    exit_code (the fake above returns it unasked, which is how that went unnoticed).
+    Pure functions, no network/DB."""
+    from backend import hints, judge0_client
+    from backend.ai_feedback import judge_and_feedback
+
+    def case(passed, status_id=3, stdout="", stderr=None, compile_output=None):
+        return {"passed": passed, "status_id": status_id,
+                "status_description": {3: "Accepted", 6: "Compilation Error"}[status_id],
+                "stdout": stdout, "stderr": stderr, "compile_output": compile_output,
+                "exit_code": None if status_id == 6 else 0, "expected_stdout": "6\n"}
+
+    compile_error = case(False, status_id=6, compile_output="main.c:3:5: error: expected ';'\n")
+    assert hints.classify_submission([compile_error]) == ("compile_error", None)
+    graded = judge_and_feedback("", "", [compile_error], language="c")
+    assert graded["exec_verdict"] == "compile_error" and graded["verdict"] == "error", graded
+    assert graded["hint_tier"] == 1 and "compiled" in graded["feedback"], graded
+    assert graded["traceback"] == compile_error["compile_output"], graded  # shown to the student
+
+    # An extra printed line: the whole-output test comparison fails, the last line matches.
+    extra_line = case(False, stdout="debug\n6\n")
+    assert hints.classify_submission([extra_line]) == ("wrong_answer", None)
+    assert hints.classify_submission([case(True, stdout="6\n")]) == ("pass", None)
+
+    assert "exit_code" in judge0_client.RESPONSE_FIELDS.split(",")
+
+    print("classify_submission() CodeNet-eval fixes OK")
+
+
 def main():
     _run_canonicalize_boundary_checks()
+    _run_classify_submission_checks()
 
     with patch("backend.judge0_client.requests.post", side_effect=fake_post), \
          patch("backend.aggregation.requests.post", side_effect=fake_post):

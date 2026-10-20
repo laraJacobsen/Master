@@ -42,14 +42,18 @@ _TRACEBACK_MAX_CHARS = 2000
 
 
 def _traceback_for(test_results: list) -> str:
-    """Raw stderr from the first failing test case, or None if it passed or
-    produced no stderr (e.g. a plain wrong-answer). Several hint tiers (see
+    """Raw stderr from the first failing test case -- or, for a program that
+    didn't compile, the compiler's output -- or None if it passed or produced
+    neither (e.g. a plain wrong-answer). Several hint tiers (see
     feedback-research/feedback.py) explicitly tell the student to "read the
-    traceback" -- that only makes sense if the student can actually see one."""
+    traceback" or the compiler's first error -- that only makes sense if the
+    student can actually see it."""
     failing = next((r for r in test_results if not r["passed"]), None)
-    if failing is None or not failing.get("stderr"):
+    if failing is None:
         return None
-    stderr = failing["stderr"]
+    stderr = failing.get("stderr") or failing.get("compile_output")
+    if not stderr:
+        return None
     if len(stderr) > _TRACEBACK_MAX_CHARS:
         stderr = stderr[:_TRACEBACK_MAX_CHARS] + "\n... (truncated)"
     return stderr

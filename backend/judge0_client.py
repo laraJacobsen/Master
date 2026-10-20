@@ -27,6 +27,12 @@ DEFAULT_MEMORY_LIMIT_KB = 128000  # ~125MB
 MAX_CPU_TIME_LIMIT = float(os.environ.get("MAX_CPU_TIME_LIMIT", "15"))
 MAX_MEMORY_LIMIT_KB = int(os.environ.get("MAX_MEMORY_LIMIT_KB", "256000"))
 
+# Judge0 leaves exit_code out of its default response fields, so it has to be
+# asked for -- without this, every result's exit_code was None and classify.py's
+# exit_code == 137 (OOM kill) check could never fire. Confirmed against the
+# local instance during the CodeNet eval (feedback-research/codenet-eval/).
+RESPONSE_FIELDS = "status,stdout,stderr,compile_output,message,time,memory,exit_code"
+
 LANGUAGE_IDS = {
     "python": 71,
     "c": 50,
@@ -94,7 +100,7 @@ def run_submission(
     try:
         resp = requests.post(
             f"{JUDGE0_BASE_URL}/submissions",
-            params={"base64_encoded": "true", "wait": "true"},
+            params={"base64_encoded": "true", "wait": "true", "fields": RESPONSE_FIELDS},
             json=payload,
             timeout=timeout,
         )

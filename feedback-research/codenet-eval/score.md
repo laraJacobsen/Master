@@ -9,21 +9,21 @@
 | language | CodeNet status | n | agree | reproduced on sample | agree (reproduced) |
 |---|---|---:|---:|---:|---:|
 | C | Accepted | 200 | 98% | 100% | 98% |
-| C | Wrong Answer | 200 | 66% | 68% | 96% |
+| C | Wrong Answer | 200 | 68% | 70% | 98% |
 | C | Runtime Error | 200 | 40% | 60% | 66% |
-| C | Compile Error | 197 | 0% | 93% | 0% |
-| C | Time Limit Exceeded | 200 | 26% | 74% | 35% |
+| C | Compile Error | 197 | 91% | 93% | 97% |
+| C | Time Limit Exceeded | 200 | 26% | 75% | 35% |
 | C | Memory Limit Exceeded (low n) | 1 | 0% | 0% | - |
 | C | WA: Presentation Error | 200 | 67% | 100% | 67% |
 | Java | Accepted | 200 | 100% | 100% | 100% |
-| Java | Wrong Answer | 200 | 65% | 68% | 95% |
+| Java | Wrong Answer | 200 | 68% | 68% | 99% |
 | Java | Runtime Error | 198 | 80% | 88% | 90% |
-| Java | Compile Error | 200 | 0% | 99% | 0% |
+| Java | Compile Error | 200 | 97% | 99% | 98% |
 | Java | Time Limit Exceeded | 134 | 60% | 61% | 99% |
 | Java | Memory Limit Exceeded (low n) | 26 | 0% | 27% | 0% |
-| Java | WA: Presentation Error | 188 | 80% | 100% | 80% |
+| Java | WA: Presentation Error | 188 | 79% | 100% | 79% |
 | Python | Accepted | 200 | 100% | 100% | 100% |
-| Python | Wrong Answer | 200 | 68% | 72% | 94% |
+| Python | Wrong Answer | 200 | 72% | 72% | 100% |
 | Python | Runtime Error | 200 | 94% | 95% | 99% |
 | Python | Time Limit Exceeded | 108 | 19% | 62% | 30% |
 | Python | Memory Limit Exceeded (low n) | 17 | 0% | 12% | 0% |
@@ -31,34 +31,34 @@
 
 ## C: CodeNet status x production verdict
 
-| CodeNet status | pass | wrong_answer | runtime_error/Unknown | timeout |
-|---|---:|---:|---:|---:|
-| Accepted | 196 | 4 |  |  |
-| Wrong Answer | 66 | 131 | 3 |  |
-| Runtime Error | 84 | 37 | 79 |  |
-| Compile Error | 14 | 182 |  | 1 |
-| Time Limit Exceeded | 51 | 14 | 83 | 52 |
-| Memory Limit Exceeded | 1 |  |  |  |
-| WA: Presentation Error | 134 | 66 |  |  |
+| CodeNet status | pass | wrong_answer | compile_error | runtime_error/Unknown | timeout |
+|---|---:|---:|---:|---:|---:|
+| Accepted | 196 | 4 |  |  |  |
+| Wrong Answer | 60 | 137 |  | 3 |  |
+| Runtime Error | 80 | 39 | 2 | 79 |  |
+| Compile Error | 13 | 4 | 179 |  | 1 |
+| Time Limit Exceeded | 50 | 15 | 1 | 82 | 52 |
+| Memory Limit Exceeded | 1 |  |  |  |  |
+| WA: Presentation Error | 134 | 66 |  |  |  |
 
 ## Java: CodeNet status x production verdict
 
-| CodeNet status | pass | wrong_answer | runtime_error/Unknown | timeout | oom |
-|---|---:|---:|---:|---:|---:|
-| Accepted | 199 | 1 |  |  |  |
-| Wrong Answer | 70 | 130 |  |  |  |
-| Runtime Error | 23 | 13 | 158 |  | 4 |
-| Compile Error | 2 | 195 | 3 |  |  |
-| Time Limit Exceeded | 52 |  | 1 | 81 |  |
-| Memory Limit Exceeded | 19 | 6 |  | 1 |  |
-| WA: Presentation Error | 150 | 38 |  |  |  |
+| CodeNet status | pass | compile_error | wrong_answer | runtime_error/Unknown | timeout | oom |
+|---|---:|---:|---:|---:|---:|---:|
+| Accepted | 199 |  | 1 |  |  |  |
+| Wrong Answer | 63 | 1 | 136 |  |  |  |
+| Runtime Error | 23 | 3 | 10 | 158 |  | 4 |
+| Compile Error | 2 | 194 | 1 | 3 |  |  |
+| Time Limit Exceeded | 52 |  |  | 1 | 81 |  |
+| Memory Limit Exceeded | 19 |  | 6 |  | 1 |  |
+| WA: Presentation Error | 149 |  | 39 |  |  |  |
 
 ## Python: CodeNet status x production verdict
 
 | CodeNet status | pass | wrong_answer | syntax_error | output_limit_exceeded | runtime_error/NameError | runtime_error/TypeError | timeout | runtime_error/ValueError | runtime_error/AttributeError | runtime_error/EOFError | runtime_error/Unknown | runtime_error/ModuleNotFoundError | runtime_error/IndexError |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Accepted | 200 |  |  |  |  |  |  |  |  |  |  |  |  |
-| Wrong Answer | 64 | 136 |  |  |  |  |  |  |  |  |  |  |  |
+| Wrong Answer | 56 | 144 |  |  |  |  |  |  |  |  |  |  |  |
 | Runtime Error | 10 | 1 | 89 |  | 29 | 25 |  | 18 | 16 | 5 | 3 | 2 | 2 |
 | Time Limit Exceeded | 41 | 2 |  | 45 |  |  | 20 |  |  |  |  |  |  |
 | Memory Limit Exceeded | 15 |  |  |  |  |  | 2 |  |  |  |  |  |  |
@@ -69,7 +69,7 @@
 Most common last stderr/compile line (digits -> N) where production said runtime_error/Unknown, or where Judge0 reported a compilation error.
 
 
-**C** (347)
+**C** (346)
 
 - 69 x `run: line N: N File size limit exceeded(core dumped) ./a.out`
 - 66 x `| ^`
@@ -107,4 +107,4 @@ Most common last stderr/compile line (digits -> N) where production said runtime
 
 ## Judge0 exit_code values
 
-{None: 3226}
+{0: 2269, None: 380, 139: 78, 6: 3, 1: 354, 153: 77, 255: 1, 120: 43, 136: 8, 10: 3, 135: 1, 137: 4, 9: 2, 2: 1, 34: 1, 20: 1}

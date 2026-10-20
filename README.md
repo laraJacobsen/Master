@@ -63,6 +63,9 @@ feedback-research/    Tiered-feedback taxonomy + eval corpus, imported from the
   corpora/              Hand-written bug corpora per exercise (is_palindrome, ...)
   clustering-eval/      wrong_answer sub-clustering ground truth + scoring scripts
                         (run_*_baseline.py, subcluster_eval.py)
+  codenet-eval/         The classifier scored against IBM CodeNet judge labels for C, Java
+                        and Python (select/sample/run/score scripts + score.md report;
+                        needs CodeNet extracted locally, see each script's docstring)
   label-spot-checks/    Discussion-point Label rounds 1-5 (generated samples + ratings,
                         latency) and the generator script
   decisions/            Feedback/clustering design decisions and known limitations

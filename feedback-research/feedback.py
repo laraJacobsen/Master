@@ -159,6 +159,17 @@ _OTHER_FAMILIES = {
         discussion="Syntax error. Worth comparing the flagged line against the exact pattern "
         "from the lecture slides.",
     ),
+    # Compiled languages only (C, Java): Python reports its parse errors as syntax_error.
+    "compile_error": dict(
+        ceiling=2,
+        tiers=[
+            "Your program couldn't be compiled, so it never ran.",
+            "Read the first error the compiler reports and the line number it gives. Later "
+            "errors are often caused by the first one, so fix that one and compile again.",
+        ],
+        discussion="Compile error. Worth reading the compiler's first error together: the "
+        "ones after it often follow from it.",
+    ),
     "function_not_found": dict(
         ceiling=2,
         tiers=[
@@ -199,6 +210,7 @@ _OTHER_FAMILIES = {
 VERDICT_TO_FAMILY = {
     "wrong_answer": "wrong_answer",
     "syntax_error": "syntax_error",
+    "compile_error": "compile_error",
     "function_not_found": "function_not_found",
     "timeout": "bounded_loop",
     "oom": "bounded_loop",

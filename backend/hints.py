@@ -31,20 +31,37 @@ def _load(name: str, filename: str):
 _classify = _load("_research_classify", "classify.py")
 _feedback = _load("_research_feedback", "feedback.py")
 
+COMPILATION_ERROR_STATUS_ID = 6  # Judge0's "Compilation Error"
+
 
 def classify_submission(test_results: list, expected_function_name: str = None) -> tuple:
     """Single source of truth for a submission's deterministic (verdict, error_type),
     from the research classify.py run against the first failing test case.
 
-    Returns ("pass", None) when every test case passed. error_type is only set
-    when verdict == "runtime_error" (it's the exception name, e.g. "NameError").
+    Returns ("pass", None) when every test case passed, and never otherwise.
+    error_type is only set when verdict == "runtime_error" (it's the exception
+    name, e.g. "NameError").
+
+    Two cases are decided here rather than in classify.py, which only sees
+    stdout/stderr (both found by the CodeNet eval, feedback-research/codenet-eval/):
+      - compile_error: Judge0's own "Compilation Error" status (id 6). Compiled
+        languages report it in compile_output, which classify.py never reads, so a
+        C/Java program that didn't compile used to come back wrong_answer.
+      - a failing test that classify.py calls "pass": classify.py compares only the
+        last printed line (to tolerate debug prints), while run_test_cases()
+        compares the whole output, so e.g. an extra printed line failed the test
+        but got verdict "pass" -- and with it no hint at all. The test result is
+        the grade, so that's wrong_answer.
     """
     failing = next((r for r in test_results if not r["passed"]), None)
     if failing is None:
         return "pass", None
 
+    if failing.get("status_id") == COMPILATION_ERROR_STATUS_ID:
+        return "compile_error", None
+
     timed_out = "time limit" in (failing["status_description"] or "").lower()
-    return _classify.classify(
+    verdict, error_type = _classify.classify(
         stdout=failing["stdout"],
         stderr=failing["stderr"],
         exit_code=failing.get("exit_code"),
@@ -52,6 +69,9 @@ def classify_submission(test_results: list, expected_function_name: str = None) 
         timed_out=timed_out,
         expected_function_name=expected_function_name,
     )
+    if verdict == "pass":
+        return "wrong_answer", None
+    return verdict, error_type
 
 
 def hint_for_verdict(verdict: str, error_type: str, attempt_number: int) -> dict:
