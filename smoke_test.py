@@ -232,9 +232,73 @@ def _run_classify_submission_checks():
     print("classify_submission() CodeNet-eval fixes OK")
 
 
+def _run_c_java_classify_checks():
+    """C and Java crash classification (classify.py's per-language crash rules) and
+    their hint families, on stderr/exit codes as real Judge0 produced them in the
+    CodeNet eval. Python's rules are covered by the end-to-end submits above."""
+    from backend import hints
+    from backend.ai_feedback import judge_and_feedback
+
+    def failing(language, exit_code, stderr=None, stdout="", status=(11, "Runtime Error (NZEC)")):
+        result = {"passed": False, "status_id": status[0], "status_description": status[1],
+                  "stdout": stdout, "stderr": stderr, "compile_output": None,
+                  "exit_code": exit_code, "expected_stdout": "7\n"}
+        return hints.classify_submission([result], language=language)
+
+    shell = "run: line 1:     3 {} (core dumped) ./a.out\n"
+    assert failing("c", 139, shell.format("Segmentation fault")) == ("runtime_error", "SegmentationFault")
+    assert failing("c", 136, shell.format("Floating point exception")) == ("runtime_error", "FloatingPointException")
+    assert failing("c", None, shell.format("Segmentation fault")) == ("runtime_error", "SegmentationFault")
+    assert failing("c", 153, shell.format("File size limit exceeded")) == ("output_limit_exceeded", None)
+    # main() without `return 0;`: right output, but a non-zero exit -- not a wrong answer.
+    assert failing("c", 10, stdout="7\n") == ("runtime_error", "NonZeroExit")
+    assert failing("c", 0, stdout="8\n", status=(3, "Accepted")) == ("wrong_answer", None)
+
+    java_trace = ('Exception in thread "main" java.util.NoSuchElementException\n'
+                  "\tat java.base/java.util.Scanner.throwFor(Scanner.java:937)\n"
+                  "\tat Main.main(Main.java:12)\n")
+    assert failing("java", 1, java_trace) == ("runtime_error", "NoSuchElementException")
+    no_main = ("Error: Could not find or load main class Main\n"
+               "Caused by: java.lang.ClassNotFoundException: Main\n")
+    assert failing("java", 1, no_main) == ("runtime_error", "MainNotFound")
+    assert failing("java", 137, "run: line 1:     3 Killed   /usr/local/openjdk13/bin/java Main\n") == ("oom", None)
+
+    # The same stderr read as Python is unchanged (no Python exception in it -> Unknown).
+    assert failing("python", 1, java_trace) == ("runtime_error", "Unknown")
+
+    # Every C/Java type seen in the eval has its own hint family, not the generic
+    # fallback -- and aliased Java index exceptions still show their own name.
+    for error_type in ["SegmentationFault", "FloatingPointException", "NonZeroExit",
+                       "MainNotFound", "NoSuchElementException", "InputMismatchException",
+                       "NumberFormatException", "NullPointerException", "ArithmeticException",
+                       "ArrayIndexOutOfBoundsException", "StringIndexOutOfBoundsException",
+                       "IndexOutOfBoundsException"]:
+        key = hints._feedback.family_key_for("runtime_error", error_type)
+        assert key[1] != "_fallback", error_type
+        assert hints.discussion_point_for_cluster("runtime_error", error_type, 2), error_type
+    tier2 = hints.hint_for_verdict("runtime_error", "StringIndexOutOfBoundsException", 2)["hint_text"]
+    assert tier2.startswith("StringIndexOutOfBoundsException:"), tier2
+
+    graded = judge_and_feedback("", "", [{
+        "passed": False, "status_id": 11, "status_description": "Runtime Error (NZEC)",
+        "stdout": "", "stderr": no_main, "compile_output": None, "exit_code": 1,
+        "expected_stdout": "7\n"}], language="java")
+    assert graded["exec_verdict"] == "runtime_error" and graded["error_type"] == "MainNotFound", graded
+    assert "class named Main" in graded["feedback"], graded
+
+    # The Python package allow-list must not reject Java's own imports.
+    from backend.validation import pre_execution_check
+    java_source = "import java.util.Scanner;\npublic class Main { public static void main(String[] a) {} }"
+    assert pre_execution_check(java_source, language="java") is None
+    assert pre_execution_check("import numpy", language="python") == "disallowed_package"
+
+    print("C/Java crash classification + hints        OK")
+
+
 def main():
     _run_canonicalize_boundary_checks()
     _run_classify_submission_checks()
+    _run_c_java_classify_checks()
 
     with patch("backend.judge0_client.requests.post", side_effect=fake_post), \
          patch("backend.aggregation.requests.post", side_effect=fake_post):

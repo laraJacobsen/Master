@@ -189,7 +189,8 @@ export default function App() {
     }
   }
 
-  // Dev convenience only: three real, correct-by-construction questions
+  // Dev convenience only: real, correct-by-construction questions -- three
+  // Python, plus one each in C and Java
   // (validated immediately so they're startable right away) so testing the
   // whole lobby/start/submit flow doesn't require typing a question in by
   // hand every time. Not something a real class needs -- just faster manual
@@ -197,7 +198,13 @@ export default function App() {
   async function addTestQuestions() {
     setAddingTestQuestions(true);
     setStatus("Adding...");
-    const samples = [
+    const samples: {
+      title: string;
+      language?: string;
+      prompt: string;
+      test_cases: { stdin: string; expected: string }[];
+      reference_solution: string;
+    }[] = [
       {
         title: "Double It",
         prompt: "Read one integer and print double it.",
@@ -225,13 +232,54 @@ export default function App() {
         ],
         reference_solution: "print(input()[::-1])",
       },
+      {
+        title: "Sum Two (C)",
+        language: "c",
+        prompt: "Read two integers on one line and print their sum.",
+        test_cases: [
+          { stdin: "3 4\n", expected: "7" },
+          { stdin: "10 -2\n", expected: "8" },
+        ],
+        reference_solution: [
+          "#include <stdio.h>",
+          "",
+          "int main(void) {",
+          "    int a, b;",
+          '    scanf("%d %d", &a, &b);',
+          '    printf("%d\\n", a + b);',
+          "    return 0;",
+          "}",
+          "",
+        ].join("\n"),
+      },
+      {
+        title: "Sum Two (Java)",
+        language: "java",
+        prompt: "Read two integers on one line and print their sum. Your class must be named Main.",
+        test_cases: [
+          { stdin: "3 4\n", expected: "7" },
+          { stdin: "10 -2\n", expected: "8" },
+        ],
+        reference_solution: [
+          "import java.util.Scanner;",
+          "",
+          "public class Main {",
+          "    public static void main(String[] args) {",
+          "        Scanner sc = new Scanner(System.in);",
+          "        int a = sc.nextInt(), b = sc.nextInt();",
+          "        System.out.println(a + b);",
+          "    }",
+          "}",
+          "",
+        ].join("\n"),
+      },
     ];
     try {
       for (const sample of samples) {
         const created = await createQuestion({
           title: sample.title,
           prompt: sample.prompt,
-          language: "python",
+          language: sample.language ?? "python",
           test_cases: sample.test_cases.map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected })),
           reference_solution: sample.reference_solution,
           cpu_time_limit_s: 5,
@@ -244,7 +292,7 @@ export default function App() {
         });
         await validateQuestionApi(created.id);
       }
-      setStatus("Added 3 sample questions.", "ok");
+      setStatus(`Added ${samples.length} sample questions.`, "ok");
       loadQuestionList();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Could not add test questions.", "bad");
@@ -615,7 +663,7 @@ export default function App() {
               className="link-button dev-link"
               onClick={addTestQuestions}
               disabled={addingTestQuestions}
-              title="Adds 3 checked sample questions, for testing"
+              title="Adds checked sample questions (Python, C, Java), for testing"
             >
               {addingTestQuestions ? "Adding..." : "Add sample questions"}
             </button>

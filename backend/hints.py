@@ -34,13 +34,16 @@ _feedback = _load("_research_feedback", "feedback.py")
 COMPILATION_ERROR_STATUS_ID = 6  # Judge0's "Compilation Error"
 
 
-def classify_submission(test_results: list, expected_function_name: str = None) -> tuple:
+def classify_submission(test_results: list, expected_function_name: str = None,
+                        language: str = "python") -> tuple:
     """Single source of truth for a submission's deterministic (verdict, error_type),
     from the research classify.py run against the first failing test case.
 
     Returns ("pass", None) when every test case passed, and never otherwise.
     error_type is only set when verdict == "runtime_error" (it's the exception
-    name, e.g. "NameError").
+    name in the submission's own language, e.g. "NameError", "SegmentationFault",
+    "NoSuchElementException"). language is the question's language ("python", "c",
+    "java"), which picks classify.py's crash rules.
 
     Two cases are decided here rather than in classify.py, which only sees
     stdout/stderr (both found by the CodeNet eval, feedback-research/codenet-eval/):
@@ -68,6 +71,7 @@ def classify_submission(test_results: list, expected_function_name: str = None) 
         expected_output=failing["expected_stdout"],
         timed_out=timed_out,
         expected_function_name=expected_function_name,
+        language=language,
     )
     if verdict == "pass":
         return "wrong_answer", None

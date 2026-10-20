@@ -70,9 +70,10 @@ def judge_and_feedback(
     """Returns a dict: verdict, error_type, feedback, tests_passed, tests_total,
     hint_tier, hint_ceiling, exec_verdict, traceback.
 
-    question_prompt/source_code/language are unused now that grading has no model to
-    give them to -- kept as parameters so main.py's call site doesn't need to change
-    based on which grading strategy is in use.
+    language picks the crash rules classify_submission() applies. question_prompt/
+    source_code are unused now that grading has no model to give them to -- kept as
+    parameters so main.py's call site doesn't need to change based on which grading
+    strategy is in use.
     """
     passed = sum(1 for r in test_results if r["passed"])
     total = len(test_results)
@@ -83,7 +84,7 @@ def judge_and_feedback(
     )
 
     try:
-        exec_verdict, error_type = classify_submission(test_results, expected_function_name)
+        exec_verdict, error_type = classify_submission(test_results, expected_function_name, language)
         hint = hint_for_verdict(exec_verdict, error_type, attempt_number)
     except Exception:
         exec_verdict = "pass" if passed == total and total > 0 else "wrong_answer"

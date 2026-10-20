@@ -10,7 +10,7 @@
 |---|---|---:|---:|---:|---:|
 | C | Accepted | 200 | 98% | 100% | 98% |
 | C | Wrong Answer | 200 | 68% | 70% | 98% |
-| C | Runtime Error | 200 | 40% | 60% | 66% |
+| C | Runtime Error | 200 | 45% | 60% | 75% |
 | C | Compile Error | 197 | 91% | 93% | 97% |
 | C | Time Limit Exceeded | 200 | 26% | 75% | 35% |
 | C | Memory Limit Exceeded (low n) | 1 | 0% | 0% | - |
@@ -29,29 +29,39 @@
 | Python | Memory Limit Exceeded (low n) | 17 | 0% | 12% | 0% |
 | Python | WA: Presentation Error | 157 | 64% | 100% | 64% |
 
+## Runtime errors with a specific error type
+
+The agreement table only checks the verdict. A runtime_error's hint depends on its error_type, and `Unknown` gets the generic fallback hint.
+
+| language | runtime_error | specific type | Unknown |
+|---|---:|---:|---:|
+| C | 99 | 100% | 0 |
+| Java | 162 | 100% | 0 |
+| Python | 100 | 97% | 3 |
+
 ## C: CodeNet status x production verdict
 
-| CodeNet status | pass | wrong_answer | compile_error | runtime_error/Unknown | timeout |
-|---|---:|---:|---:|---:|---:|
-| Accepted | 196 | 4 |  |  |  |
-| Wrong Answer | 60 | 137 |  | 3 |  |
-| Runtime Error | 80 | 39 | 2 | 79 |  |
-| Compile Error | 13 | 4 | 179 |  | 1 |
-| Time Limit Exceeded | 50 | 15 | 1 | 82 | 52 |
-| Memory Limit Exceeded | 1 |  |  |  |  |
-| WA: Presentation Error | 134 | 66 |  |  |  |
+| CodeNet status | pass | wrong_answer | compile_error | runtime_error/SegmentationFault | output_limit_exceeded | timeout | runtime_error/NonZeroExit | runtime_error/FloatingPointException |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Accepted | 196 | 4 |  |  |  |  |  |  |
+| Wrong Answer | 60 | 137 |  | 1 | 1 |  |  | 1 |
+| Runtime Error | 80 | 27 | 2 | 72 | 1 |  | 12 | 6 |
+| Compile Error | 13 | 4 | 179 |  |  | 1 |  |  |
+| Time Limit Exceeded | 50 | 15 | 1 | 6 | 75 | 52 |  | 1 |
+| Memory Limit Exceeded | 1 |  |  |  |  |  |  |  |
+| WA: Presentation Error | 134 | 66 |  |  |  |  |  |  |
 
 ## Java: CodeNet status x production verdict
 
-| CodeNet status | pass | compile_error | wrong_answer | runtime_error/Unknown | timeout | oom |
-|---|---:|---:|---:|---:|---:|---:|
-| Accepted | 199 |  | 1 |  |  |  |
-| Wrong Answer | 63 | 1 | 136 |  |  |  |
-| Runtime Error | 23 | 3 | 10 | 158 |  | 4 |
-| Compile Error | 2 | 194 | 1 | 3 |  |  |
-| Time Limit Exceeded | 52 |  |  | 1 | 81 |  |
-| Memory Limit Exceeded | 19 |  | 6 |  | 1 |  |
-| WA: Presentation Error | 149 |  | 39 |  |  |  |
+| CodeNet status | pass | compile_error | wrong_answer | timeout | runtime_error/NoSuchElementException | runtime_error/MainNotFound | runtime_error/ArrayIndexOutOfBoundsException | runtime_error/InputMismatchException | runtime_error/ArithmeticException | runtime_error/NumberFormatException | runtime_error/NullPointerException | runtime_error/IndexOutOfBoundsException | oom | runtime_error/IllegalStateException | runtime_error/StringIndexOutOfBoundsException | runtime_error/FileNotFoundException |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Accepted | 199 |  | 1 |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| Wrong Answer | 63 | 1 | 136 |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| Runtime Error | 23 | 3 | 10 |  | 57 | 53 | 15 | 7 | 6 | 5 | 5 | 5 | 4 | 3 | 1 | 1 |
+| Compile Error | 2 | 194 | 1 |  | 2 | 1 |  |  |  |  |  |  |  |  |  |  |
+| Time Limit Exceeded | 52 |  |  | 81 | 1 |  |  |  |  |  |  |  |  |  |  |  |
+| Memory Limit Exceeded | 19 |  | 6 | 1 |  |  |  |  |  |  |  |  |  |  |  |  |
+| WA: Presentation Error | 149 |  | 39 |  |  |  |  |  |  |  |  |  |  |  |  |  |
 
 ## Python: CodeNet status x production verdict
 
@@ -69,35 +79,26 @@
 Most common last stderr/compile line (digits -> N) where production said runtime_error/Unknown, or where Judge0 reported a compilation error.
 
 
-**C** (346)
+**C** (182)
 
-- 69 x `run: line N: N File size limit exceeded(core dumped) ./a.out`
-- 66 x `| ^`
-- 64 x `run: line N: N Segmentation fault (core dumped) ./a.out`
+- 63 x `| ^`
 - 19 x `main.c:N:N: note: each undeclared identifier is reported only once for each function it appears in`
 - 19 x `collectN: error: ld returned N exit status`
-- 15 x `main.c:N:N: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’`
 - 12 x `compilation terminated.`
 - 10 x `| ~`
 - 8 x `| ;`
-- 7 x `| ^~~~`
-- 7 x `run: line N: N Floating point exception(core dumped) ./a.out`
+- 7 x `main.c:N:N: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’`
 - 6 x `| ^~~~~~`
+- 5 x `| )`
+- 4 x `| ~~`
+- 3 x `| ^~~~~`
+- 3 x `| ~~~~~~`
 
-**Java** (360)
+**Java** (198)
 
 - 123 x `N error`
-- 106 x `at Main.main(Main.java:N)`
 - 74 x `N errors`
-- 24 x `Caused by: java.lang.ClassNotFoundException: Main`
-- 4 x `Caused by: java.lang.NoClassDefFoundError: pN/Main (wrong name: Main)`
-- 3 x `Note: Recompile with -Xlint:unchecked for details.`
-- 3 x `Caused by: java.lang.NoClassDefFoundError: practice/Main (wrong name: Main)`
-- 3 x `or a JavaFX application class must extend javafx.application.Application`
-- 2 x `Caused by: java.lang.NoClassDefFoundError: lesson/Main (wrong name: Main)`
-- 1 x `Caused by: java.lang.NoClassDefFoundError: progA/Main (wrong name: Main)`
-- 1 x `Caused by: java.lang.NoClassDefFoundError: javaN/Main (wrong name: Main)`
-- 1 x `Caused by: java.lang.NoClassDefFoundError: javaprogramming_Class/Main (wrong name: Main)`
+- 1 x `only showing the first N errors, of N total; use -Xmaxerrs if you would like to see more`
 
 **Python** (3)
 

@@ -114,6 +114,149 @@ _RUNTIME_FAMILIES = {
         discussion="EOFError: check whether the code is reading more input than it's actually "
         "given.",
     ),
+
+    # --- C (classify.py's _classify_c_crash: from the exit code, since C prints no exception)
+    "SegmentationFault": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "Segmentation fault: your program read or wrote memory that doesn't belong to it.",
+            "Check every array index against the array's size (the last valid index is size - "
+            "1), and every scanf: does each variable you read into have an & in front of it?",
+            "Fix the out-of-range index, or add the missing &, so every read and write goes to a "
+            "variable or array element that actually exists.",
+        ],
+        discussion="Segmentation fault: check array indexes against the array size, and for a "
+        "missing & in scanf.",
+    ),
+    "FloatingPointException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "Floating point exception: despite the name, this is an integer division or % by "
+            "zero.",
+            "Find each / and % in your code. Which one can have 0 on the right-hand side for "
+            "this input?",
+            "Make sure the divisor can't be 0 there: check it first, or fix the value it's "
+            "computed from.",
+        ],
+        discussion="Integer division or % by zero. Check which divisor can be 0 for the test "
+        "input.",
+    ),
+    "Aborted": dict(
+        ceiling=3,
+        tiers=[
+            "Your program crashed while it was running.",
+            "Aborted: your program stopped itself, usually because an assert() failed.",
+            "Read the error output: which assertion failed, and what did you expect to be true "
+            "at that point?",
+        ],
+        discussion="Aborted, usually a failed assert(). Worth reading which assertion failed.",
+    ),
+    "NonZeroExit": dict(
+        ceiling=3,
+        tiers=[
+            "Your program ended with an error status, which counts as a failure even if the "
+            "output looks right.",
+            "A C program tells the system it succeeded by returning 0 from main.",
+            "Declare main as int main(void) and end it with return 0;",
+        ],
+        discussion="main didn't return 0. Worth a reminder to declare int main and end it with "
+        "return 0;",
+    ),
+
+    # --- Java (classify.py's _classify_java_crash: the name from `Exception in thread "main"`)
+    "MainNotFound": dict(
+        ceiling=2,
+        tiers=[
+            "Your program couldn't be started. The grader runs a class named Main and calls its "
+            "main method.",
+            "Name your class exactly public class Main, remove any package line at the top of "
+            "the file, and keep the method as public static void main(String[] args).",
+        ],
+        discussion="Couldn't start: the class must be named Main, with no package line.",
+    ),
+    "NoSuchElementException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "NoSuchElementException: your program tried to read input that wasn't there.",
+            "Count your Scanner reads (nextInt(), nextLine(), ...) against the input you're "
+            "actually given. Do they match? Is your loop reading past the last value?",
+            "Remove the extra read, or loop with hasNextInt()/hasNextLine() so you stop when the "
+            "input runs out.",
+        ],
+        discussion="NoSuchElementException: the code reads more input than it's given.",
+    ),
+    "InputMismatchException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "InputMismatchException: Scanner read a value of a different type than you asked "
+            "for.",
+            "Look at the input and at the Scanner method reading it. Is there text where you "
+            "call nextInt(), or a decimal number where you expect an int?",
+            "Use the Scanner method that matches the input's type at that position (next(), "
+            "nextDouble(), ...).",
+        ],
+        discussion="InputMismatchException: the Scanner method doesn't match the input's type.",
+    ),
+    "NumberFormatException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "NumberFormatException: you tried to turn text into a number, but it wasn't a "
+            "number.",
+            "Look at the exact string you pass to Integer.parseInt (or similar). Does it contain "
+            "spaces, or more than one number, like a whole input line \"3 4\"?",
+            "Split the line into separate numbers first (line.split(\" \")) and parse each one.",
+        ],
+        discussion="NumberFormatException: often parseInt on a whole line that holds several "
+        "numbers.",
+    ),
+    "NullPointerException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "NullPointerException: you used a variable that doesn't refer to any object (it's "
+            "null).",
+            "The stack trace names the line. Which variable is used there, and where is it "
+            "given an object (with new, or a method that returns one)?",
+            "Give that variable an object before the line that uses it.",
+        ],
+        discussion="NullPointerException: a variable is used before it's given an object.",
+    ),
+    "ArithmeticException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "ArithmeticException: most likely an integer division or % by zero.",
+            "Find each / and % in your code. Which one can have 0 on the right-hand side for "
+            "this input?",
+            "Make sure the divisor can't be 0 there: check it first, or fix the value it's "
+            "computed from.",
+        ],
+        discussion="ArithmeticException, usually integer division by zero.",
+    ),
+    # Shared by every Java index exception -- see _RUNTIME_ALIASES.
+    "ArrayIndexOutOfBoundsException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "{error_type}: you used a position that doesn't exist in the array, string or list.",
+            "Check the index against the length: the last valid index is length - 1. Does a "
+            "loop go one step too far (<= instead of <)?",
+            "Adjust the index or the loop bound so it stays inside 0 .. length - 1.",
+        ],
+        discussion="{error_type}: check the index against the length, often <= instead of <.",
+    ),
+}
+
+# Exception names that share another family's hints (written with {error_type}, so the
+# student still sees the exact name their program raised).
+_RUNTIME_ALIASES = {
+    "StringIndexOutOfBoundsException": "ArrayIndexOutOfBoundsException",
+    "IndexOutOfBoundsException": "ArrayIndexOutOfBoundsException",
 }
 
 # Any runtime_error exception name classify.py can emit that doesn't have a dedicated family above
@@ -221,7 +364,7 @@ VERDICT_TO_FAMILY = {
 
 def _family_for(verdict, error_type):
     if verdict == "runtime_error":
-        return _RUNTIME_FAMILIES.get(error_type, _RUNTIME_FALLBACK)
+        return _RUNTIME_FAMILIES.get(_RUNTIME_ALIASES.get(error_type, error_type), _RUNTIME_FALLBACK)
     key = VERDICT_TO_FAMILY.get(verdict)
     if key is None:
         return None  # e.g. "pass" -- no hint family
@@ -235,7 +378,8 @@ def family_key_for(verdict, error_type=None):
     content, rather than only ever scoring each verdict in isolation.
     """
     if verdict == "runtime_error":
-        return ("runtime_error", error_type if error_type in _RUNTIME_FAMILIES else "_fallback")
+        family = _RUNTIME_ALIASES.get(error_type, error_type)
+        return ("runtime_error", family if family in _RUNTIME_FAMILIES else "_fallback")
     return VERDICT_TO_FAMILY.get(verdict, verdict)
 
 

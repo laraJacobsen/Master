@@ -30,6 +30,7 @@ import sys
 from collections import Counter, defaultdict
 
 from select_problems import HERE, LANGUAGES, STATUSES
+from run_judge0 import JUDGE0_LANGUAGE
 
 sys.path.insert(0, str(HERE.parents[1]))
 from backend import hints  # noqa: E402
@@ -78,7 +79,8 @@ def main():
             if r.get("skipped"):
                 skipped[(r["language"], r["codenet_status"], r["skipped"])] += 1
                 continue
-            r["verdict"], r["error_type"] = hints.classify_submission([r["result"]])
+            r["verdict"], r["error_type"] = hints.classify_submission(
+                [r["result"]], language=JUDGE0_LANGUAGE[r["language"]])
             records.append(r)
 
     by_cell = defaultdict(list)
@@ -107,6 +109,17 @@ def main():
             pct = lambda a, b: f"{a / b:.0%}" if b else "-"
             print(f"| {lang} | {status}{low} | {len(cell)} | {pct(agree, len(cell))} "
                   f"| {pct(len(repr_), len(cell))} | {pct(agree_repr, len(repr_))} |")
+
+    print("\n## Runtime errors with a specific error type\n")
+    print("The agreement table only checks the verdict. A runtime_error's hint depends on its "
+          "error_type, and `Unknown` gets the generic fallback hint.\n")
+    print("| language | runtime_error | specific type | Unknown |")
+    print("|---|---:|---:|---:|")
+    for lang in LANGUAGES:
+        crashes = [r for r in records if r["language"] == lang and r["verdict"] == "runtime_error"]
+        if crashes:
+            unknown = sum(r["error_type"] == "Unknown" for r in crashes)
+            print(f"| {lang} | {len(crashes)} | {(len(crashes) - unknown) / len(crashes):.0%} | {unknown} |")
 
     for lang in LANGUAGES:
         lang_records = [r for r in records if r["language"] == lang]

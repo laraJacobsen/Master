@@ -76,20 +76,43 @@ floods that AIZU stopped on time and Judge0 stopped on output size; both are rea
    effect on agreement: none on this sample (the few memory kills also print "Killed",
    which was already caught), but every result now carries a real exit code.
 
+## C and Java crash classification (2026-10-20)
+
+Before this, every C and Java runtime error was `runtime_error/Unknown` (165 in C, 161 in
+Java) and got the generic fallback hint. `classify.py` now runs the shared checks
+(timeout, oom, output limit) first, then one crash classifier per language; Python's
+rules are unchanged. Designed against the eval's results:
+
+- **C** prints no exception, so the classifier reads the exit code (128 + signal):
+  139/135 → `SegmentationFault` (72 of C's Runtime Errors), 136 →
+  `FloatingPointException`, 134 → `Aborted`, with the shell's stderr wording as a
+  fallback when there's no exit code. 153 (SIGXFSZ) → `output_limit_exceeded`: 75 of C's
+  Time Limit Exceeded were output floods. Any other non-zero exit → `NonZeroExit` (12):
+  `main()` with no `return 0;` returns whatever the last call left behind (e.g. printf's
+  character count). The output is often right, so after the pass-rule fix these would
+  otherwise have been told "wrong answer".
+- **Java**: the exception name from the `Exception in thread "main" java.x.Y` line (the
+  first line of the stack trace, where Python's exception is the last), e.g.
+  `NoSuchElementException` (57, reading past the input: Java's `EOFError`). A program
+  the JVM couldn't start ("Could not find or load main class Main", "Main method not
+  found") → `MainNotFound` (53): the class must be named `Main`, in no package.
+- `feedback.py` has hint families for each, in the language's own terms (e.g. a
+  segfault hint points at array bounds and a missing `&` in `scanf`; `MainNotFound`
+  explains `public class Main` and removing the `package` line). The three Java index
+  exceptions share one family, which still shows the exact exception name.
+
+Result: 100% of C and Java runtime errors now get a specific type (Python: 97%, the 3
+others are rare exceptions like `UnboundLocalError`). C Runtime Error agreement went 66%
+→ 75% (`NonZeroExit` was previously graded as a passing or wrong-answer program). The
+hint texts are first drafts: none has been through the spot-check rounds the Python
+hints had.
+
 ## Still open
 
 - **Presentation Error: only 64–79% pass.** The test comparison strips only the ends of
   the whole output, so a trailing space on any line fails (e.g. `5 4 3 2 1 ` vs
   `5 4 3 2 1`). Whether to ignore trailing whitespace per line is a grading-policy
   decision, not yet taken.
-- **C runtime errors → `runtime_error/Unknown`.** The exit codes now available identify
-  them without parsing stderr text: 139 segfault (78 here), 153 output file size limit
-  (77), 136 floating-point exception (8), 137 killed (4). `classify.py` also only knows
-  Python's wording of the output-limit error.
-- **Java exceptions → `runtime_error/Unknown`** (158). The exception name is on the
-  *first* stderr line (`Exception in thread "main" java.lang.X`); `classify.py` reads the
-  last. Separately, ~36 failed only because the class wasn't named `Main` or was in a
-  `package`: Java's counterpart to `function_not_found`, worth its own hint.
 - **Java needs ≥ ~3 s CPU on this Judge0.** JVM startup alone measured 1.2–2.1 s (CPU
   time is summed across the JVM's threads) and up to ~140 MB, so at AIZU's 1 s / 128 MB
   every Java submission timed out. The eval gives Java +3 s and 256 MB; a Java question
