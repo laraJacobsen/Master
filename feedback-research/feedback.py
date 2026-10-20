@@ -121,13 +121,14 @@ _RUNTIME_FAMILIES = {
         tiers=[
             "Your program crashed while it was running.",
             "Segmentation fault: your program read or wrote memory that doesn't belong to it.",
-            "Check every array index against the array's size (the last valid index is size - "
-            "1), and every scanf: does each variable you read into have an & in front of it?",
-            "Fix the out-of-range index, or add the missing &, so every read and write goes to a "
-            "variable or array element that actually exists.",
+            "Check these: does every variable in scanf have an & in front of it? Does every "
+            "array index stay below the array's size? Does printf get a string in double quotes "
+            "(\"#\"), not a character ('#')? Is any array enormous (millions of elements)?",
+            "Fix the one that's wrong: add the missing &, keep the index in range, use double "
+            "quotes in printf, or make the array smaller.",
         ],
-        discussion="Segmentation fault: check array indexes against the array size, and for a "
-        "missing & in scanf.",
+        discussion="Segmentation fault: check scanf for a missing &, array indexes, printf "
+        "given '#' instead of \"#\", and oversized arrays.",
     ),
     "FloatingPointException": dict(
         ceiling=4,
@@ -208,11 +209,14 @@ _RUNTIME_FAMILIES = {
             "NumberFormatException: you tried to turn text into a number, but it wasn't a "
             "number.",
             "Look at the exact string you pass to Integer.parseInt (or similar). Does it contain "
-            "spaces, or more than one number, like a whole input line \"3 4\"?",
-            "Split the line into separate numbers first (line.split(\" \")) and parse each one.",
+            "spaces, or more than one number, like a whole input line \"3 4\"? If the error "
+            "says null, readLine() found no more input: you're reading more lines than there "
+            "are.",
+            "Split the line into separate numbers first (line.split(\" \")) and parse each one, "
+            "and stop reading when readLine() returns null.",
         ],
         discussion="NumberFormatException: often parseInt on a whole line that holds several "
-        "numbers.",
+        "numbers, or on readLine()'s null after the input ran out.",
     ),
     "NullPointerException": dict(
         ceiling=4,
@@ -220,11 +224,14 @@ _RUNTIME_FAMILIES = {
             "Your program crashed while it was running.",
             "NullPointerException: you used a variable that doesn't refer to any object (it's "
             "null).",
-            "The stack trace names the line. Which variable is used there, and where is it "
-            "given an object (with new, or a method that returns one)?",
-            "Give that variable an object before the line that uses it.",
+            "The first line of the error output that names your code is where it happened. "
+            "Which variable is used there? If it came from readLine(), that returns null once "
+            "the input has run out. Otherwise, where is it given an object?",
+            "Stop reading when readLine() returns null, or give the variable an object before "
+            "the line that uses it.",
         ],
-        discussion="NullPointerException: a variable is used before it's given an object.",
+        discussion="NullPointerException: a variable used before it's given an object, often "
+        "readLine()'s null after the input ran out.",
     ),
     "ArithmeticException": dict(
         ceiling=4,
@@ -265,14 +272,17 @@ _RUNTIME_ALIASES = {
 # bottom-out text to write without knowing the exact bug.
 _RUNTIME_FALLBACK = dict(
     ceiling=3,
+    # Worded for every language (2026-10-20, C/Java hint spot-check): it used to say
+    # "crashed before producing output" and "the line at the bottom of the traceback",
+    # which is wrong for a program that printed first, and for Java, whose stack trace
+    # lists the failing line at the TOP (the bottom is just main).
     tiers=[
-        "Your program crashed before producing output.",
-        "{error_type}: read the exception name in the traceback. It names the general kind of "
-        "problem.",
-        "Look at the exact line named at the bottom of the traceback. What is that line trying "
-        "to do, and why might it fail for this input?",
+        "Your program crashed while it was running.",
+        "{error_type}: the error output names the kind of problem.",
+        "In the error output, find the line number that points into your own code. What is "
+        "that line trying to do, and why might it fail for this input?",
     ],
-    discussion="{error_type}. Worth reading through the traceback together to see exactly "
+    discussion="{error_type}. Worth reading through the error output together to see exactly "
     "where it crashed.",
 )
 
