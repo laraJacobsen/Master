@@ -16,6 +16,7 @@ import {
   sendActivity,
   submitCode as submitCodeApi,
 } from "../shared/api";
+import { isUntouched, starterCode } from "./starterCode";
 // Monaco is most of this page's weight -- loaded only once a task is live,
 // so the join and waiting screens stay instant.
 const CodeEditor = lazy(() => import("./CodeEditor").then((m) => ({ default: m.CodeEditor })));
@@ -140,6 +141,8 @@ export default function App() {
   // state captured at effect-setup time would otherwise be stale.
   const nameRef = useRef(getJoinedName());
   const codeRef = useRef("");
+  // The live task's language, for the same callbacks (see isUntouched below).
+  const languageRef = useRef("python");
   // Set on every keystroke, cleared by each heartbeat -- so a heartbeat
   // reports "typed since the last one" without ever sending the code.
   const editedRef = useRef(false);
@@ -273,7 +276,8 @@ export default function App() {
 
     const trimmedName = nameRef.current.trim();
     const trimmedCode = codeRef.current.trim();
-    if (!trimmedName || !trimmedCode) return; // nothing to submit -- render shows the neutral note
+    // An untouched starter skeleton is nothing the student wrote, same as an empty box.
+    if (!trimmedName || isUntouched(trimmedCode, languageRef.current)) return; // render shows the neutral note
 
     setWasAutoSubmitted(true);
     performSubmit(qId, trimmedName, trimmedCode);
@@ -345,11 +349,12 @@ export default function App() {
       setHadTask(true);
       setPromptText(q.prompt);
       setLanguage(q.language);
+      languageRef.current = q.language;
       editedRef.current = false;
       setNudge(null);
       setExample(q.example);
       setDurationSeconds(q.duration_seconds);
-      updateCode("");
+      updateCode(starterCode(q.language));
       setResult(null);
       resultRef.current = null;
       setErrorMessage(null);
@@ -761,7 +766,12 @@ export default function App() {
               <span className="lang-tag">{language.charAt(0).toUpperCase() + language.slice(1)}</span>
             </div>
             <Suspense fallback={<div className="code-editor code-editor-loading">Loading editor...</div>}>
-              <CodeEditor key={questionId} language={language} onChange={handleEditorChange} />
+              <CodeEditor
+                key={questionId}
+                language={language}
+                initialValue={starterCode(language)}
+                onChange={handleEditorChange}
+              />
             </Suspense>
             <div className="editor-actions">
               {submitting && statusText && <span id="submit-status">{statusText}</span>}

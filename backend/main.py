@@ -662,7 +662,8 @@ def api_submit(req: SubmitRequest):
     tests_total = len(_graded(question["test_cases"]))
 
     rejection_reason = pre_execution_check(
-        req.source_code, line_limit=question["line_limit"], extra_packages=question["extra_packages"]
+        req.source_code, line_limit=question["line_limit"], extra_packages=question["extra_packages"],
+        language=question["language"],
     )
     if rejection_reason:
         # Rejected before ever reaching Judge0/Claude -- still recorded as a

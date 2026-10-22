@@ -114,6 +114,156 @@ _RUNTIME_FAMILIES = {
         discussion="EOFError: check whether the code is reading more input than it's actually "
         "given.",
     ),
+
+    # --- C (classify.py's _classify_c_crash: from the exit code, since C prints no exception)
+    "SegmentationFault": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "Segmentation fault: your program read or wrote memory that doesn't belong to it.",
+            "Check these: does every variable in scanf have an & in front of it? Does every "
+            "array index stay below the array's size? Does printf get a string in double quotes "
+            "(\"#\"), not a character ('#')? Is any array enormous (millions of elements)?",
+            "Fix the one that's wrong: add the missing &, keep the index in range, use double "
+            "quotes in printf, or make the array smaller.",
+        ],
+        discussion="Segmentation fault: check scanf for a missing &, array indexes, printf "
+        "given '#' instead of \"#\", and oversized arrays.",
+    ),
+    "FloatingPointException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "Floating point exception: despite the name, this is an integer division or % by "
+            "zero.",
+            "Find each / and % in your code. Which one can have 0 on the right-hand side for "
+            "this input?",
+            "Make sure the divisor can't be 0 there: check it first, or fix the value it's "
+            "computed from.",
+        ],
+        discussion="Integer division or % by zero. Check which divisor can be 0 for the test "
+        "input.",
+    ),
+    "Aborted": dict(
+        ceiling=3,
+        tiers=[
+            "Your program crashed while it was running.",
+            "Aborted: your program stopped itself, usually because an assert() failed.",
+            "Read the error output: which assertion failed, and what did you expect to be true "
+            "at that point?",
+        ],
+        discussion="Aborted, usually a failed assert(). Worth reading which assertion failed.",
+    ),
+    "NonZeroExit": dict(
+        ceiling=3,
+        tiers=[
+            "Your program ended with an error status, which counts as a failure even if the "
+            "output looks right.",
+            "A C program tells the system it succeeded by returning 0 from main.",
+            "Declare main as int main(void) and end it with return 0;",
+        ],
+        discussion="main didn't return 0. Worth a reminder to declare int main and end it with "
+        "return 0;",
+    ),
+
+    # --- Java (classify.py's _classify_java_crash: the name from `Exception in thread "main"`)
+    "MainNotFound": dict(
+        ceiling=2,
+        tiers=[
+            "Your program couldn't be started. The grader runs a class named Main and calls its "
+            "main method.",
+            "Name your class exactly public class Main, remove any package line at the top of "
+            "the file, and keep the method as public static void main(String[] args).",
+        ],
+        discussion="Couldn't start: the class must be named Main, with no package line.",
+    ),
+    "NoSuchElementException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "NoSuchElementException: your program tried to read input that wasn't there.",
+            "Count your Scanner reads (nextInt(), nextLine(), ...) against the input you're "
+            "actually given. Do they match? Is your loop reading past the last value?",
+            "Remove the extra read, or loop with hasNextInt()/hasNextLine() so you stop when the "
+            "input runs out.",
+        ],
+        discussion="NoSuchElementException: the code reads more input than it's given.",
+    ),
+    "InputMismatchException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "InputMismatchException: Scanner read a value of a different type than you asked "
+            "for.",
+            "Look at the input and at the Scanner method reading it. Is there text where you "
+            "call nextInt(), or a decimal number where you expect an int?",
+            "Use the Scanner method that matches the input's type at that position (next(), "
+            "nextDouble(), ...).",
+        ],
+        discussion="InputMismatchException: the Scanner method doesn't match the input's type.",
+    ),
+    "NumberFormatException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "NumberFormatException: you tried to turn text into a number, but it wasn't a "
+            "number.",
+            "Look at the exact string you pass to Integer.parseInt (or similar). Does it contain "
+            "spaces, or more than one number, like a whole input line \"3 4\"? If the error "
+            "says null, readLine() found no more input: you're reading more lines than there "
+            "are.",
+            "Split the line into separate numbers first (line.split(\" \")) and parse each one, "
+            "and stop reading when readLine() returns null.",
+        ],
+        discussion="NumberFormatException: often parseInt on a whole line that holds several "
+        "numbers, or on readLine()'s null after the input ran out.",
+    ),
+    "NullPointerException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "NullPointerException: you used a variable that doesn't refer to any object (it's "
+            "null).",
+            "The first line of the error output that names your code is where it happened. "
+            "Which variable is used there? If it came from readLine(), that returns null once "
+            "the input has run out. Otherwise, where is it given an object?",
+            "Stop reading when readLine() returns null, or give the variable an object before "
+            "the line that uses it.",
+        ],
+        discussion="NullPointerException: a variable used before it's given an object, often "
+        "readLine()'s null after the input ran out.",
+    ),
+    "ArithmeticException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "ArithmeticException: most likely an integer division or % by zero.",
+            "Find each / and % in your code. Which one can have 0 on the right-hand side for "
+            "this input?",
+            "Make sure the divisor can't be 0 there: check it first, or fix the value it's "
+            "computed from.",
+        ],
+        discussion="ArithmeticException, usually integer division by zero.",
+    ),
+    # Shared by every Java index exception -- see _RUNTIME_ALIASES.
+    "ArrayIndexOutOfBoundsException": dict(
+        ceiling=4,
+        tiers=[
+            "Your program crashed while it was running.",
+            "{error_type}: you used a position that doesn't exist in the array, string or list.",
+            "Check the index against the length: the last valid index is length - 1. Does a "
+            "loop go one step too far (<= instead of <)?",
+            "Adjust the index or the loop bound so it stays inside 0 .. length - 1.",
+        ],
+        discussion="{error_type}: check the index against the length, often <= instead of <.",
+    ),
+}
+
+# Exception names that share another family's hints (written with {error_type}, so the
+# student still sees the exact name their program raised).
+_RUNTIME_ALIASES = {
+    "StringIndexOutOfBoundsException": "ArrayIndexOutOfBoundsException",
+    "IndexOutOfBoundsException": "ArrayIndexOutOfBoundsException",
 }
 
 # Any runtime_error exception name classify.py can emit that doesn't have a dedicated family above
@@ -122,14 +272,17 @@ _RUNTIME_FAMILIES = {
 # bottom-out text to write without knowing the exact bug.
 _RUNTIME_FALLBACK = dict(
     ceiling=3,
+    # Worded for every language (2026-10-20, C/Java hint spot-check): it used to say
+    # "crashed before producing output" and "the line at the bottom of the traceback",
+    # which is wrong for a program that printed first, and for Java, whose stack trace
+    # lists the failing line at the TOP (the bottom is just main).
     tiers=[
-        "Your program crashed before producing output.",
-        "{error_type}: read the exception name in the traceback. It names the general kind of "
-        "problem.",
-        "Look at the exact line named at the bottom of the traceback. What is that line trying "
-        "to do, and why might it fail for this input?",
+        "Your program crashed while it was running.",
+        "{error_type}: the error output names the kind of problem.",
+        "In the error output, find the line number that points into your own code. What is "
+        "that line trying to do, and why might it fail for this input?",
     ],
-    discussion="{error_type}. Worth reading through the traceback together to see exactly "
+    discussion="{error_type}. Worth reading through the error output together to see exactly "
     "where it crashed.",
 )
 
@@ -158,6 +311,17 @@ _OTHER_FAMILIES = {
         ],
         discussion="Syntax error. Worth comparing the flagged line against the exact pattern "
         "from the lecture slides.",
+    ),
+    # Compiled languages only (C, Java): Python reports its parse errors as syntax_error.
+    "compile_error": dict(
+        ceiling=2,
+        tiers=[
+            "Your program couldn't be compiled, so it never ran.",
+            "Read the first error the compiler reports and the line number it gives. Later "
+            "errors are often caused by the first one, so fix that one and compile again.",
+        ],
+        discussion="Compile error. Worth reading the compiler's first error together: the "
+        "ones after it often follow from it.",
     ),
     "function_not_found": dict(
         ceiling=2,
@@ -199,6 +363,7 @@ _OTHER_FAMILIES = {
 VERDICT_TO_FAMILY = {
     "wrong_answer": "wrong_answer",
     "syntax_error": "syntax_error",
+    "compile_error": "compile_error",
     "function_not_found": "function_not_found",
     "timeout": "bounded_loop",
     "oom": "bounded_loop",
@@ -209,7 +374,7 @@ VERDICT_TO_FAMILY = {
 
 def _family_for(verdict, error_type):
     if verdict == "runtime_error":
-        return _RUNTIME_FAMILIES.get(error_type, _RUNTIME_FALLBACK)
+        return _RUNTIME_FAMILIES.get(_RUNTIME_ALIASES.get(error_type, error_type), _RUNTIME_FALLBACK)
     key = VERDICT_TO_FAMILY.get(verdict)
     if key is None:
         return None  # e.g. "pass" -- no hint family
@@ -223,7 +388,8 @@ def family_key_for(verdict, error_type=None):
     content, rather than only ever scoring each verdict in isolation.
     """
     if verdict == "runtime_error":
-        return ("runtime_error", error_type if error_type in _RUNTIME_FAMILIES else "_fallback")
+        family = _RUNTIME_ALIASES.get(error_type, error_type)
+        return ("runtime_error", family if family in _RUNTIME_FAMILIES else "_fallback")
     return VERDICT_TO_FAMILY.get(verdict, verdict)
 
 

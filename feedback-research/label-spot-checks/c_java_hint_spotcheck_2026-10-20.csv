@@ -1,0 +1,1529 @@
+id,language,family,family_size_in_eval,submission_id,problem_id,codenet_status,code,error_output_shown_to_student,hint_attempt_1,hint_attempt_2,hint_attempt_3,discussion_point,hint_fits_y_n,wording_ok_y_n,discussion_ok_y_n,rater_note
+1,C,compile_error,182,s729235784,p02256,Compile Error,"#include<iostream>
+using namespace std;
+
+int gcd(int x,int y){
+    int max;
+    if(y % (x % y)==0){
+        max = x % y;
+        return max;
+    }else{
+        gcd(y,x % y);
+    }
+}
+
+int main(){
+    int x,y;
+    cin >> x;
+    cin >> y;
+    if(x>=y)cout << gcd(x,y) << endl;
+    if(y>x)cout << gcd(y,x) << endl;
+    
+    return 0;
+}","main.c:1:9: fatal error: iostream: No such file or directory
+    1 | #include<iostream>
+      |         ^~~~~~~~~~
+compilation terminated.
+","Your program couldn't be compiled, so it never ran.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.",Compile error. Worth reading the compiler's first error together: the ones after it often follow from it.,,,,
+2,C,compile_error,182,s130707244,p02406,Compile Error,"#include<stdio.h>
+
+int main(){
+	int N;
+	int i;
+	scanf(""%d"", &N);
+	for (i = 1; i <= N; i++){
+		if (i % 3 == 0){
+			printf("" %d"", i);
+		}
+		else if (i / 10 == 3||i%10==3){
+			printf("" %d"", i);
+		}
+		else if (i / 100 == 3||i%100==3){
+			printf("" %d"", i);
+		}
+		else if (i / 1000 == 3||i%1000==3){
+			printf("" %d"", i);
+		}
+	}
+　　　　printf(""\n"");
+	return 0;
+}
+","main.c: In function ‘main’:
+main.c:21:1: error: stray ‘\343’ in program
+   21 | 　　　　printf(""\n"");
+      | ^
+main.c:21:2: error: stray ‘\200’ in program
+   21 | 　　　　printf(""\n"");
+      |  ^
+main.c:21:3: error: stray ‘\200’ in program
+   21 | 　　　　printf(""\n"");
+      |   ^
+main.c:21:4: error: stray ‘\343’ in program
+   21 | 　　　　printf(""\n"");
+      |    ^
+main.c:21:5: error: stray ‘\200’ in program
+   21 | 　　　　printf(""\n"");
+      |     ^
+main.c:21:6: error: stray ‘\200’ in program
+   21 | 　　　　printf(""\n"");
+      |      ^
+main.c:21:7: error: stray ‘\343’ in program
+   21 | 　　　　printf(""\n"");
+      |       ^
+main.c:21:8: error: stray ‘\200’ in program
+   21 | 　　　　printf(""\n"");
+      |        ^
+main.c:21:9: error: stray ‘\200’ in program
+   21 | 　　　　printf(""\n"");
+      |         ^
+main.c:21:10: error: stray ‘\343’ in program
+   21 | 　　　　printf(""\n"");
+      |          ^
+main.c:21:11: error: stray ‘\200’ in program
+   21 | 　　　　printf(""\n"");
+      |           ^
+main.c:21:12: error: stray ‘\200’ in program
+   21 | 　　　　printf(""\n"");
+      |            ^
+","Your program couldn't be compiled, so it never ran.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.",Compile error. Worth reading the compiler's first error together: the ones after it often follow from it.,,,,
+3,C,compile_error,182,s419346340,p02407,Compile Error,"#include <stdio.h>
+int main(void)
+{
+int rev[100];
+int n,i;
+
+scanf(""%d"",&n);
+
+for(i=0;i<n;i++)
+ scanf(""%d"",&rev[i]);
+
+for(i=n;i>0;i--)
+ printf(""%d""rev[i];
+
+printf(""\n"");
+return 0;
+}","main.c: In function ‘main’:
+main.c:13:13: error: expected ‘)’ before ‘rev’
+   13 |  printf(""%d""rev[i];
+      |             ^~~
+      |             )
+main.c:16:10: error: expected ‘;’ before ‘}’ token
+   16 | return 0;
+      |          ^
+      |          ;
+   17 | }
+      | ~         
+","Your program couldn't be compiled, so it never ran.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.",Compile error. Worth reading the compiler's first error together: the ones after it often follow from it.,,,,
+4,C,runtime_error/SegmentationFault,79,s187442488,p02393,Runtime Error,"#include<stdio.h>
+int main(void){
+int a,b,c,d;
+d = 0;
+scanf(""%d %d %d"",a,b,c);
+if(a<b && b<c){
+printf(""%d %d %d?\n"",a,b,c);
+}
+if(a<c && c<b){
+d=b;
+b=c;
+c=d;
+printf(""%d %d %d?\n"", a, b, c);
+}
+if(b<a && a<c){
+d=a;
+a=b;
+b=d;
+printf(""%d %d %d?\n"", a, b, c);
+}
+if(c<a && a<b){
+d=a;
+a=c;
+c=b;
+b=d;
+printf(""%d %d %d?\n"", a, b, c);
+}
+if(b<c && c<a){
+d=a;
+a=b;
+b=c;
+c=d;
+printf(""%d %d %d?\n"", a, b, c);
+}
+if(c<b && b<a){
+d=a;
+a=c;
+c=d;
+printf(""%d %d %d?\n"", a, b, c);
+}
+return 0;
+}","run: line 1:     3 Segmentation fault      (core dumped) ./a.out
+",Your program crashed while it was running.,Segmentation fault: your program read or wrote memory that doesn't belong to it.,"Check these: does every variable in scanf have an & in front of it? Does every array index stay below the array's size? Does printf get a string in double quotes (""#""), not a character ('#')? Is any array enormous (millions of elements)?","Segmentation fault: check scanf for a missing &, array indexes, printf given '#' instead of ""#"", and oversized arrays.",,,,
+5,C,runtime_error/SegmentationFault,79,s780488235,p02403,Runtime Error,"#include <stdio.h>
+
+int main(){
+  int d1,d2;
+  do{
+  scanf(""%d %d"",&d1,&d2);
+  for(int i=0;i<d1;i++){
+    for(int j=0;j<d2;j++){
+      printf('#');
+    }
+    printf('\n');
+  }
+}while(d1 != 0 && d2 != 0);
+  return 0;
+}
+
+","run: line 1:     3 Segmentation fault      (core dumped) ./a.out
+",Your program crashed while it was running.,Segmentation fault: your program read or wrote memory that doesn't belong to it.,"Check these: does every variable in scanf have an & in front of it? Does every array index stay below the array's size? Does printf get a string in double quotes (""#""), not a character ('#')? Is any array enormous (millions of elements)?","Segmentation fault: check scanf for a missing &, array indexes, printf given '#' instead of ""#"", and oversized arrays.",,,,
+6,C,runtime_error/SegmentationFault,79,s796785492,p02258,Runtime Error,"#include<stdio.h>
+#include<stdlib.h>
+
+int main(){
+    int n,i,j;
+    int max = -2147483648;
+    int Rt[2147483647];
+    
+    scanf(""%d"",&n);
+    
+    for(i=0;i<n;i++) scanf(""%d"",&Rt[i]);
+    
+    for(i=0;i<n;i++){
+        for(j=i+1;j<n;j++){
+            if(Rt[j]-Rt[i] > max) max = Rt[j]-Rt[i];
+        }
+    }
+    
+    printf(""%d"",max);
+}
+","run: line 1:     3 Segmentation fault      (core dumped) ./a.out
+",Your program crashed while it was running.,Segmentation fault: your program read or wrote memory that doesn't belong to it.,"Check these: does every variable in scanf have an & in front of it? Does every array index stay below the array's size? Does printf get a string in double quotes (""#""), not a character ('#')? Is any array enormous (millions of elements)?","Segmentation fault: check scanf for a missing &, array indexes, printf given '#' instead of ""#"", and oversized arrays.",,,,
+7,C,runtime_error/NonZeroExit,12,s917194222,p02406,Runtime Error,"void call(int n){
+  int i, x;
+  for (i = 1; i <= n; i++) {
+    x = i;
+    if (x % 3 == 0) {
+      printf("" %d"", i);
+    } else {
+      do {
+        if(x % 10 == 3) {
+          printf("" %d"", i);
+          break;
+        } else {
+          x /= 10;
+        }
+      } while (x);
+    }
+  }
+  printf(""\n"");
+}
+
+
+void main() {
+  int n;
+  scanf(""%d"", &n);
+  call(n);
+  return 0;
+}","main.c: In function ‘call’:
+main.c:6:7: warning: implicit declaration of function ‘printf’ [-Wimplicit-function-declaration]
+    6 |       printf("" %d"", i);
+      |       ^~~~~~
+main.c:6:7: warning: incompatible implicit declaration of built-in function ‘printf’
+main.c:1:1: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+  +++ |+#include <stdio.h>
+    1 | void call(int n){
+main.c:10:11: warning: incompatible implicit declaration of built-in function ‘printf’
+   10 |           printf("" %d"", i);
+      |           ^~~~~~
+main.c:10:11: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+main.c:18:3: warning: incompatible implicit declaration of built-in function ‘printf’
+   18 |   printf(""\n"");
+      |   ^~~~~~
+main.c:18:3: note: include ‘<stdio.h>’ or provide a declaration of ‘printf’
+main.c: In function ‘main’:
+main.c:24:3: warning: implicit declaration of function ‘scanf’ [-Wimplicit-function-declaration]
+   24 |   scanf(""%d"", &n);
+      |   ^~~~~
+main.c:24:3: warning: incompatible implicit declaration of built-in function ‘scanf’
+main.c:24:3: note: include ‘<stdio.h>’ or provide a declaration of ‘scanf’
+main.c:26:10: warning: ‘return’ with a value, in function returning void
+   26 |   return 0;
+      |          ^
+main.c:22:6: note: declared here
+   22 | void main() {
+      |      ^~~~
+","Your program ended with an error status, which counts as a failure even if the output looks right.",A C program tells the system it succeeded by returning 0 from main.,Declare main as int main(void) and end it with return 0;,main didn't return 0. Worth a reminder to declare int main and end it with return 0;,,,,
+8,C,runtime_error/NonZeroExit,12,s386465669,p02393,Runtime Error,"#include<stdio.h>
+void main(void)
+{
+	int inu ,a ,b ,c ,neko ,kaeru,kame,usagi;
+	scanf(""%d%d%d"" ,&a ,&b ,&c);
+	if(a > c)
+	inu = a;
+	a = c;
+	c = inu;
+	if(a > b)
+	kame = a;
+	a = b;
+	b = kame;
+	if(b > c)
+	usagi = b;
+	b = c;
+	c = usagi;
+	printf(""%d<%d<%d"" ,a ,b ,c);
+	return 0;
+}
+","main.c: In function ‘main’:
+main.c:19:9: warning: ‘return’ with a value, in function returning void
+   19 |  return 0;
+      |         ^
+main.c:2:6: note: declared here
+    2 | void main(void)
+      |      ^~~~
+","Your program ended with an error status, which counts as a failure even if the output looks right.",A C program tells the system it succeeded by returning 0 from main.,Declare main as int main(void) and end it with return 0;,main didn't return 0. Worth a reminder to declare int main and end it with return 0;,,,,
+9,C,runtime_error/NonZeroExit,12,s781110883,p00006,Runtime Error,"#include<stdio.h>
+#include<string.h>
+void main()
+{
+    int i,j=0;
+    char c[25],d[25];
+    gets(c);
+    int len=strlen(c);
+    for(i=len-1;i>=0;i--)
+    {
+    d[j]=c[i];
+    j++;
+    }
+    d[j]='\0';
+    puts(d);
+}","main.c: In function ‘main’:
+main.c:7:5: warning: implicit declaration of function ‘gets’; did you mean ‘fgets’? [-Wimplicit-function-declaration]
+    7 |     gets(c);
+      |     ^~~~
+      |     fgets
+/usr/bin/ld: /tmp/ccGPSNPW.o: in function `main':
+main.c:(.text+0x1c): warning: the `gets' function is dangerous and should not be used.
+","Your program ended with an error status, which counts as a failure even if the output looks right.",A C program tells the system it succeeded by returning 0 from main.,Declare main as int main(void) and end it with return 0;,main didn't return 0. Worth a reminder to declare int main and end it with return 0;,,,,
+10,C,runtime_error/FloatingPointException,8,s777113927,p02406,Runtime Error,"#include <stdio.h>
+
+int main(){
+  int n,i,m=0,b=0;
+  scanf(""%d"",&n);
+  for(i=1; i<=n; i++){
+    if(i%10==0)m+=10;
+    if(m>9&&!b)b=1;
+    if(i%3==0||i%m==3)printf("" %d"",i);
+  }
+  printf(""\n"");
+  return 0;
+}","run: line 1:     3 Floating point exception(core dumped) ./a.out
+",Your program crashed while it was running.,"Floating point exception: despite the name, this is an integer division or % by zero.",Find each / and % in your code. Which one can have 0 on the right-hand side for this input?,Integer division or % by zero. Check which divisor can be 0 for the test input.,,,,
+11,C,runtime_error/FloatingPointException,8,s925860425,p02256,Time Limit Exceeded,"#include <stdio.h>
+
+#define LOOP_END 0
+#define EXIT_SUCCESS 0
+
+int main(void)
+{
+	unsigned long ulW_Dtc_x;				/*???????????±??????X*/
+	unsigned long ulW_Dtc_y;				/*???????????±??????Y*/
+	unsigned long ulW_Dcalc;				/*????\???¨?????°*/
+	unsigned long ulW_Dgcd;					/*?????§??¬?´???°*/
+	
+	scanf(""%d %d"", &ulW_Dtc_x, &ulW_Dtc_y);	/*???????????±????????\???*/
+	if( ulW_Dtc_x < ulW_Dtc_y ){
+		ulW_Dcalc = ulW_Dtc_x;
+		ulW_Dtc_x = ulW_Dtc_y;
+		ulW_Dtc_y = ulW_Dcalc;
+	}
+	while(ulW_Dtc_y >= LOOP_END){
+		ulW_Dcalc = ulW_Dtc_x % ulW_Dtc_y;
+		ulW_Dtc_x = ulW_Dtc_y;
+		ulW_Dtc_y = ulW_Dcalc;
+	}
+	ulW_Dgcd = ulW_Dtc_x;
+	printf(""%ld\n"", ulW_Dgcd);
+	return EXIT_SUCCESS;
+}","run: line 1:     3 Floating point exception(core dumped) ./a.out
+",Your program crashed while it was running.,"Floating point exception: despite the name, this is an integer division or % by zero.",Find each / and % in your code. Which one can have 0 on the right-hand side for this input?,Integer division or % by zero. Check which divisor can be 0 for the test input.,,,,
+12,C,runtime_error/FloatingPointException,8,s766905792,p02256,Runtime Error,"#include <stdio.h>
+
+int main(void){
+
+int x,y,z,a,b;
+
+scanf(""%d,%d"",&x,&y);
+
+if(x>=y){
+z=x%y;
+a=y/z;
+if(a=!0){
+b=z/a;}
+else{
+b=z;}
+}
+else{
+z=y%x;
+a=x/z;
+if(a=!0){
+b=z/a;}
+else{
+b=z;}
+}
+printf(""%d\n"",b);
+
+return 0;
+}","run: line 1:     3 Floating point exception(core dumped) ./a.out
+",Your program crashed while it was running.,"Floating point exception: despite the name, this is an integer division or % by zero.",Find each / and % in your code. Which one can have 0 on the right-hand side for this input?,Integer division or % by zero. Check which divisor can be 0 for the test input.,,,,
+13,Java,compile_error,198,s032369583,p02415,Compile Error,"import java.io.*;
+public class Main{
+ public static void main(String[] args){
+ BufferedReader br=new BefferedReader(System.in);
+     String input=br.readLine();
+     for(int i=0;i<input.length();i++){
+         char a=input.charAt(i);
+         if(Charracter.isUpperCase(a)){
+           System.out.print(Character.toLowerCase(a));
+         }else{
+               system.out.print(Character.toUpperCase(a));
+         }
+     }
+     System.out.print(""\n"");
+ }
+}","Main.java:4: error: cannot find symbol
+ BufferedReader br=new BefferedReader(System.in);
+                       ^
+  symbol:   class BefferedReader
+  location: class Main
+Main.java:8: error: cannot find symbol
+         if(Charracter.isUpperCase(a)){
+            ^
+  symbol:   variable Charracter
+  location: class Main
+Main.java:11: error: package system does not exist
+               system.out.print(Character.toUpperCase(a));
+                     ^
+3 errors
+","Your program couldn't be compiled, so it never ran.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.",Compile error. Worth reading the compiler's first error together: the ones after it often follow from it.,,,,
+14,Java,compile_error,198,s578901203,p02396,Compile Error,"import java.io.*;
+import java.lang.*;
+
+class Main{ 
+public static void main(String[] args)throws IOException{
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        String str = br.readLine();
+    while(true){
+        str = br.readLine();
+         if (str.equals(""0""){
+                    break;}
+         }
+         br.close();
+
+        String[ ] str_div = str.split(""\n"");
+        for(int i = 0;i < str_div.length; i++){
+        System.out.println(""Case "" + i + ""; "" + str_div[i]);
+    }               
+   }
+  }  ","Main.java:10: error: ')' expected
+         if (str.equals(""0""){
+                            ^
+1 error
+","Your program couldn't be compiled, so it never ran.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.",Compile error. Worth reading the compiler's first error together: the ones after it often follow from it.,,,,
+15,Java,compile_error,198,s021371724,p02258,Compile Error,"import java.util.*;
+
+public class Main{
+	private static final Scanner scan = new Scanner(System.in);
+
+	public static void main(String[] args){
+		int n = scan.nextInt();
+		int maxv = -1E-9;
+		int minv = 1E-9;
+		
+		for(int i = 0; i < n; i++){
+			int r = scan.nextInt();
+			if(i == 0)
+				minv = n;
+			maxv = Math.max(maxv, r - minv);
+			minv = Math.min(minv, r);
+		}
+		System.out.printf(""%d\n"", maxv);
+	}
+}","Main.java:8: error: incompatible types: possible lossy conversion from double to int
+		int maxv = -1E-9;
+		           ^
+Main.java:9: error: incompatible types: possible lossy conversion from double to int
+		int minv = 1E-9;
+		           ^
+2 errors
+","Your program couldn't be compiled, so it never ran.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.","Read the first error the compiler reports and the line number it gives. Later errors are often caused by the first one, so fix that one and compile again.",Compile error. Worth reading the compiler's first error together: the ones after it often follow from it.,,,,
+16,Java,runtime_error/NoSuchElementException,60,s932942215,p02415,Runtime Error,"import java.util.Scanner;
+
+public class Main {
+
+	public static void main(String[] args) {
+
+		Scanner scan = new Scanner(System.in);
+
+		while (true) {
+
+			
+			/*if (scan.next()==null) {
+				break;
+			}*/
+			
+					
+			String str = scan.next();
+			//strArry????????????????????????????´?
+			String[] strArry = str.split("""");
+
+			
+			for (int i = 0; i < strArry.length; i++) {
+
+				// strArry[i]?????§??????????°??????????????????????
+				// ??????????????????
+
+				if (Character.isUpperCase(strArry[i].charAt(0))) {
+
+					strArry[i] = strArry[i].toLowerCase();
+
+					System.out.print(strArry[i]);
+
+				} 
+				else {
+					strArry[i] = strArry[i].toUpperCase();
+					System.out.print(strArry[i]);
+				}
+
+				
+			}
+
+			
+			System.out.print("" "");
+
+		}
+
+	}
+
+}","Exception in thread ""main"" java.util.NoSuchElementException
+	at java.base/java.util.Scanner.throwFor(Scanner.java:937)
+	at java.base/java.util.Scanner.next(Scanner.java:1478)
+	at Main.main(Main.java:17)
+",Your program crashed while it was running.,NoSuchElementException: your program tried to read input that wasn't there.,"Count your Scanner reads (nextInt(), nextLine(), ...) against the input you're actually given. Do they match? Is your loop reading past the last value?",NoSuchElementException: the code reads more input than it's given.,,,,
+17,Java,runtime_error/NoSuchElementException,60,s956762883,p02396,Runtime Error,"import java.util.ArrayList;
+import java.util.Scanner;
+
+public class Main {
+
+	public static void main(String[] args) {
+		int i = 0;
+		int a = 0;
+		ArrayList<Integer> parse = new ArrayList<Integer>(); // int??????
+		while (i < 10000) { // ?????§10000???
+			++i;
+				Scanner scan = new Scanner(System.in);
+				a = scan.nextInt();
+				parse.add(a);
+				if(a == 0){
+					break;
+				}
+		}
+		for(int j = 0; j < parse.size()-1; ++j){
+		System.out.println(""Case "" + (j+1) + "": "" + parse.get(j));
+		}
+	}
+}","Exception in thread ""main"" java.util.NoSuchElementException
+	at java.base/java.util.Scanner.throwFor(Scanner.java:937)
+	at java.base/java.util.Scanner.next(Scanner.java:1594)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2258)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2212)
+	at Main.main(Main.java:13)
+",Your program crashed while it was running.,NoSuchElementException: your program tried to read input that wasn't there.,"Count your Scanner reads (nextInt(), nextLine(), ...) against the input you're actually given. Do they match? Is your loop reading past the last value?",NoSuchElementException: the code reads more input than it's given.,,,,
+18,Java,runtime_error/NoSuchElementException,60,s230179736,p02403,Runtime Error,"
+
+import java.util.Scanner;
+
+public class Main {
+	public static void main(String[]args){
+		//????????£????????????????????°?????????????????£?¨?
+		Scanner sc = new Scanner(System.in);
+		while(true){
+			//???
+			int H = sc.nextInt();
+			//?¨?
+			int W = sc.nextInt();
+			//?¨?????????¶???
+			for(int i =1; i <=H; i++){
+				//???????????¶???
+				for(int j =1; j<=W; j++){
+					System.out.print(""#"");
+					//??\?????????0????????????
+					if(H ==0 && W ==0){
+						break;
+					}
+				}
+				System.out.println();
+			}
+		}
+	}
+}","Exception in thread ""main"" java.util.NoSuchElementException
+	at java.base/java.util.Scanner.throwFor(Scanner.java:937)
+	at java.base/java.util.Scanner.next(Scanner.java:1594)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2258)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2212)
+	at Main.main(Main.java:11)
+",Your program crashed while it was running.,NoSuchElementException: your program tried to read input that wasn't there.,"Count your Scanner reads (nextInt(), nextLine(), ...) against the input you're actually given. Do they match? Is your loop reading past the last value?",NoSuchElementException: the code reads more input than it's given.,,,,
+19,Java,runtime_error/MainNotFound,54,s822867401,p02397,Runtime Error,"package introduction;
+	import java.util.Scanner;
+public class Main {
+	public static void main(String[] args) {
+		Scanner sc = new Scanner(System.in);
+		int x = sc.nextInt(),y = sc.nextInt();
+	while (x != 0 && y != 0){
+		if (x < y){	System.out.println(x +"" ""+ y);}
+		else{System.out.println(y +"" ""+ x);}
+			x = sc.nextInt();y = sc.nextInt();
+			}
+	}
+}","Error: Could not find or load main class Main
+Caused by: java.lang.NoClassDefFoundError: introduction/Main (wrong name: Main)
+",Your program couldn't be started. The grader runs a class named Main and calls its main method.,"Name your class exactly public class Main, remove any package line at the top of the file, and keep the method as public static void main(String[] args).","Name your class exactly public class Main, remove any package line at the top of the file, and keep the method as public static void main(String[] args).","Couldn't start: the class must be named Main, with no package line.",,,,
+20,Java,runtime_error/MainNotFound,54,s062299983,p02406,Runtime Error,"package java2018;
+
+import java.util.Scanner;
+public class Main{
+	public static void main(String[] args){
+		Scanner scan = new Scanner(System.in);
+		int number = scan.nextInt();
+		for(int i = 1; i<=number; i++){
+			int x = i;
+			if(x%3==0){
+				System.out.print("" ""+i);
+			}else if(x % 10 == 3){
+				System.out.print("" ""+i);
+			}else{
+				while(true){
+				if(x%10==3){
+					System.out.print("" ""+i);
+					break;
+			}
+			x = x/10;
+			if(x==0){
+				break;
+			}
+			}
+			}
+		}
+		System.out.println();
+	    }
+	}
+ 
+","Error: Could not find or load main class Main
+Caused by: java.lang.NoClassDefFoundError: java2018/Main (wrong name: Main)
+",Your program couldn't be started. The grader runs a class named Main and calls its main method.,"Name your class exactly public class Main, remove any package line at the top of the file, and keep the method as public static void main(String[] args).","Name your class exactly public class Main, remove any package line at the top of the file, and keep the method as public static void main(String[] args).","Couldn't start: the class must be named Main, with no package line.",,,,
+21,Java,runtime_error/MainNotFound,54,s371181964,p02407,Runtime Error,"package ITP1_5_D;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
+public class Main {
+
+    public static void main(String[] args) throws IOException {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        StringBuilder builder = new StringBuilder();
+        String line = reader.readLine();
+        int x = Integer.parseInt(line);
+
+        call(1, x, builder);
+        System.out.println(builder);
+    }
+
+    public static void call(int i, int n, StringBuilder builder) {
+        // 3??§?????????????????? ??????
+        while (i <= n) {
+            int x = i;
+            if (x % 3 == 0) {
+                builder.append("" "" + i);
+            }
+            else {
+                // INCLUDE3
+                int y = x;
+                while (y > 1) {
+                    if (y % 10 == 3) {
+                        builder.append("" "" + i);
+                        break;
+                    }
+                    y = y / 10;
+                }
+            }
+            i++;
+        }
+    }
+}","Error: Could not find or load main class Main
+Caused by: java.lang.NoClassDefFoundError: ITP1_5_D/Main (wrong name: Main)
+",Your program couldn't be started. The grader runs a class named Main and calls its main method.,"Name your class exactly public class Main, remove any package line at the top of the file, and keep the method as public static void main(String[] args).","Name your class exactly public class Main, remove any package line at the top of the file, and keep the method as public static void main(String[] args).","Couldn't start: the class must be named Main, with no package line.",,,,
+22,Java,runtime_error/ArrayIndexOutOfBoundsException,15,s113686778,p02407,Runtime Error,"import java.util.*;
+class Main{
+public void yatary() {
+	Scanner sc = new Scanner(System.in);
+	int i;
+	int x = sc.nextInt();
+	int [] num = new int [x];
+	for(i=0; i<x; i++){
+		num[i] = sc.nextInt();
+	}
+	for(i=x; i>0; i--){
+		System.out.print(num[i] + "" "");
+	}
+}
+public static void main(String[]args){
+	new Main().yatary();
+}
+}","Exception in thread ""main"" java.lang.ArrayIndexOutOfBoundsException: Index 5 out of bounds for length 5
+	at Main.yatary(Main.java:12)
+	at Main.main(Main.java:16)
+",Your program crashed while it was running.,"ArrayIndexOutOfBoundsException: you used a position that doesn't exist in the array, string or list.",Check the index against the length: the last valid index is length - 1. Does a loop go one step too far (<= instead of <)?,"ArrayIndexOutOfBoundsException: check the index against the length, often <= instead of <.",,,,
+23,Java,runtime_error/ArrayIndexOutOfBoundsException,15,s821164598,p02258,Runtime Error,"import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Scanner;
+
+/**
+ * Created by martin-d28jp-love on 15/04/01.
+ */
+public class Main {
+
+    public static void main(String[] args) {
+//        int[] input = input();
+        int[] input = mockuop();
+
+        int inputLength = input.length;
+        int minValue = Integer.MAX_VALUE;
+        int maxValue = -Integer.MAX_VALUE;
+        int minIndex = 0;
+        int maxIndex = 0;
+        for (int i=1; i <= inputLength; i++) {
+            int Ri = input[i];
+            if (Ri < minValue) {
+                minValue = Ri;
+                minIndex = i;
+            }
+            if (Ri > maxValue) {
+                maxValue = Ri;
+                maxIndex = i;
+            }
+        }
+        if (minIndex < maxIndex) {
+            System.out.println(maxValue - minValue);
+            return;
+        }
+
+        int maxSubtruction = -Integer.MAX_VALUE;
+        int maxSubtructionIndex = 1;
+        int beforeSubtructionRi = Integer.MAX_VALUE;
+        for (int i = 1; i < inputLength; i++) {
+            int Ri = input[i];
+            if (beforeSubtructionRi < Ri) {
+                continue;
+            }
+            int start = maxSubtructionIndex > i + 1 ? maxSubtructionIndex : i + 1;
+            for (int j = start; j <= inputLength; j++) {
+                int Rj = input[j];
+                if (Rj - Ri > maxSubtruction) {
+                    maxSubtruction = Rj - Ri;
+                    maxSubtructionIndex = j;
+                    beforeSubtructionRi = Ri;
+                }
+            }
+        }
+        System.out.println(maxSubtruction);
+    }
+
+    public static int[] mockuop() {
+        int input[] = {20,100,99,95,86,85,76,75,71,70,61,52,48,47,43,42,38,37,33,32,28};
+        return input;
+    }
+
+    public static int[] input() {
+        Scanner in = new Scanner(System.in);
+        int size = Integer.valueOf(in.nextLine());
+
+        int[] input = new int[size];
+        int i = 0;
+        while(in.hasNext()) {
+            input[i++] = Integer.valueOf(in.nextLine());
+        }
+        in.close();
+        return input;
+    }
+}","Exception in thread ""main"" java.lang.ArrayIndexOutOfBoundsException: Index 21 out of bounds for length 21
+	at Main.main(Main.java:21)
+",Your program crashed while it was running.,"ArrayIndexOutOfBoundsException: you used a position that doesn't exist in the array, string or list.",Check the index against the length: the last valid index is length - 1. Does a loop go one step too far (<= instead of <)?,"ArrayIndexOutOfBoundsException: check the index against the length, often <= instead of <.",,,,
+24,Java,runtime_error/ArrayIndexOutOfBoundsException,15,s187610680,p02415,Runtime Error,"import java.util.Scanner;
+public class Main {
+	public static void main(String[] args){
+		Scanner scan = new Scanner(System.in);
+		int i,m,t,b;
+		String q[] = new String[1200];
+		t = 0;
+		for(;;){
+			b = 0;
+			String x = scan.next();
+			String ux = x.toUpperCase();
+			String lx = x.toLowerCase();
+			String w[] = x.split("""");
+			String uw[] = ux.split("""");
+			String lw[] = lx.split("""");
+			for(i = t; i < t + x.length(); i++){
+				if(w[b].equals(uw[b]))
+					q[i] = lw[b];
+				else
+					q[i] = uw[b];
+				++b;
+			}
+			q[i + 1] = "" "";
+			t += x.length() + 1;
+			if(q[t - 2].equals("".""))
+				break;
+		}
+		for(i = 0;;i++){
+			if(q[i] == null)
+				System.out.print("" "");
+			else if(q[i].equals("".""))
+				System.out.print(""."");
+			else
+				System.out.print(q[i]);
+		}
+	}
+		
+}
+	
+		
+
+
+	","Exception in thread ""main"" java.lang.ArrayIndexOutOfBoundsException: Index 1200 out of bounds for length 1200
+	at Main.main(Main.java:29)
+",Your program crashed while it was running.,"ArrayIndexOutOfBoundsException: you used a position that doesn't exist in the array, string or list.",Check the index against the length: the last valid index is length - 1. Does a loop go one step too far (<= instead of <)?,"ArrayIndexOutOfBoundsException: check the index against the length, often <= instead of <.",,,,
+25,Java,runtime_error/InputMismatchException,7,s249781510,p02258,Runtime Error,"import java.io.IOException;
+import java.io.InputStream;
+import java.util.InputMismatchException;
+import java.util.Scanner;
+
+public class Main {
+	public static void main(String[] args) throws Exception {
+		// Scanner sc = new Scanner(System.in);
+		InputReader sc = new InputReader(System.in);
+		// Scanner sc = new Scanner(new File(""in1.txt""));
+		// Scanner sc = new Scanner(new File(""in2.txt""));
+		int N = sc.nextInt();
+		
+		int r0 = sc.nextInt();
+		int r1 = sc.nextInt();
+		int max_profit = r1 - r0;
+		int min_r = Math.min(r0, r1);
+// 		while (sc.hasNextInt()) {
+		for (int i = 0; i < N; i++) {
+			int r = sc.nextInt();
+			max_profit = Math.max(max_profit, r - min_r);
+			min_r = Math.min(min_r, r);
+		}
+		System.out.println(max_profit);
+	}
+	
+	//???????????????????????¬
+	  static class InputReader {
+	      private InputStream stream;
+	      private byte[] buf = new byte[1024];
+	      private int curChar;
+	      private int numChars;
+	      private SpaceCharFilter filter;
+	 
+	      public InputReader(InputStream stream) {
+	          this.stream = stream;
+	      }
+	  
+	      public int next() {
+	          if (numChars == -1)
+	              throw new InputMismatchException();
+	          if (curChar >= numChars) {
+	              curChar = 0;
+	              try {
+	                  numChars = stream.read(buf);
+	              } catch (IOException e) {
+	                  throw new InputMismatchException();
+	              }
+	              if (numChars <= 0)
+	                  return -1;
+	          }
+	          return buf[curChar++];
+	      }
+	  
+	      public String nextStr() {
+	        int c = next();
+	        while(isSpaceChar(c)){c = next();}
+	        StringBuffer str = new StringBuffer();
+	        do{
+	          str.append((char)c);
+	          c = next();
+	        }while(!isSpaceChar(c));
+	        return str.toString();
+	      }
+	 
+	      public int nextInt() {
+	          int c = next();
+	          while (isSpaceChar(c))
+	              c = next();
+	          int sgn = 1;
+	          if (c == '-') {
+	              sgn = -1;
+	              c = next();
+	          }
+	          int res = 0;
+	          do {
+	              if (c < '0' || c > '9')
+	                  throw new InputMismatchException();
+	              res *= 10;
+	              res += c - '0';
+	              c = next();
+	          } while (!isSpaceChar(c));
+	          return res * sgn;
+	      }
+	  
+	      public boolean isSpaceChar(int c) {
+	          if (filter != null)
+	              return filter.isSpaceChar(c);
+	          return c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == -1;
+	      }
+	  
+	      public interface SpaceCharFilter {
+	          public boolean isSpaceChar(int ch);
+	      }
+	  }	
+}","Exception in thread ""main"" java.util.InputMismatchException
+	at Main$InputReader.next(Main.java:41)
+	at Main$InputReader.nextInt(Main.java:69)
+	at Main.main(Main.java:20)
+",Your program crashed while it was running.,InputMismatchException: Scanner read a value of a different type than you asked for.,"Look at the input and at the Scanner method reading it. Is there text where you call nextInt(), or a decimal number where you expect an int?",InputMismatchException: the Scanner method doesn't match the input's type.,,,,
+26,Java,runtime_error/InputMismatchException,7,s650924098,p02415,Runtime Error,"import java.util.Scanner;
+public class Main {
+    public static void main(String[] args){
+        Scanner sc=new Scanner(System.in);
+        int num=sc.nextInt();
+        int[] w = new int[num];
+        for(int i=0;i<w.length;i++){
+            w[i]=i+1;
+        }
+        int n=sc.nextInt();
+        for(int i=0;i<n;i++){
+            String str = sc.next();
+            String[] ab = str.split("","");
+            int a = Integer.parseInt(ab[0])-1;
+            int b = Integer.parseInt(ab[1])-1;
+            int tmp;
+            tmp=w[a];
+            w[a]=w[b];
+            w[b]=tmp;
+        }
+        for(int i=0;i<w.length;i++){
+            System.out.println(w[i]);
+        }
+    }
+}
+
+","Exception in thread ""main"" java.util.InputMismatchException
+	at java.base/java.util.Scanner.throwFor(Scanner.java:939)
+	at java.base/java.util.Scanner.next(Scanner.java:1594)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2258)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2212)
+	at Main.main(Main.java:5)
+",Your program crashed while it was running.,InputMismatchException: Scanner read a value of a different type than you asked for.,"Look at the input and at the Scanner method reading it. Is there text where you call nextInt(), or a decimal number where you expect an int?",InputMismatchException: the Scanner method doesn't match the input's type.,,,,
+27,Java,runtime_error/InputMismatchException,7,s538515423,p00006,Runtime Error,"import java.util.Scanner;
+
+class Main
+{
+	public static void main ( String[] args ) {
+		Scanner sc = new Scanner ( System.in );
+		Scanner sc2 = new Scanner ( System.in );
+		int n = 0;
+		int b = 0;
+		int f = 0;
+		int r = 0;
+		int v = 0;
+		
+		n = sc.nextInt ();
+		
+		int [][][] human = new int[ 4 ][ 3 ][ 10 ];
+		
+		// ???????????§?????????
+		for ( int i = 0; i < 4; i++ ) {
+			for ( int j = 0; j < 3; j++ ) {
+				for ( int k = 0; k < 10; k++ ) {
+					human[ i ][ j ][ k ] = 0;
+				}
+			}
+		}
+		
+		// ??\?????????
+		for ( int i = 0; i < n; i++ ) {
+			String inputNum = sc2.nextLine ();
+			b = ( Integer.parseInt ( String.valueOf ( inputNum.charAt ( 0 ) ) ) ) - 1;
+			f = ( Integer.parseInt ( String.valueOf ( inputNum.charAt ( 2 ) ) ) ) - 1;
+			r = ( Integer.parseInt ( String.valueOf ( inputNum.charAt ( 4 ) ) ) ) - 1;
+			String str = String.valueOf ( inputNum.charAt ( 6 ) );
+			if ( str.equals ( ""-"" ) ) {
+				v = Integer.parseInt ( String.valueOf ( inputNum.charAt ( 7 ) ) );
+				human[ b ][ f ][ r ] -= v;
+				if ( human[ b ][ f ][ r ] < 0 ) {
+					human[ b ][ f ][ r ] = 0;
+				}
+			} else {
+				v = Integer.parseInt ( String.valueOf ( inputNum.charAt ( 6 ) ) );
+				human[ b ][ f ][ r ] += v;
+				if ( 9 < human[ b ][ f ][ r ] ) {
+					human[ b ][ f ][ r ] = 9;
+				}
+			}
+		}
+		
+		for ( int i = 0; i < 4; i++ ) {
+			for ( int j = 0; j < 3; j++ ) {
+				for ( int k = 0; k < 10; k++ ) {
+					System.out.print ( human[ i ][ j ][ k ] + "" "" );
+				}
+				System.out.println ();
+			}
+			System.out.println ( ""####################"" + ""\n"" );
+		}
+	}
+}","Exception in thread ""main"" java.util.InputMismatchException
+	at java.base/java.util.Scanner.throwFor(Scanner.java:939)
+	at java.base/java.util.Scanner.next(Scanner.java:1594)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2258)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2212)
+	at Main.main(Main.java:14)
+",Your program crashed while it was running.,InputMismatchException: Scanner read a value of a different type than you asked for.,"Look at the input and at the Scanner method reading it. Is there text where you call nextInt(), or a decimal number where you expect an int?",InputMismatchException: the Scanner method doesn't match the input's type.,,,,
+28,Java,runtime_error/ArithmeticException,6,s426385904,p02256,Runtime Error,"import java.util.Scanner;
+public class Main {
+
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        int x = sc.nextInt();
+        int y = sc.nextInt();
+        int a = Math.max(x,y);
+        int b = Math.min(x,y);
+        while(!(a ==0 && b == 0)){
+            a = a%b;
+            if(a == 0){
+                break;
+            }
+            b = b%a;
+        }
+        System.out.println(Math.max(a,b));
+    }
+}","Exception in thread ""main"" java.lang.ArithmeticException: / by zero
+	at Main.main(Main.java:11)
+",Your program crashed while it was running.,ArithmeticException: most likely an integer division or % by zero.,Find each / and % in your code. Which one can have 0 on the right-hand side for this input?,"ArithmeticException, usually integer division by zero.",,,,
+29,Java,runtime_error/ArithmeticException,6,s389759397,p02256,Runtime Error,"import java.util.Scanner;
+
+public class Main {
+ 
+    public static void main(String[] args) {
+        Scanner scan=new Scanner(System.in);
+        int x=scan.nextInt();
+        int y=scan.nextInt();
+        int GCD=x;
+        while(x%y!=0 && x!=0 && y!=0){
+            if(x>=y){
+                x=x%y;
+                GCD=x;
+            }
+            else{
+                y=y%x;
+                GCD=y;
+            }
+        }
+        System.out.println(GCD);
+    }
+}","Exception in thread ""main"" java.lang.ArithmeticException: / by zero
+	at Main.main(Main.java:10)
+",Your program crashed while it was running.,ArithmeticException: most likely an integer division or % by zero.,Find each / and % in your code. Which one can have 0 on the right-hand side for this input?,"ArithmeticException, usually integer division by zero.",,,,
+30,Java,runtime_error/ArithmeticException,6,s367551112,p02256,Runtime Error,"import java.util.Scanner;
+
+public class Main {
+ 
+    public static void main(String[] args) {
+        Scanner scan=new Scanner(System.in);
+        long x=scan.nextInt();
+        long y=scan.nextInt();
+        long GCD=x;
+        while(x%y!=0){
+            if(x>=y){
+                x=x%y;
+                GCD=x;
+            }
+            else{
+                y=y%x;
+                GCD=y;
+            }
+        }
+        System.out.println(GCD);
+    }
+}","Exception in thread ""main"" java.lang.ArithmeticException: / by zero
+	at Main.main(Main.java:10)
+",Your program crashed while it was running.,ArithmeticException: most likely an integer division or % by zero.,Find each / and % in your code. Which one can have 0 on the right-hand side for this input?,"ArithmeticException, usually integer division by zero.",,,,
+31,Java,runtime_error/NumberFormatException,5,s500479700,p02393,Runtime Error,"import java.io.*;
+import java.util.*;
+
+public class Main {
+    public static void main (String[] args) throws java.lang.Exception {
+    
+    BufferedReader input = new BufferedReader (new InputStreamReader(System.in));
+    String A   = input.readLine();
+    String B   = input.readLine();
+    String C   = input.readLine();
+
+    int aa = Integer.parseInt(A);
+    int bb = Integer.parseInt(B);
+    int cc = Integer.parseInt(C);
+    
+    int[] output = new int[]{aa, bb, cc};
+    Arrays.sort(output);
+    System.out.println(output);
+    
+    }
+}
+","Exception in thread ""main"" java.lang.NumberFormatException: For input string: ""3 8 1""
+	at java.base/java.lang.NumberFormatException.forInputString(NumberFormatException.java:68)
+	at java.base/java.lang.Integer.parseInt(Integer.java:658)
+	at java.base/java.lang.Integer.parseInt(Integer.java:776)
+	at Main.main(Main.java:12)
+",Your program crashed while it was running.,"NumberFormatException: you tried to turn text into a number, but it wasn't a number.","Look at the exact string you pass to Integer.parseInt (or similar). Does it contain spaces, or more than one number, like a whole input line ""3 4""? If the error says null, readLine() found no more input: you're reading more lines than there are.","NumberFormatException: often parseInt on a whole line that holds several numbers, or on readLine()'s null after the input ran out.",,,,
+32,Java,runtime_error/NumberFormatException,5,s513024911,p02397,Runtime Error,"import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintStream;
+
+class Main {
+	public static void main(String[] args) throws IOException {
+		PrintStream out = System.out;
+		BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+
+		int val1, val2;
+		do {
+			val1 = Integer.parseInt(in.readLine());
+			val2 = Integer.parseInt(in.readLine());
+			if (val1 > val2) {
+				int temp = val1;
+				val1 = val2;
+				val2 = temp;
+
+			}
+			if (val1 == 0 && val2 == 0) {
+				break;
+			}
+			out.println(val1 + "" "" + val2);
+		} while (val1 != 0 || val2 != 0);
+
+	}
+}","Exception in thread ""main"" java.lang.NumberFormatException: For input string: ""3 2""
+	at java.base/java.lang.NumberFormatException.forInputString(NumberFormatException.java:68)
+	at java.base/java.lang.Integer.parseInt(Integer.java:658)
+	at java.base/java.lang.Integer.parseInt(Integer.java:776)
+	at Main.main(Main.java:13)
+",Your program crashed while it was running.,"NumberFormatException: you tried to turn text into a number, but it wasn't a number.","Look at the exact string you pass to Integer.parseInt (or similar). Does it contain spaces, or more than one number, like a whole input line ""3 4""? If the error says null, readLine() found no more input: you're reading more lines than there are.","NumberFormatException: often parseInt on a whole line that holds several numbers, or on readLine()'s null after the input ran out.",,,,
+33,Java,runtime_error/NumberFormatException,5,s030058107,p02396,Runtime Error,"import java.io.*;
+class Main{
+    public static void main(String args[]) throws IOException{
+	int w=1;
+	int j=0,k=0;
+	int x=0,l=1;
+	int[] arry = new int[100000];
+	while(w>0)
+	{
+	    BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+	    String str = br.readLine();
+	    j=Integer.parseInt(str);
+	    if(j==0)break;
+	    arry[l]=j;
+	    l++;
+	    k=l;
+	}
+	for(int i=1;i<k;i++){
+	    x=arry[i];
+	    System.out.println(""Case ""+ i +"": ""+x);
+	}
+    }
+}","Exception in thread ""main"" java.lang.NumberFormatException: null
+	at java.base/java.lang.Integer.parseInt(Integer.java:620)
+	at java.base/java.lang.Integer.parseInt(Integer.java:776)
+	at Main.main(Main.java:12)
+",Your program crashed while it was running.,"NumberFormatException: you tried to turn text into a number, but it wasn't a number.","Look at the exact string you pass to Integer.parseInt (or similar). Does it contain spaces, or more than one number, like a whole input line ""3 4""? If the error says null, readLine() found no more input: you're reading more lines than there are.","NumberFormatException: often parseInt on a whole line that holds several numbers, or on readLine()'s null after the input ran out.",,,,
+34,Java,runtime_error/NullPointerException,5,s188296032,p02403,Runtime Error,"//????????¢?????????
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
+class Main {
+	public static void main(String[] args) throws IOException{
+
+		//?????°?????????
+		boolean flg = true;
+		int xLine = 0;						//???#????????°?????\???????????°
+		int yLine = 0;						//?¨?#????????°?????\???????????°
+		int[] num = new int[2];
+		String[] strArray = new String[2];
+		String resultLine = """";
+
+		//????????????
+		while(flg) {
+			BufferedReader br =
+					new BufferedReader(new InputStreamReader(System.in));
+			
+			//num[0]??????????????°???num[1]???2???????????°???????´?
+			String str = br.readLine();
+				strArray = str.split("" "");
+				num[0] = Integer.parseInt(strArray[0]);
+				num[1] = Integer.parseInt(strArray[1]);
+			
+				xLine = num[0];
+				yLine = num[1];
+				
+			//resultLine???#???????´?(?????°:xLine ?????°:yLine)
+				for(int i=0; i<xLine; i++) {
+					for(int j=0; j<yLine; j++) {
+						resultLine = resultLine + ""#"";
+					}
+					resultLine = resultLine + ""\n"";
+				}
+				resultLine = resultLine + ""\n"";
+			if(xLine==0 && yLine==0){
+                break;
+
+			}
+		}
+			System.out.print(resultLine + ""\n"");	
+	}
+}","Exception in thread ""main"" java.lang.NullPointerException
+	at Main.main(Main.java:24)
+",Your program crashed while it was running.,NullPointerException: you used a variable that doesn't refer to any object (it's null).,"The first line of the error output that names your code is where it happened. Which variable is used there? If it came from readLine(), that returns null once the input has run out. Otherwise, where is it given an object?","NullPointerException: a variable used before it's given an object, often readLine()'s null after the input ran out.",,,,
+35,Java,runtime_error/NullPointerException,5,s828736494,p02393,Runtime Error,"
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+public class Main {
+
+    public static void main(String[] args) throws IOException {
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+
+        String arg = br.readLine();
+        String[] inputArray = arg.split("" "");
+        Integer[] inputIntArray = new Integer[inputArray.length];
+
+        List<Integer> intList = Arrays.asList(inputIntArray);
+
+        Collections.sort(intList);
+
+        String retStr = intList.get(0) + "" "" + intList.get(1) + "" "" + intList.get(2);
+        System.out.println(retStr);
+    }
+}","Exception in thread ""main"" java.lang.NullPointerException
+	at java.base/java.util.ComparableTimSort.countRunAndMakeAscending(ComparableTimSort.java:320)
+	at java.base/java.util.ComparableTimSort.sort(ComparableTimSort.java:188)
+	at java.base/java.util.Arrays.sort(Arrays.java:1250)
+	at java.base/java.util.Arrays.sort(Arrays.java:1437)
+	at java.base/java.util.Arrays$ArrayList.sort(Arrays.java:4426)
+	at java.base/java.util.Collections.sort(Collections.java:145)
+	at Main.main(Main.java:20)
+",Your program crashed while it was running.,NullPointerException: you used a variable that doesn't refer to any object (it's null).,"The first line of the error output that names your code is where it happened. Which variable is used there? If it came from readLine(), that returns null once the input has run out. Otherwise, where is it given an object?","NullPointerException: a variable used before it's given an object, often readLine()'s null after the input ran out.",,,,
+36,Java,runtime_error/NullPointerException,5,s840385208,p02397,Runtime Error,"
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
+public class Main {
+
+	public static void main(String[] args) throws IOException {
+		// TODO ?????????????????????????????????????????????
+
+		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        StringBuilder sb = new StringBuilder();
+
+        String str = br.readLine();
+        String[] strArray = str.split("" "");
+        int x, y;
+
+        while(true) {
+        	str = br.readLine();
+            strArray = str.split("" "");
+
+            if(strArray[0]==""0"" && strArray[1]==""0"") {
+            	break;
+            }
+
+            x = Integer.parseInt(strArray[0]);
+            y = Integer.parseInt(strArray[1]);
+
+            System.out.println(Math.min(x, y) + "" "" + Math.max(x, y));
+        }
+	}
+}","Exception in thread ""main"" java.lang.NullPointerException
+	at Main.main(Main.java:20)
+",Your program crashed while it was running.,NullPointerException: you used a variable that doesn't refer to any object (it's null).,"The first line of the error output that names your code is where it happened. Which variable is used there? If it came from readLine(), that returns null once the input has run out. Otherwise, where is it given an object?","NullPointerException: a variable used before it's given an object, often readLine()'s null after the input ran out.",,,,
+37,Java,runtime_error/IndexOutOfBoundsException,5,s475337428,p02407,Runtime Error,"import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.util.*;
+class Main{
+	public static void main(String[] args){
+		Scanner scan = new Scanner(System.in);
+		ArrayList<Integer> list = new ArrayList<Integer>();
+		ArrayList<Integer> gyaku = new ArrayList<Integer>();
+		String n =scan.nextLine();
+		while(scan.hasNextInt()){
+			int x = scan.nextInt();
+			list.add(x);
+		}
+		//for(int i=0;i<list.size();i++){
+		//	int size = list.size();
+		//	int y = list.get(size - i);
+		//	gyaku.add(y);
+		//}
+		for(int i=0;i<list.size();i++){
+			int saizu = list.size();
+			System.out.print(list.get(saizu - i));
+			if((saizu-i) == 0){
+				System.out.println("""");
+			}
+			else{
+				System.out.print("" "");
+			}
+		
+		}
+	}
+}","Exception in thread ""main"" java.lang.IndexOutOfBoundsException: Index 5 out of bounds for length 5
+	at java.base/jdk.internal.util.Preconditions.outOfBounds(Preconditions.java:64)
+	at java.base/jdk.internal.util.Preconditions.outOfBoundsCheckIndex(Preconditions.java:70)
+	at java.base/jdk.internal.util.Preconditions.checkIndex(Preconditions.java:248)
+	at java.base/java.util.Objects.checkIndex(Objects.java:373)
+	at java.base/java.util.ArrayList.get(ArrayList.java:425)
+	at Main.main(Main.java:21)
+",Your program crashed while it was running.,"IndexOutOfBoundsException: you used a position that doesn't exist in the array, string or list.",Check the index against the length: the last valid index is length - 1. Does a loop go one step too far (<= instead of <)?,"IndexOutOfBoundsException: check the index against the length, often <= instead of <.",,,,
+38,Java,runtime_error/IndexOutOfBoundsException,5,s910034374,p02258,Runtime Error,"import java.util.ArrayList;
+import java.util.Scanner;
+public class Main {
+
+	public static void main(String[] args){
+		Scanner sc = new Scanner(System.in);
+		int N = sc.nextInt();
+		int maxv = -2000000000;
+		ArrayList<Integer> numbers = new ArrayList<Integer>();
+		for(int i =0;i<N;i++){
+			numbers.add(sc.nextInt());
+		}
+		for(int i =1;i<=N;i++){
+			for(int j=0;j<N;j++){
+				if(maxv<numbers.get(i)-numbers.get(j)){
+					maxv =numbers.get(i)-numbers.get(j);
+				}
+			}
+		}
+
+
+	}
+
+}
+
+","Exception in thread ""main"" java.lang.IndexOutOfBoundsException: Index 6 out of bounds for length 6
+	at java.base/jdk.internal.util.Preconditions.outOfBounds(Preconditions.java:64)
+	at java.base/jdk.internal.util.Preconditions.outOfBoundsCheckIndex(Preconditions.java:70)
+	at java.base/jdk.internal.util.Preconditions.checkIndex(Preconditions.java:248)
+	at java.base/java.util.Objects.checkIndex(Objects.java:373)
+	at java.base/java.util.ArrayList.get(ArrayList.java:425)
+	at Main.main(Main.java:15)
+",Your program crashed while it was running.,"IndexOutOfBoundsException: you used a position that doesn't exist in the array, string or list.",Check the index against the length: the last valid index is length - 1. Does a loop go one step too far (<= instead of <)?,"IndexOutOfBoundsException: check the index against the length, often <= instead of <.",,,,
+39,Java,runtime_error/IndexOutOfBoundsException,5,s610976847,p02407,Runtime Error,"import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.util.*;
+class Main{
+	public static void main(String[] args){
+		Scanner scan = new Scanner(System.in);
+		ArrayList<Integer> list = new ArrayList<Integer>();
+		ArrayList<Integer> gyaku = new ArrayList<Integer>();
+		//String n =scan.nextLine();
+		while(scan.hasNextInt()){
+			int x = scan.nextInt();
+			list.add(x);
+		}
+		//for(int i=0;i<list.size();i++){
+		//	int size = list.size();
+		//	int y = list.get(size - i);
+		//	gyaku.add(y);
+		//}
+		for(int i=0;i<list.size();i++){
+			int saizu = list.size();
+			System.out.print(list.get(saizu - i));
+			if((saizu-i) == 0){
+				System.out.println("""");
+			}
+			else{
+				System.out.print("" "");
+			}
+		
+		}
+	}
+}","Exception in thread ""main"" java.lang.IndexOutOfBoundsException: Index 6 out of bounds for length 6
+	at java.base/jdk.internal.util.Preconditions.outOfBounds(Preconditions.java:64)
+	at java.base/jdk.internal.util.Preconditions.outOfBoundsCheckIndex(Preconditions.java:70)
+	at java.base/jdk.internal.util.Preconditions.checkIndex(Preconditions.java:248)
+	at java.base/java.util.Objects.checkIndex(Objects.java:373)
+	at java.base/java.util.ArrayList.get(ArrayList.java:425)
+	at Main.main(Main.java:21)
+",Your program crashed while it was running.,"IndexOutOfBoundsException: you used a position that doesn't exist in the array, string or list.",Check the index against the length: the last valid index is length - 1. Does a loop go one step too far (<= instead of <)?,"IndexOutOfBoundsException: check the index against the length, often <= instead of <.",,,,
+40,Java,runtime_error/IllegalStateException,3,s464265189,p02403,Runtime Error,"import java.util.Scanner;
+
+public class Main{
+	public static void main (String[] args) {
+		
+		Scanner stdin = new Scanner(System.in);
+		
+		while(true) {
+			int h = stdin.nextInt();
+			int w = stdin.nextInt();
+			if(h == 0 && w == 0) break;
+			for(int i = 0; i < h; i++) {
+				for (int j = 0; j < w; j++) {
+					System.out.println(""#"");
+				}
+				System.out.println();
+			}
+			System.out.println();
+
+		stdin.close();
+		}
+	}
+
+}","Exception in thread ""main"" java.lang.IllegalStateException: Scanner closed
+	at java.base/java.util.Scanner.ensureOpen(Scanner.java:1150)
+	at java.base/java.util.Scanner.next(Scanner.java:1573)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2258)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2212)
+	at Main.main(Main.java:9)
+",Your program crashed while it was running.,IllegalStateException: the error output names the kind of problem.,"In the error output, find the line number that points into your own code. What is that line trying to do, and why might it fail for this input?",IllegalStateException. Worth reading through the error output together to see exactly where it crashed.,,,,
+41,Java,runtime_error/IllegalStateException,3,s313681033,p02403,Runtime Error,"import java.util.Scanner;
+
+public class Main {
+	public static void main (String[] args) {
+		
+		Scanner stdin = new Scanner(System.in);
+		
+		while(true) {
+			int h = stdin.nextInt();
+			int w = stdin.nextInt();
+			if(h == 0 && w == 0) {
+				break;
+			}
+			for(int i = 0; i < h; i++) {
+				for (int j = 0; j < w; j++) {
+					System.out.println(""#"");
+				}
+				System.out.println();
+			}
+
+		stdin.close();
+		}
+	}
+
+}","Exception in thread ""main"" java.lang.IllegalStateException: Scanner closed
+	at java.base/java.util.Scanner.ensureOpen(Scanner.java:1150)
+	at java.base/java.util.Scanner.next(Scanner.java:1573)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2258)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2212)
+	at Main.main(Main.java:9)
+",Your program crashed while it was running.,IllegalStateException: the error output names the kind of problem.,"In the error output, find the line number that points into your own code. What is that line trying to do, and why might it fail for this input?",IllegalStateException. Worth reading through the error output together to see exactly where it crashed.,,,,
+42,Java,runtime_error/IllegalStateException,3,s621287957,p02403,Runtime Error,"import java.util.Scanner;
+
+public class Main{
+	public static void main (String[] args) {
+		
+		Scanner stdin = new Scanner(System.in);
+		
+		while(true) {
+			int h = stdin.nextInt();
+			int w = stdin.nextInt();
+			
+			if(h == 0 && w == 0) break;
+			if(h<=300 && w<=300) {
+			
+				for(int i = 0; i < h; i++) {
+					for (int j = 0; j < w; j++) {
+						System.out.println(""#"");
+					}
+					System.out.println();
+				}
+				System.out.println();
+			}
+		stdin.close();
+		}
+	}
+
+}","Exception in thread ""main"" java.lang.IllegalStateException: Scanner closed
+	at java.base/java.util.Scanner.ensureOpen(Scanner.java:1150)
+	at java.base/java.util.Scanner.next(Scanner.java:1573)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2258)
+	at java.base/java.util.Scanner.nextInt(Scanner.java:2212)
+	at Main.main(Main.java:9)
+",Your program crashed while it was running.,IllegalStateException: the error output names the kind of problem.,"In the error output, find the line number that points into your own code. What is that line trying to do, and why might it fail for this input?",IllegalStateException. Worth reading through the error output together to see exactly where it crashed.,,,,
+43,Java,runtime_error/StringIndexOutOfBoundsException,1,s223218994,p00006,Runtime Error,"import java.util.Scanner;
+
+
+public class Main {
+
+	static Scanner sc = new Scanner(System.in);
+
+	public static void main(String[] args) {
+		solve();
+	}
+
+
+	public static void solve(){
+		String str = sc.next();
+
+		for(int i=str.length(); i>=0; i--){
+			System.out.print(str.charAt(i));
+		}
+	}
+
+}","Exception in thread ""main"" java.lang.StringIndexOutOfBoundsException: String index out of range: 8
+	at java.base/java.lang.StringLatin1.charAt(StringLatin1.java:48)
+	at java.base/java.lang.String.charAt(String.java:709)
+	at Main.solve(Main.java:17)
+	at Main.main(Main.java:9)
+",Your program crashed while it was running.,"StringIndexOutOfBoundsException: you used a position that doesn't exist in the array, string or list.",Check the index against the length: the last valid index is length - 1. Does a loop go one step too far (<= instead of <)?,"StringIndexOutOfBoundsException: check the index against the length, often <= instead of <.",,,,
+44,Java,runtime_error/FileNotFoundException,1,s287831899,p02407,Runtime Error,"import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
+
+
+public class Main {
+	public static void main(String[] args) throws NumberFormatException, IOException {
+		BufferedReader br = new BufferedReader(new FileReader(""file01.txt""));
+		
+		int n=Integer.parseInt(br.readLine());
+		String s=br.readLine();
+		String[] a=s.split("" "");
+		for(int i=a.length;i>0;i--){
+			System.out.print(a[i-1]);
+			if(i!=1)System.out.print("" "");
+		}br.close();System.out.println();
+}}","Exception in thread ""main"" java.io.FileNotFoundException: file01.txt (No such file or directory)
+	at java.base/java.io.FileInputStream.open0(Native Method)
+	at java.base/java.io.FileInputStream.open(FileInputStream.java:213)
+	at java.base/java.io.FileInputStream.<init>(FileInputStream.java:155)
+	at java.base/java.io.FileInputStream.<init>(FileInputStream.java:110)
+	at java.base/java.io.FileReader.<init>(FileReader.java:60)
+	at Main.main(Main.java:10)
+",Your program crashed while it was running.,FileNotFoundException: the error output names the kind of problem.,"In the error output, find the line number that points into your own code. What is that line trying to do, and why might it fail for this input?",FileNotFoundException. Worth reading through the error output together to see exactly where it crashed.,,,,
