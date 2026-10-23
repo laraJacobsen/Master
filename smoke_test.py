@@ -15,7 +15,7 @@ and being caught by the retry loop, masking a real bug as a passing test.
 
 IDUN_API_KEY is set below (to a fake test value) BEFORE backend.aggregation is
 ever imported, since that module reads it at import time via `os.environ.get()`
-into a module-level constant -- leaving it unset makes `_idun_available()` return
+into a module-level constant -- leaving it unset makes `_llm_available()` return
 False, which skips the mocked call entirely and silently exercises the generic
 fallback line instead. That happened here for real after the Ollama->IDUN
 migration (see backend/aggregation.py's module docstring): this file's mock still
@@ -50,9 +50,12 @@ if os.path.exists(os.environ["PROTOTYPE_DB_PATH"]):
 # Must be set before `backend.aggregation` is first imported (below, via
 # backend.main) -- it reads this into a module-level constant at import time.
 # A fake value is correct here: this test never reaches the real IDUN endpoint,
-# it only needs `_idun_available()` to return True so the mocked call path below
+# it only needs `_llm_available()` to return True so the mocked call path below
 # actually runs instead of silently short-circuiting to the fallback line.
 os.environ.setdefault("IDUN_API_KEY", "smoke-test-fake-key")
+# Pinned, so an LLM_PROVIDER=ollama left in the shell doesn't change what's tested;
+# the Ollama config is checked separately in _run_llm_provider_checks().
+os.environ["LLM_PROVIDER"] = "idun"
 
 NAME_ERROR_MARKER = "num = inpt().split()"
 DOUBLE_MARKER = "int(input()) * 2"  # substring fake_post dispatches on
@@ -302,8 +305,44 @@ def _run_c_java_classify_checks():
     print("C/Java crash classification + hints        OK")
 
 
+def _run_llm_provider_checks():
+    """LLM_PROVIDER=ollama sends the same Label call to local Ollama: no auth header,
+    Ollama's URL and model, and no key needed to count as available. An unknown
+    provider fails loudly rather than silently using the fallback line."""
+    from backend import aggregation as agg
+
+    ollama = agg._resolve_llm_config("ollama")
+    assert ollama["base_url"] == agg.OLLAMA_BASE_URL and ollama["api_key"] is None, ollama
+    assert agg._resolve_llm_config(" IDUN ")["provider"] == "idun"
+    try:
+        agg._resolve_llm_config("olama")
+        raise AssertionError("unknown LLM_PROVIDER should raise")
+    except ValueError:
+        pass
+
+    calls = []
+
+    def fake_ollama_post(url, json=None, headers=None, timeout=None):
+        calls.append((url, json, headers))
+        resp = MagicMock()
+        resp.raise_for_status = lambda: None
+        resp.json.return_value = {
+            "choices": [{"message": {"content": json_lib.dumps({"discussion_point": "Both add 1."})}}]
+        }
+        return resp
+
+    with patch.object(agg, "LLM", ollama),          patch("backend.aggregation.requests.post", side_effect=fake_ollama_post):
+        assert agg._llm_available()
+        assert agg._call_llm_subcluster_pattern(["print(1)", "print(2)"]) == "Both add 1."
+    url, body, headers = calls[0]
+    assert url == f"{agg.OLLAMA_BASE_URL}/chat/completions" and body["model"] == agg.OLLAMA_MODEL, calls
+    assert "Authorization" not in headers, headers
+    print("LLM_PROVIDER=ollama config + call shape   OK")
+
+
 def main():
     _run_canonicalize_boundary_checks()
+    _run_llm_provider_checks()
     _run_classify_submission_checks()
     _run_c_java_classify_checks()
 
@@ -468,7 +507,7 @@ def _run_checks(client):
         print("wrong_answer sub-clustering separates two bug shapes  OK ->", wrong_answer_clusters)
 
         # The sub-cluster IDUN call sees the students' real code (since 2026-10-13 -- see
-        # backend/aggregation.py's _call_idun_subcluster_pattern docstring) but never
+        # backend/aggregation.py's _call_llm_subcluster_pattern docstring) but never
         # student names and never comments (the marker comments here stand in for e.g.
         # the research corpora's "# forgot to lowercase" annotations). Exactly one call
         # per sub-cluster (cached).
@@ -487,7 +526,7 @@ def _run_checks(client):
         # about. This isolates the one thing that matters here: when IDUN is
         # unreachable, a sub-cluster must fall back to the generic curated line, not
         # error or go silent. Unlike the old Ollama path, IDUN has no cheap reachability
-        # precheck (see _idun_available()'s docstring) -- "unreachable" only ever shows
+        # precheck (see _llm_available()'s docstring) -- "unreachable" only ever shows
         # up as the POST call itself failing, so that's what's simulated here.
         from backend import aggregation
         _idun_state["available"] = False

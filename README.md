@@ -37,8 +37,9 @@ backend/
   aggregation.py       Groups a question's submissions into common issues by
                         (exec_verdict, error_type), counted per distinct student,
                         with one discussion point per issue: a curated line for
-                        most categories, an IDUN LLM call for wrong_answer
-                        sub-clusters (code-similarity grouping). Also holds the
+                        most categories, an LLM call (IDUN, or local Ollama via
+                        LLM_PROVIDER) for wrong_answer sub-clusters
+                        (code-similarity grouping). Also holds the
                         lecturer's "Show to students" flags (in-memory only)
   hints.py             THE deterministic Judge0-result classifier (via
                         feedback-research/classify.py) plus tier-escalating hint
@@ -116,6 +117,13 @@ requirements.txt
    `openai/gpt-oss-120b`). Without a key, everything still works; wrong-answer
    issues just get a generic discussion point instead of a generated one.
    Grading and student hints never depend on IDUN.
+
+   **Or local Ollama instead of IDUN:** set `LLM_PROVIDER=ollama` (default
+   `idun`). No key or VPN needed, and student code never leaves the machine.
+   Needs Ollama running with the model pulled (`ollama pull llama3.2:3b`).
+   Overrides: `OLLAMA_BASE_URL` (default `http://localhost:11434/v1`) and
+   `OLLAMA_MODEL` (default `llama3.2:3b`). Expect slower and weaker discussion
+   points than IDUN's model; the spot-check rounds were all run against IDUN.
 3. Python 3.9+.
 4. Node 18+ (to build the frontend).
 
@@ -128,6 +136,7 @@ pip install -r requirements.txt
 cd frontend && npm install && npm run build && cd ..   # builds frontend/dist
 
 set -a; . ./.idun.env; set +a                    # loads IDUN_API_KEY (skip if you have no key)
+# export LLM_PROVIDER=ollama                     # or: local Ollama instead of IDUN
 export JUDGE0_BASE_URL=http://localhost:2358     # only if not the default
 
 uvicorn backend.main:app --reload --port 8000

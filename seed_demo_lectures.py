@@ -241,7 +241,8 @@ def main():
         print(f"Backed up {db.name} -> {backup.name}")
 
     os.environ["PROTOTYPE_DB_PATH"] = str(db)
-    os.environ["IDUN_API_KEY"] = ""  # no Label calls from a seed script
+    os.environ["LLM_PROVIDER"] = "idun"  # with no key below: no Label calls from a seed script
+    os.environ["IDUN_API_KEY"] = ""
     sys.path.insert(0, str(REPO))
 
     with patch("backend.judge0_client.requests.post", side_effect=fake_post):

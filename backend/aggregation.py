@@ -224,6 +224,13 @@ for (different code, same output) was exercised by one row only.
 
 Signature grouping time is logged per question ("wrong_answer signature: ..."), next to the
 existing diff+cluster line, which now reports how many submissions still needed the diff step.
+
+2026-10-23: provider switch. LLM_PROVIDER=idun (default) or ollama picks where the Label call
+goes -- see _resolve_llm_config(). Both speak the same OpenAI-compatible chat-completions API,
+so the prompt and validation are identical; only endpoint/model/auth/timeout differ. Ollama is
+for running off NTNU's network/VPN, or keeping student code on the machine. Not re-evaluated:
+every spot-check round so far used IDUN's gpt-oss-120b, and a small local model is expected
+to do worse (more fallbacks from invalid JSON or second-person phrasing, vaguer labels).
 """
 
 import difflib
@@ -298,6 +305,31 @@ _MAX_PARALLEL_LABEL_CALLS = 8
 IDUN_BASE_URL = os.environ.get("IDUN_BASE_URL", "https://llm.hpc.ntnu.no/v1")
 IDUN_API_KEY = os.environ.get("IDUN_API_KEY")
 IDUN_MODEL = os.environ.get("IDUN_MODEL", "openai/gpt-oss-120b")
+
+# Local Ollama, as the alternative to IDUN (LLM_PROVIDER=ollama): off NTNU's network/VPN,
+# or when student code shouldn't leave the machine. Ollama serves the same
+# OpenAI-compatible chat-completions API, so the call itself is shared; only the endpoint,
+# model, auth and timeout differ. No key needed. The longer timeout is because a small
+# model on a CPU-only laptop took ~9-38s per call when this project last ran it locally
+# (pedagogical-feedback-design-decision.md).
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+
+
+def _resolve_llm_config(provider: str) -> dict:
+    """The endpoint/model/key/timeout for LLM_PROVIDER. An unknown provider raises, so a
+    typo fails loudly at startup instead of silently falling back to the generic line."""
+    provider = (provider or "idun").strip().lower()
+    if provider == "idun":
+        return {"provider": "idun", "base_url": IDUN_BASE_URL, "model": IDUN_MODEL,
+                "api_key": IDUN_API_KEY, "timeout": 60}
+    if provider == "ollama":
+        return {"provider": "ollama", "base_url": OLLAMA_BASE_URL, "model": OLLAMA_MODEL,
+                "api_key": None, "timeout": 120}
+    raise ValueError(f"LLM_PROVIDER must be 'idun' or 'ollama', got {provider!r}")
+
+
+LLM = _resolve_llm_config(os.environ.get("LLM_PROVIDER", "idun"))
 
 WRONG_ANSWER_SUBCLUSTER_PROMPT = (
     "You are writing a short, factual note for a lecturer's own dashboard about a group "
@@ -391,7 +423,7 @@ def _canonicalize(source_code: str) -> str:
 
 def _strip_comments(source_code: str) -> str:
     """The student's own code, minus comments -- what the Label call is shown
-    (see _call_idun_subcluster_pattern's docstring for why that's no longer the
+    (see _call_llm_subcluster_pattern's docstring for why that's no longer the
     _canonicalize() form). Comments are dropped because they can state the bug
     outright (the research corpora's "# forgot to lowercase" annotations would hand
     the model the answer) and are the one free-text field in a submission that
@@ -592,17 +624,21 @@ def _representative_snippets(group: list, max_n: int = 3) -> list:
     return picked
 
 
-def _idun_available() -> bool:
-    """No cheap unauthenticated health check like Ollama's /api/tags exists on the
-    IDUN gateway, so this just checks a key is configured -- an actual bad key or
-    unreachable network (off NTNU network/VPN) still surfaces as a request failure,
-    caught by _call_idun_subcluster_pattern's caller same as any other failure mode."""
-    return bool(IDUN_API_KEY)
+def _llm_available() -> bool:
+    """IDUN: just checks a key is configured -- the gateway has no cheap unauthenticated
+    health check, so a bad key or unreachable network (off NTNU network/VPN) still
+    surfaces as a request failure, caught by _call_llm_subcluster_pattern's caller same
+    as any other failure mode. Ollama needs no key, so it's always worth trying; Ollama
+    not running is a connection error, caught the same way."""
+    if LLM["provider"] == "idun":
+        return bool(LLM["api_key"])
+    return True
 
 
-def _call_idun_subcluster_pattern(snippets: list, reference_solution: str = None) -> str:
+def _call_llm_subcluster_pattern(snippets: list, reference_solution: str = None) -> str:
     """One JSON-mode call given 2-3 comment-stripped snippets from one similarity
-    sub-cluster, via IDUN's OpenAI-compatible chat-completions endpoint. Raises on
+    sub-cluster, via the configured provider's (LLM_PROVIDER: IDUN or Ollama)
+    OpenAI-compatible chat-completions endpoint. Raises on
     network failure, invalid JSON, a response that doesn't satisfy the schema, or
     second-person phrasing -- caller retries/falls back to the generic wrong_answer
     line.
@@ -643,24 +679,25 @@ def _call_idun_subcluster_pattern(snippets: list, reference_solution: str = None
         )
     parts.append("Snippets:\n\n" + "\n\n---\n\n".join(snippets))
     prompt = "\n\n".join(parts) + "\n\nRespond with the JSON object described in the system prompt."
+    headers = {"Authorization": f"Bearer {LLM['api_key']}"} if LLM["api_key"] else {}
     resp = requests.post(
-        f"{IDUN_BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {IDUN_API_KEY}"},
+        f"{LLM['base_url']}/chat/completions",
+        headers=headers,
         json={
-            "model": IDUN_MODEL,
+            "model": LLM["model"],
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": WRONG_ANSWER_SUBCLUSTER_PROMPT},
                 {"role": "user", "content": prompt},
             ],
         },
-        timeout=60,
+        timeout=LLM["timeout"],
     )
     resp.raise_for_status()
     parsed = json.loads(resp.json()["choices"][0]["message"]["content"])
     point = parsed.get("discussion_point")
     if not isinstance(point, str) or not point.strip():
-        raise ValueError(f"missing discussion_point in IDUN response: {parsed!r}")
+        raise ValueError(f"missing discussion_point in LLM response: {parsed!r}")
     point = point.strip()
     if _SECOND_PERSON_RE.search(point):
         raise ValueError(f"discussion_point addressed the student, not the lecturer: {point!r}")
@@ -670,7 +707,7 @@ def _call_idun_subcluster_pattern(snippets: list, reference_solution: str = None
 def _subcluster_discussion_point(group: list, reference_solution: str, student_count: int, raised: bool = False):
     """`reference_solution` -- the exercise's raw (not yet canonicalized) reference
     solution, or None/empty if unavailable -- is comment-stripped here and passed as
-    context to the IDUN call (see _call_idun_subcluster_pattern's docstring for
+    context to the IDUN call (see _call_llm_subcluster_pattern's docstring for
     why). None is a legitimate value, not an error: it just means the call falls
     back to the pre-2026-09-21 behavior of describing the snippets with no
     reference-relative context.
@@ -694,17 +731,17 @@ def _subcluster_discussion_point(group: list, reference_solution: str, student_c
     # switch to showing real code -- this is a "too little code to describe" gate,
     # independent of what the model is shown.
     trivial = any(len(_canonicalize(s).split()) < _MIN_TOKENS_FOR_PATTERN_CALL for s in snippets)
-    if snippets and not trivial and _idun_available():
+    if snippets and not trivial and _llm_available():
         t0 = time.monotonic()
         for _attempt in (1, 2):
             try:
-                result = _call_idun_subcluster_pattern(snippets, reference)
+                result = _call_llm_subcluster_pattern(snippets, reference)
                 break
             except Exception:
                 continue
         logger.info(
-            "wrong_answer sub-cluster IDUN call: %d snippets, %.3fs, used_model=%s",
-            len(snippets), time.monotonic() - t0, result is not fallback,
+            "wrong_answer sub-cluster LLM call (%s): %d snippets, %.3fs, used_model=%s",
+            LLM["provider"], len(snippets), time.monotonic() - t0, result is not fallback,
         )
 
     _subcluster_discussion_cache[cache_key] = result
