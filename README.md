@@ -98,6 +98,9 @@ smoke_test.py           Structural test with Judge0 + IDUN mocked out -- proves 
                           the full question-setup flow (draft -> validate -> start -> live,
                           plus per-question line_limit/package-allowlist enforcement).
                           Already run; see "What's been verified" below.
+load_test.py            Many students at once against a real Judge0 (its own backend
+                          on port 8100 + throwaway DB): latency per endpoint and a
+                          correctness check. `python load_test.py --students 150`
 requirements.txt
 ```
 
@@ -219,10 +222,26 @@ removed: it was unreliable at explaining causes, and slow (~9-38s per call)
 and memory-hungry on this 7.6GB, no-GPU laptop. See
 `feedback-research/decisions/pedagogical-feedback-design-decision.md` for the history.
 
-**Not yet verified**: the lecturer page's live-polling feel with more than
-one student submitting at once, and behavior under concurrent submissions
-(Judge0 serializes/queues under load in ways a single-student manual test
-doesn't exercise). The IDUN-generated wrong-answer discussion points haven't
+**Concurrent submissions** (`load_test.py`, real Judge0 with 4 workers on a
+16-CPU laptop): up to 150 simulated students, each polling status every 2s and
+heartbeating every 10s, with the lecturer dashboard polling every 3s. Every run
+gave every submission the right verdict, stored every attempt, and had no
+duplicate attempt numbers or failed requests. Worst case is everyone submitting
+within the same second (time's up auto-submits the whole class):
+
+| Students, all at once | Submit p50 / p95 | Status poll p95 | Dashboard p95 |
+|---|---|---|---|
+| 40  | 2.2s / 4.3s   | 0.06s | 0.14s |
+| 100 | 5.4s / 12.5s  | 0.12s | 0.11s |
+| 150 | 11.5s / 20.9s | 0.22s | 0.16s |
+
+Before `MAX_CONCURRENT_SUBMITS` (see "Known simplifications"), status polls and
+the dashboard queued behind grading in a burst: p95 9s at 100 students, 16-18s
+at 150. Spread over a minute instead of one second, 100 students submit in
+0.75s p50 / 1.7s p95. Not yet measured on the deployment VM, which has fewer
+CPUs, so grading under a burst will be slower there.
+
+**Not yet verified**: the IDUN-generated wrong-answer discussion points haven't
 been through the human spot-check pass yet (see `backend/aggregation.py`'s
 module docstring).
 
@@ -272,10 +291,11 @@ module docstring).
   the same student.
 - Discussion points (and "Show to students" flags) are cached in memory,
   so restarting the backend regenerates them and forgets the flags.
-- No rate limiting -- if many students submit in the same second, you'll
-  send that many concurrent Judge0 calls. Worth watching if this becomes a
-  real concern, informed by what you already know about Judge0's
-  worker-count ceiling from the scaling spike. IDUN calls are capped at 8
-  in parallel and only happen when the lecturer dashboard asks for issues,
-  not per submission.
+- At most `MAX_CONCURRENT_SUBMITS` (default 16) submissions are graded at
+  once; the rest wait in line. This keeps a burst of submissions from taking
+  every server thread, so status polls, heartbeats and the lecturer dashboard
+  stay fast (see "What's been verified"), and caps concurrent Judge0 calls.
+  No per-student rate limiting. IDUN calls are capped at 8 in parallel and
+  only happen when the lecturer dashboard asks for issues, not per
+  submission.
 # Master

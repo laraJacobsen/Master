@@ -21,6 +21,7 @@ import json
 import os
 from datetime import datetime
 
+import anyio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -650,8 +651,24 @@ def _graded(test_results: list) -> list:
     return test_results[1:] if len(test_results) > 1 else test_results
 
 
+# How many submissions are graded at once. Every other endpoint is a plain `def`,
+# which FastAPI runs on a shared pool of 40 threads, and a submission holds its
+# thread for the whole Judge0 run. Without this cap, a class submitting at once
+# (time's up auto-submits everyone) took every thread, and the 2s status polls,
+# heartbeats and lecturer dashboard queued behind grading: up to ~17s with 150
+# students (load_test.py). Submissions over the cap wait here without holding a
+# thread. Also caps concurrent requests to Judge0, which only has a few workers
+# anyway, so a lower cap doesn't make grading itself slower.
+MAX_CONCURRENT_SUBMITS = int(os.environ.get("MAX_CONCURRENT_SUBMITS", "16"))
+_submit_limiter = anyio.CapacityLimiter(MAX_CONCURRENT_SUBMITS)
+
+
 @app.post("/api/submit")
-def api_submit(req: SubmitRequest):
+async def api_submit(req: SubmitRequest):
+    return await anyio.to_thread.run_sync(_submit, req, limiter=_submit_limiter)
+
+
+def _submit(req: SubmitRequest):
     question = get_question(req.question_id)
     if not question:
         raise HTTPException(status_code=404, detail=f"Unknown question_id: {req.question_id!r}")
