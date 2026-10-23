@@ -222,17 +222,18 @@ export default function App() {
   }
 
   // Shared by the manual Submit button and the timeout auto-submit path --
-  // both need the same Judge0-timing status text, spinner, and result/error
+  // both need the same status text, spinner, and result/error
   // handling, just triggered differently and with different validation
   // upstream of this call.
   async function performSubmit(qId: string, trimmedName: string, trimmedCode: string) {
     setSubmitting(true);
     submittingRef.current = true;
-    setStatusText("Running your code on Judge0...");
+    setStatusText("Running your tests...");
+    // Normally graded in about a second; longer means the class is submitting at
+    // once (e.g. time's up) and this one is queued -- 10-20s with 150 students
+    // (load_test.py). Say so, so a long wait doesn't look like a frozen page.
     slowNoticeRef.current = window.setTimeout(() => {
-      setStatusText(
-        "Still working. AI grading can take up to a minute, especially on the first submission of a session."
-      );
+      setStatusText("Lots of students are submitting right now, so you're in a queue. It'll be graded shortly.");
     }, 4000);
 
     try {
