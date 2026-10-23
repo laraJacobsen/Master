@@ -28,7 +28,11 @@ student's attempt numbers are 1..k with no duplicates.
 
 Needs Judge0 running (JUDGE0_BASE_URL, default http://localhost:2358).
 
-Run: python load_test.py [--students 40] [--mode burst|spread] [--spread 60]
+--watch: pauses before the run and again after it, so the pages can be looked at in a
+  browser: join as a real student first (the code is printed) and submit during the
+  burst, then look at the lecturer dashboard with the whole class's data in it.
+
+Run: python load_test.py [--students 40] [--mode burst|spread] [--spread 60] [--watch]
 """
 
 import argparse
@@ -220,6 +224,7 @@ def main():
     ap.add_argument("--mode", choices=["burst", "spread"], default="burst")
     ap.add_argument("--spread", type=float, default=60, help="seconds, for --mode spread")
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--watch", action="store_true", help="pause before and after, to look in a browser")
     args = ap.parse_args()
     random.seed(args.seed)
 
@@ -237,6 +242,10 @@ def main():
         for name in names:
             api("POST", "/api/lecture/join", json={"code": lecture["join_code"], "student_name": name})
         print(f"Lecture #{lecture['id']}, question {qid!r}, {len(names)} students joined, mode={args.mode}")
+        if args.watch:
+            print(f"\n  Student page:  {BASE}/student.html   (join code {lecture['join_code']})")
+            print(f"  Lecturer page: {BASE}/lecturer.html?question_id={qid}")
+            input("\nJoin as a student, have code ready to submit, then press Enter to start the run...")
 
         weights = [w for _, w, _ in PLANS]
         background = [threading.Thread(target=lecturer, args=(qid,), daemon=True)]
@@ -260,6 +269,8 @@ def main():
             t.join(timeout=10)
 
         ok = report(qid, args.students, wall)
+        if args.watch:
+            input(f"\nLook at {BASE}/lecturer.html?question_id={qid}, then press Enter to end the lecture...")
         api("POST", "/api/lecturer/lecture/finish", json={"current_question_id": qid})
     finally:
         proc.terminate()
