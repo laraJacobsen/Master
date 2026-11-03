@@ -324,3 +324,5 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
 }
 .cp-activity-summary { margin-top: 0.4rem; }
 .cp-caption-inline { color: var(--muted); font-size: 0.78rem; }
+#task-control-card .task-control-meta { display: flex; align-items: center; gap: 0.75rem; }
+.projector-link { font-size: 0.85rem; font-weight: 500; color: var(--navy); }

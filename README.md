@@ -201,6 +201,17 @@ Then open in a browser:
     running still wait for the next one. A one-time startup migration also
     retires leftovers from lectures that ended before this existed.)
 
+- Projector view: `http://localhost:8000/present.html` (also linked as
+  "Open projector view" on the live dashboard's Task control card) -- the
+  page to put on the big screen. Follows the lecture on its own: the join
+  code while students are joining, then the live task's title/prompt and a
+  large countdown. Once time is up, issues flagged with "Show to students"
+  appear here too, in editable editors: the lecturer can highlight a
+  selection or the cursor's line ("Highlight" or Ctrl+B) and rewrite the
+  code while going over it. Those edits stay on the projector only
+  (students' waiting screens keep the original), and "Reset" puts the
+  attempt back as submitted.
+
 Open the student and lecturer pages side by side (or on two machines on the
 same network, using your laptop's IP instead of `localhost`) to see a
 submission on the student page show up on the lecturer page a few seconds

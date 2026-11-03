@@ -647,11 +647,18 @@ export default function App() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                   <h2>Task control</h2>
-                  {joinCode && (
-                    <div id="join-code-pill" className="join-code-pill">
-                      Join code <strong>{joinCode}</strong>
-                    </div>
-                  )}
+                  <div className="task-control-meta">
+                    {joinCode && (
+                      <div id="join-code-pill" className="join-code-pill">
+                        Join code <strong>{joinCode}</strong>
+                      </div>
+                    )}
+                    {/* The big-screen view for the room: task, countdown, and
+                        whatever "Show to students" puts up (see src/present/). */}
+                    <a href="present.html" target="_blank" rel="noopener" className="projector-link">
+                      Open projector view ↗
+                    </a>
+                  </div>
                 </div>
                 <div className="task-control-row">
                   <div>
