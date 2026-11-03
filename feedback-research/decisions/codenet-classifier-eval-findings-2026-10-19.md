@@ -1,0 +1,132 @@
+# CodeNet classifier eval: findings and the fixes they led to (2026-10-19)
+
+*Written by Claude Code while running the CodeNet evaluation of production's Judge0-result
+classifier (`backend/hints.classify_submission()` → `feedback-research/classify.py`), as
+the first step towards supporting C and Java alongside Python. Scripts, sample and full
+results are in `feedback-research/codenet-eval/`; `score.md` there is the current report.*
+
+## What was run
+
+[IBM Project CodeNet](https://github.com/IBM/Project_CodeNet) has ~14M submissions to
+~4,000 judge problems, each labelled with the judge's status. From it:
+
+- **10 AIZU problems**, chosen by `select_problems.py`: intro-course exercises (Print Test
+  Cases, Reversing Numbers, GCD, Swapping Two Numbers, ...) with a median accepted Python 3
+  solution of ≤300 bytes, and enough submissions in every status. Two data-structure
+  problems (Dictionary, Priority Queue) were dropped by hand: their timeouts only happen on
+  large hidden inputs.
+- **3,231 submissions**: up to 20 per problem × language (C, Java, Python 3) × status
+  (Accepted, Wrong Answer, Runtime Error, Compile Error, Time Limit Exceeded, Memory Limit
+  Exceeded, Presentation Error), fixed seed (`sample_submissions.py`). AIZU's bare "Python"
+  is Python 2 (84% of its accepted submissions fail to compile under Python 3, vs 0% for
+  "Python3") and is excluded.
+- Each run once through the local Judge0 via production's own `run_test_cases()`, on the
+  problem's sample input, with the problem's own limits (`run_judge0.py`), then classified
+  exactly as production classifies a graded submission (`score.py`). 5 empty submissions
+  were skipped: Judge0 refuses blank source, and production rejects it before Judge0 anyway.
+
+**Main limit of the data:** CodeNet ships only the sample I/O from the problem statement,
+not the judges' hidden tests. About a third of Wrong Answer and TLE submissions pass the
+sample, because the input that broke them isn't available. `score.py` therefore also
+reports agreement over only the submissions whose failure *reproduced* on the sample; that
+column is the one that measures the classifier. Memory Limit Exceeded almost never
+reproduces (0–27%) and is low-n, so OOM detection is not evaluated by this.
+
+These are competitive-judge submissions, not lecture-hall novices: good for checking the
+pipeline across languages, not for claims about what students get wrong.
+
+## Results
+
+Agreement over reproduced submissions, before → after the fixes below:
+
+| | C | Java | Python |
+|---|---:|---:|---:|
+| Accepted | 98% | 100% | 100% |
+| Wrong Answer | 96% → 98% | 95% → 99% | 94% → 100% |
+| Runtime Error | 66% | 90% | 99% |
+| Compile Error | **0% → 97%** | **0% → 98%** | — (none: Python syntax errors are filed as Runtime Error, and classify as `syntax_error`) |
+| Time Limit Exceeded | 35% | 99% | 30% |
+| Presentation Error | 67% | 79% | 64% |
+
+Python, the only language the app ships today, agrees with the judge wherever the failure
+is visible on the sample. Python's TLE row is mostly `output_limit_exceeded` (45): output
+floods that AIZU stopped on time and Judge0 stopped on output size; both are reasonable.
+
+## Fixed (this branch)
+
+1. **Compile errors were graded `wrong_answer`.** `classify.py` reads only stdout/stderr;
+   a C/Java compile error is in `compile_output`, with Judge0 status 6. A student would
+   have been told their output didn't match. Now `classify_submission()` returns
+   `compile_error` for status 6, with its own hint family in `feedback.py` ("read the
+   compiler's first error"), and the student's error-output box shows the compiler output.
+2. **A failing test could be classified `pass`** (23 cases, all three languages).
+   `classify.py` compares only the last printed line, to tolerate debug prints, while
+   `run_test_cases()` compares the whole output. A program that printed an extra line
+   failed the test but got verdict `pass`: the student saw "0/N tests passed" with no
+   hint, and the lecturer dashboard grouped it under **Passing**. The test result is the
+   grade, so a failing test is now never `pass` (it becomes `wrong_answer`). Verified in
+   the running app: `print("debug")` before a correct solution now gets the wrong-answer
+   hint and appears under "Wrong answer" on the dashboard. Note this means classify.py's
+   debug-print tolerance never helped in production: the test comparison already failed
+   those submissions.
+3. **`exit_code` was never requested from Judge0.** Judge0 leaves it out of its default
+   response fields, so it was `None` on every result and `classify.py`'s
+   `exit_code == 137` OOM check was dead code. `smoke_test.py`'s fake Judge0 returned it
+   unasked, which is how this went unnoticed. `judge0_client` now asks for it. Measured
+   effect on agreement: none on this sample (the few memory kills also print "Killed",
+   which was already caught), but every result now carries a real exit code.
+
+## C and Java crash classification (2026-10-20)
+
+Before this, every C and Java runtime error was `runtime_error/Unknown` (165 in C, 161 in
+Java) and got the generic fallback hint. `classify.py` now runs the shared checks
+(timeout, oom, output limit) first, then one crash classifier per language; Python's
+rules are unchanged. Designed against the eval's results:
+
+- **C** prints no exception, so the classifier reads the exit code (128 + signal):
+  139/135 → `SegmentationFault` (72 of C's Runtime Errors), 136 →
+  `FloatingPointException`, 134 → `Aborted`, with the shell's stderr wording as a
+  fallback when there's no exit code. 153 (SIGXFSZ) → `output_limit_exceeded`: 75 of C's
+  Time Limit Exceeded were output floods. Any other non-zero exit → `NonZeroExit` (12):
+  `main()` with no `return 0;` returns whatever the last call left behind (e.g. printf's
+  character count). The output is often right, so after the pass-rule fix these would
+  otherwise have been told "wrong answer".
+- **Java**: the exception name from the `Exception in thread "main" java.x.Y` line (the
+  first line of the stack trace, where Python's exception is the last), e.g.
+  `NoSuchElementException` (57, reading past the input: Java's `EOFError`). A program
+  the JVM couldn't start ("Could not find or load main class Main", "Main method not
+  found") → `MainNotFound` (53): the class must be named `Main`, in no package.
+- `feedback.py` has hint families for each, in the language's own terms (e.g. a
+  segfault hint points at array bounds and a missing `&` in `scanf`; `MainNotFound`
+  explains `public class Main` and removing the `package` line). The three Java index
+  exceptions share one family, which still shows the exact exception name.
+
+Result: 100% of C and Java runtime errors now get a specific type (Python: 97%, the 3
+others are rare exceptions like `UnboundLocalError`). C Runtime Error agreement went 66%
+→ 75% (`NonZeroExit` was previously graded as a passing or wrong-answer program). The
+hint texts are first drafts: none has been through the spot-check rounds the Python
+hints had.
+
+## Still open
+
+- **Presentation Error: 67–80% pass.** Decided 2026-10-20: trailing whitespace at the
+  end of each line is now ignored (`judge0_client.outputs_match()`, e.g. `5 4 3 2 1 `
+  for `5 4 3 2 1`), since it's invisible to a student. That moved Python 64% → 71%,
+  Java 79% → 80%, C unchanged at 67%: it explains less than first assumed. What still
+  fails is visible formatting, and stays a failure on purpose: missing spaces inside a
+  line (`Case1:3` for `Case 1: 3`, the largest group in every language: AIZU counts it
+  as a Presentation Error because its judge ignores all whitespace), missing/extra
+  blank lines, and double spaces between values.
+- **Starter code** (2026-10-20): the student editor now opens Java questions with a
+  `public class Main` skeleton and C questions with `#include <stdio.h>` / `int
+  main(void) { ... return 0; }`, which removes the two structural mistakes behind
+  `MainNotFound` and `NonZeroExit` before they happen.
+- **Java needs ≥ ~3 s CPU on this Judge0.** JVM startup alone measured 1.2–2.1 s (CPU
+  time is summed across the JVM's threads) and up to ~140 MB, so at AIZU's 1 s / 128 MB
+  every Java submission timed out. The eval gives Java +3 s and 256 MB; a Java question
+  in the app needs the same headroom.
+- **Undefined behaviour in C:** two C submissions gave different output on identical
+  runs. A C student can pass on one submission and fail the next with the same code.
+
+C and Java should not be offered in the setup page's language list until the runtime
+error items above are done, or their students get generic hints.

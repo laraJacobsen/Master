@@ -26,6 +26,15 @@ import type {
 
 const API_BASE = ""; // same origin as the page when served by the FastAPI backend
 
+// fetch() only rejects when the server can't be reached at all (network down,
+// server stopped), with browser jargon like "Failed to fetch" -- shown as-is in
+// the pages' error lines, which is no use to a lecturer or student.
+function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  return fetch(input, init).catch(() => {
+    throw new Error("Couldn't reach the server. Check your connection and try again.");
+  });
+}
+
 async function asJson<T>(res: Response): Promise<T> {
   const data = await res.json();
   if (!res.ok) {
@@ -36,21 +45,21 @@ async function asJson<T>(res: Response): Promise<T> {
 }
 
 export function fetchPublicQuestions(): Promise<PublicQuestion[]> {
-  return fetch(`${API_BASE}/api/questions`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/questions`).then((res) => asJson(res));
 }
 
 export function fetchQuestionList(): Promise<QuestionRow[]> {
-  return fetch(`${API_BASE}/api/lecturer/questions`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/questions`).then((res) => asJson(res));
 }
 
 export function fetchQuestionDetail(questionId: string): Promise<QuestionRow> {
-  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}`).then(
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}`).then(
     (res) => asJson(res)
   );
 }
 
 export function createQuestion(payload: QuestionPayload): Promise<QuestionRow> {
-  return fetch(`${API_BASE}/api/lecturer/questions`, {
+  return apiFetch(`${API_BASE}/api/lecturer/questions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -61,7 +70,7 @@ export function updateQuestion(
   questionId: string,
   payload: QuestionPayload
 ): Promise<QuestionRow> {
-  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}`, {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -69,19 +78,19 @@ export function updateQuestion(
 }
 
 export function validateQuestion(questionId: string): Promise<ValidationResponse> {
-  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/validate`, {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/validate`, {
     method: "POST",
   }).then((res) => asJson(res));
 }
 
 export function startQuestion(questionId: string): Promise<QuestionRow> {
-  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/start`, {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/start`, {
     method: "POST",
   }).then((res) => asJson(res));
 }
 
 export function deleteQuestion(questionId: string): Promise<{ deleted: boolean }> {
-  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}`, {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}`, {
     method: "DELETE",
   }).then((res) => asJson(res));
 }
@@ -91,7 +100,7 @@ export function submitCode(payload: {
   question_id: string;
   source_code: string;
 }): Promise<SubmitResponse> {
-  return fetch(`${API_BASE}/api/submit`, {
+  return apiFetch(`${API_BASE}/api/submit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -100,27 +109,27 @@ export function submitCode(payload: {
 
 export function fetchSubmissions(questionId?: string | null): Promise<SubmissionRow[]> {
   const qs = questionId ? `?question_id=${encodeURIComponent(questionId)}` : "";
-  return fetch(`${API_BASE}/api/lecturer/submissions${qs}`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/submissions${qs}`).then((res) => asJson(res));
 }
 
 export function fetchSubmissionDetail(subId: number): Promise<SubmissionRow> {
-  return fetch(`${API_BASE}/api/lecturer/submissions/${subId}`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/submissions/${subId}`).then((res) => asJson(res));
 }
 
 export function fetchProgress(questionId: string): Promise<ProgressResponse> {
-  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/progress`).then(
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/progress`).then(
     (res) => asJson(res)
   );
 }
 
 export function fetchClusters(questionId?: string | null): Promise<ClusterRow[]> {
   const qs = questionId ? `?question_id=${encodeURIComponent(questionId)}` : "";
-  return fetch(`${API_BASE}/api/lecturer/clusters${qs}`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/clusters${qs}`).then((res) => asJson(res));
 }
 
 // Returns the question's clusters re-ranked with the change applied.
 export function raiseIssue(questionId: string, cluster: ClusterRow, raised: boolean): Promise<ClusterRow[]> {
-  return fetch(`${API_BASE}/api/lecturer/clusters/raise`, {
+  return apiFetch(`${API_BASE}/api/lecturer/clusters/raise`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -134,11 +143,11 @@ export function raiseIssue(questionId: string, cluster: ClusterRow, raised: bool
 }
 
 export function fetchLectureStatus(): Promise<LectureStatus> {
-  return fetch(`${API_BASE}/api/lecture/status`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecture/status`).then((res) => asJson(res));
 }
 
 export function joinLecture(code: string, studentName: string): Promise<LectureJoinResponse> {
-  return fetch(`${API_BASE}/api/lecture/join`, {
+  return apiFetch(`${API_BASE}/api/lecture/join`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code, student_name: studentName }),
@@ -148,7 +157,7 @@ export function joinLecture(code: string, studentName: string): Promise<LectureJ
 // Heartbeat from the student editor -- `edited` says whether they typed since
 // the previous one; the code itself is never sent here.
 export function sendActivity(studentName: string, questionId: string, edited: boolean): Promise<ActivityResponse> {
-  return fetch(`${API_BASE}/api/lecture/activity`, {
+  return apiFetch(`${API_BASE}/api/lecture/activity`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ student_name: studentName, question_id: questionId, edited }),
@@ -156,13 +165,13 @@ export function sendActivity(studentName: string, questionId: string, edited: bo
 }
 
 export function fetchActivity(questionId: string): Promise<StudentActivity[]> {
-  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/activity`).then((res) =>
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/activity`).then((res) =>
     asJson(res)
   );
 }
 
 export function nextTask(currentQuestionId: string | null): Promise<LectureNextResponse> {
-  return fetch(`${API_BASE}/api/lecturer/lecture/next`, {
+  return apiFetch(`${API_BASE}/api/lecturer/lecture/next`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ current_question_id: currentQuestionId }),
@@ -170,13 +179,13 @@ export function nextTask(currentQuestionId: string | null): Promise<LectureNextR
 }
 
 export function endQuestionNow(questionId: string): Promise<QuestionRow> {
-  return fetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/end_now`, {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/end_now`, {
     method: "POST",
   }).then((res) => asJson(res));
 }
 
 export function finishLecture(currentQuestionId: string | null): Promise<LectureFinishResponse> {
-  return fetch(`${API_BASE}/api/lecturer/lecture/finish`, {
+  return apiFetch(`${API_BASE}/api/lecturer/lecture/finish`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ current_question_id: currentQuestionId }),
@@ -185,17 +194,17 @@ export function finishLecture(currentQuestionId: string | null): Promise<Lecture
 
 export function fetchLectureSummary(lectureId?: number | null): Promise<LectureSummary> {
   const qs = lectureId != null ? `?lecture_id=${lectureId}` : "";
-  return fetch(`${API_BASE}/api/lecturer/lecture/summary${qs}`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/lecture/summary${qs}`).then((res) => asJson(res));
 }
 
 export function fetchStudentRecap(studentName: string): Promise<StudentRecap> {
-  return fetch(`${API_BASE}/api/lecture/recap?student_name=${encodeURIComponent(studentName)}`).then((res) =>
+  return apiFetch(`${API_BASE}/api/lecture/recap?student_name=${encodeURIComponent(studentName)}`).then((res) =>
     asJson(res)
   );
 }
 
 export function createLecture(label: string | null): Promise<LectureRow> {
-  return fetch(`${API_BASE}/api/lecturer/lectures`, {
+  return apiFetch(`${API_BASE}/api/lecturer/lectures`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ label }),
@@ -203,50 +212,50 @@ export function createLecture(label: string | null): Promise<LectureRow> {
 }
 
 export function fetchActiveLecture(): Promise<ActiveLectureResponse> {
-  return fetch(`${API_BASE}/api/lecturer/lectures/active`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/lectures/active`).then((res) => asJson(res));
 }
 
 export function fetchLectureDetail(lectureId: number): Promise<LectureRow> {
-  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/lectures/${lectureId}`).then((res) => asJson(res));
 }
 
 export function openLobby(lectureId: number): Promise<LectureRow> {
-  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/open_lobby`, { method: "POST" }).then((res) =>
+  return apiFetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/open_lobby`, { method: "POST" }).then((res) =>
     asJson(res)
   );
 }
 
 export function fetchJoinedCount(lectureId: number): Promise<JoinedCountResponse> {
-  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/joined_count`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/joined_count`).then((res) => asJson(res));
 }
 
 export function fetchLectureReview(): Promise<LectureReview[]> {
-  return fetch(`${API_BASE}/api/lecturer/lectures/review`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/lectures/review`).then((res) => asJson(res));
 }
 
 export function fetchLectureHistory(includeArchived = false): Promise<LectureHistoryRow[]> {
   const qs = includeArchived ? "?include_archived=true" : "";
-  return fetch(`${API_BASE}/api/lecturer/lectures${qs}`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/lectures${qs}`).then((res) => asJson(res));
 }
 
 export function archiveLecture(lectureId: number): Promise<LectureRow> {
-  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/archive`, { method: "POST" }).then((res) =>
+  return apiFetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/archive`, { method: "POST" }).then((res) =>
     asJson(res)
   );
 }
 
 export function unarchiveLecture(lectureId: number): Promise<LectureRow> {
-  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/unarchive`, { method: "POST" }).then((res) =>
+  return apiFetch(`${API_BASE}/api/lecturer/lectures/${lectureId}/unarchive`, { method: "POST" }).then((res) =>
     asJson(res)
   );
 }
 
 export function deleteLecture(lectureId: number): Promise<{ deleted: boolean }> {
-  return fetch(`${API_BASE}/api/lecturer/lectures/${lectureId}`, { method: "DELETE" }).then((res) =>
+  return apiFetch(`${API_BASE}/api/lecturer/lectures/${lectureId}`, { method: "DELETE" }).then((res) =>
     asJson(res)
   );
 }
 
 export function fetchLectureTotals(): Promise<LectureTotals> {
-  return fetch(`${API_BASE}/api/lecturer/stats/totals`).then((res) => asJson(res));
+  return apiFetch(`${API_BASE}/api/lecturer/stats/totals`).then((res) => asJson(res));
 }

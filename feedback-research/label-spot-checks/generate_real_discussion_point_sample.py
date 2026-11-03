@@ -20,7 +20,7 @@ round's already-recorded human ratings):
   (root-caused two outright fabrications in round 1 to a canonicalization artifact,
   not a reasoning failure), and the Label call now also receives the reference
   solution, canonicalized the same way, as explicit context (see
-  _call_idun_subcluster_pattern's docstring for why this is the reference text
+  _call_llm_subcluster_pattern's docstring for why this is the reference text
   itself, not the diff-tokens representation clustering uses -- that
   representation's independent per-snippet VAR-numbering makes it unreadable as a
   prompt). Grounding improved sharply, but a regex scan (not caught by a manual
@@ -41,7 +41,7 @@ round's already-recorded human ratings):
   students' own names.
 - Round 4 (_round4 suffix, generated 2026-10-13): the Label call is shown
   the students' real code and the real reference solution, comments stripped, instead
-  of the canonicalized form (see aggregation.py's _call_idun_subcluster_pattern
+  of the canonicalized form (see aggregation.py's _call_llm_subcluster_pattern
   docstring). Clustering is unchanged, so the sub-clusters should match round 3's;
   only the labels differ. The placeholder-leak scan is gone with the placeholders.
   Rated 2026-10-15: all 16 rows grounded, lecturer-facing and actionable.
@@ -152,7 +152,7 @@ from run_signature_baseline import raw_test_results, tests_for  # noqa: E402
 
 from backend import aggregation as agg  # noqa: E402
 
-if not agg.IDUN_API_KEY:
+if not agg._llm_available():
     sys.exit("IDUN_API_KEY not set (checked env and .idun.env) -- cannot generate real labels.")
 
 OUT_DIR = Path(__file__).resolve().parent
@@ -446,7 +446,7 @@ def main():
     ]
     per_call_seconds = []
     for msg in capture.records:
-        if msg.startswith("wrong_answer sub-cluster IDUN call:"):
+        if msg.startswith("wrong_answer sub-cluster LLM call"):
             lat_lines.append(f"- {msg}")
             try:
                 seconds = float(msg.split(",")[1].strip().rstrip("s"))

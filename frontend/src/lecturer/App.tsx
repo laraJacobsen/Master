@@ -122,6 +122,8 @@ function ExampleBlock({ subs }: { subs: SubmissionRow[] }) {
 
   const results: ValidationTestResult[] = JSON.parse(sub.raw_test_results || "[]");
   const failing = results.find((r) => !r.passed);
+  // A program that didn't compile has no stderr -- the compiler's message is the error output.
+  const errorOutput = failing && (failing.stderr || failing.compile_output);
 
   return (
     <div className="example">
@@ -137,9 +139,9 @@ function ExampleBlock({ subs }: { subs: SubmissionRow[] }) {
           <div>
             <strong>Actual output:</strong> <code>{(failing.stdout || "").trim() || "(none)"}</code>
           </div>
-          {failing.stderr && (
+          {errorOutput && (
             <div>
-              <strong>Error output:</strong> <code>{failing.stderr}</code>
+              <strong>Error output:</strong> <code>{errorOutput}</code>
             </div>
           )}
         </div>

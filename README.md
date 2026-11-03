@@ -37,8 +37,9 @@ backend/
   aggregation.py       Groups a question's submissions into common issues by
                         (exec_verdict, error_type), counted per distinct student,
                         with one discussion point per issue: a curated line for
-                        most categories, an IDUN LLM call for wrong_answer
-                        sub-clusters (code-similarity grouping). Also holds the
+                        most categories, an LLM call (IDUN, or local Ollama via
+                        LLM_PROVIDER) for wrong_answer sub-clusters
+                        (code-similarity grouping). Also holds the
                         lecturer's "Show to students" flags (in-memory only)
   hints.py             THE deterministic Judge0-result classifier (via
                         feedback-research/classify.py) plus tier-escalating hint
@@ -63,6 +64,9 @@ feedback-research/    Tiered-feedback taxonomy + eval corpus, imported from the
   corpora/              Hand-written bug corpora per exercise (is_palindrome, ...)
   clustering-eval/      wrong_answer sub-clustering ground truth + scoring scripts
                         (run_*_baseline.py, subcluster_eval.py)
+  codenet-eval/         The classifier scored against IBM CodeNet judge labels for C, Java
+                        and Python (select/sample/run/score scripts + score.md report;
+                        needs CodeNet extracted locally, see each script's docstring)
   label-spot-checks/    Discussion-point Label rounds 1-5 (generated samples + ratings,
                         latency) and the generator script
   decisions/            Feedback/clustering design decisions and known limitations
@@ -95,6 +99,9 @@ smoke_test.py           Structural test with Judge0 + IDUN mocked out -- proves 
                           the full question-setup flow (draft -> validate -> start -> live,
                           plus per-question line_limit/package-allowlist enforcement).
                           Already run; see "What's been verified" below.
+load_test.py            Many students at once against a real Judge0 (its own backend
+                          on port 8100 + throwaway DB): latency per endpoint and a
+                          correctness check. `python load_test.py --students 150`
 requirements.txt
 ```
 
@@ -113,6 +120,13 @@ requirements.txt
    `openai/gpt-oss-120b`). Without a key, everything still works; wrong-answer
    issues just get a generic discussion point instead of a generated one.
    Grading and student hints never depend on IDUN.
+
+   **Or local Ollama instead of IDUN:** set `LLM_PROVIDER=ollama` (default
+   `idun`). No key or VPN needed, and student code never leaves the machine.
+   Needs Ollama running with the model pulled (`ollama pull llama3.2:3b`).
+   Overrides: `OLLAMA_BASE_URL` (default `http://localhost:11434/v1`) and
+   `OLLAMA_MODEL` (default `llama3.2:3b`). Expect slower and weaker discussion
+   points than IDUN's model; the spot-check rounds were all run against IDUN.
 3. Python 3.9+.
 4. Node 18+ (to build the frontend).
 
@@ -125,6 +139,7 @@ pip install -r requirements.txt
 cd frontend && npm install && npm run build && cd ..   # builds frontend/dist
 
 set -a; . ./.idun.env; set +a                    # loads IDUN_API_KEY (skip if you have no key)
+# export LLM_PROVIDER=ollama                     # or: local Ollama instead of IDUN
 export JUDGE0_BASE_URL=http://localhost:2358     # only if not the default
 
 uvicorn backend.main:app --reload --port 8000
@@ -216,10 +231,26 @@ removed: it was unreliable at explaining causes, and slow (~9-38s per call)
 and memory-hungry on this 7.6GB, no-GPU laptop. See
 `feedback-research/decisions/pedagogical-feedback-design-decision.md` for the history.
 
-**Not yet verified**: the lecturer page's live-polling feel with more than
-one student submitting at once, and behavior under concurrent submissions
-(Judge0 serializes/queues under load in ways a single-student manual test
-doesn't exercise). The IDUN-generated wrong-answer discussion points haven't
+**Concurrent submissions** (`load_test.py`, real Judge0 with 4 workers on a
+16-CPU laptop): up to 150 simulated students, each polling status every 2s and
+heartbeating every 10s, with the lecturer dashboard polling every 3s. Every run
+gave every submission the right verdict, stored every attempt, and had no
+duplicate attempt numbers or failed requests. Worst case is everyone submitting
+within the same second (time's up auto-submits the whole class):
+
+| Students, all at once | Submit p50 / p95 | Status poll p95 | Dashboard p95 |
+|---|---|---|---|
+| 40  | 2.2s / 4.3s   | 0.06s | 0.14s |
+| 100 | 5.4s / 12.5s  | 0.12s | 0.11s |
+| 150 | 11.5s / 20.9s | 0.22s | 0.16s |
+
+Before `MAX_CONCURRENT_SUBMITS` (see "Known simplifications"), status polls and
+the dashboard queued behind grading in a burst: p95 9s at 100 students, 16-18s
+at 150. Spread over a minute instead of one second, 100 students submit in
+0.75s p50 / 1.7s p95. Not yet measured on the deployment VM, which has fewer
+CPUs, so grading under a burst will be slower there.
+
+**Not yet verified**: the IDUN-generated wrong-answer discussion points haven't
 been through the human spot-check pass yet (see `backend/aggregation.py`'s
 module docstring).
 
@@ -269,10 +300,11 @@ module docstring).
   the same student.
 - Discussion points (and "Show to students" flags) are cached in memory,
   so restarting the backend regenerates them and forgets the flags.
-- No rate limiting -- if many students submit in the same second, you'll
-  send that many concurrent Judge0 calls. Worth watching if this becomes a
-  real concern, informed by what you already know about Judge0's
-  worker-count ceiling from the scaling spike. IDUN calls are capped at 8
-  in parallel and only happen when the lecturer dashboard asks for issues,
-  not per submission.
+- At most `MAX_CONCURRENT_SUBMITS` (default 16) submissions are graded at
+  once; the rest wait in line. This keeps a burst of submissions from taking
+  every server thread, so status polls, heartbeats and the lecturer dashboard
+  stay fast (see "What's been verified"), and caps concurrent Judge0 calls.
+  No per-student rate limiting. IDUN calls are capped at 8 in parallel and
+  only happen when the lecturer dashboard asks for issues, not per
+  submission.
 # Master

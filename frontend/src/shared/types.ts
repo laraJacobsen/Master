@@ -192,6 +192,8 @@ export interface ValidationTestResult {
   passed: boolean;
   stdout?: string;
   stderr?: string;
+  // C/Java only: what the compiler printed (a compile error has no stderr).
+  compile_output?: string | null;
 }
 
 export interface ValidationResponse {

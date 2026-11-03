@@ -15,7 +15,7 @@ and being caught by the retry loop, masking a real bug as a passing test.
 
 IDUN_API_KEY is set below (to a fake test value) BEFORE backend.aggregation is
 ever imported, since that module reads it at import time via `os.environ.get()`
-into a module-level constant -- leaving it unset makes `_idun_available()` return
+into a module-level constant -- leaving it unset makes `_llm_available()` return
 False, which skips the mocked call entirely and silently exercises the generic
 fallback line instead. That happened here for real after the Ollama->IDUN
 migration (see backend/aggregation.py's module docstring): this file's mock still
@@ -50,9 +50,12 @@ if os.path.exists(os.environ["PROTOTYPE_DB_PATH"]):
 # Must be set before `backend.aggregation` is first imported (below, via
 # backend.main) -- it reads this into a module-level constant at import time.
 # A fake value is correct here: this test never reaches the real IDUN endpoint,
-# it only needs `_idun_available()` to return True so the mocked call path below
+# it only needs `_llm_available()` to return True so the mocked call path below
 # actually runs instead of silently short-circuiting to the fallback line.
 os.environ.setdefault("IDUN_API_KEY", "smoke-test-fake-key")
+# Pinned, so an LLM_PROVIDER=ollama left in the shell doesn't change what's tested;
+# the Ollama config is checked separately in _run_llm_provider_checks().
+os.environ["LLM_PROVIDER"] = "idun"
 
 NAME_ERROR_MARKER = "num = inpt().split()"
 DOUBLE_MARKER = "int(input()) * 2"  # substring fake_post dispatches on
@@ -199,8 +202,149 @@ def _run_canonicalize_boundary_checks():
     print("_canonicalize() statement-boundary fix   OK")
 
 
+def _run_classify_submission_checks():
+    """Regression tests for the two hints.classify_submission() fixes from the
+    CodeNet eval (feedback-research/codenet-eval/): a program that didn't compile
+    was graded wrong_answer, and a failing test whose last printed line happened to
+    match was graded "pass" with no hint. Plus judge0_client asking Judge0 for
+    exit_code (the fake above returns it unasked, which is how that went unnoticed).
+    Pure functions, no network/DB."""
+    from backend import hints, judge0_client
+    from backend.ai_feedback import judge_and_feedback
+
+    def case(passed, status_id=3, stdout="", stderr=None, compile_output=None):
+        return {"passed": passed, "status_id": status_id,
+                "status_description": {3: "Accepted", 6: "Compilation Error"}[status_id],
+                "stdout": stdout, "stderr": stderr, "compile_output": compile_output,
+                "exit_code": None if status_id == 6 else 0, "expected_stdout": "6\n"}
+
+    compile_error = case(False, status_id=6, compile_output="main.c:3:5: error: expected ';'\n")
+    assert hints.classify_submission([compile_error]) == ("compile_error", None)
+    graded = judge_and_feedback("", "", [compile_error], language="c")
+    assert graded["exec_verdict"] == "compile_error" and graded["verdict"] == "error", graded
+    assert graded["hint_tier"] == 1 and "compiled" in graded["feedback"], graded
+    assert graded["traceback"] == compile_error["compile_output"], graded  # shown to the student
+
+    # An extra printed line: the whole-output test comparison fails, the last line matches.
+    extra_line = case(False, stdout="debug\n6\n")
+    assert hints.classify_submission([extra_line]) == ("wrong_answer", None)
+    assert hints.classify_submission([case(True, stdout="6\n")]) == ("pass", None)
+
+    assert "exit_code" in judge0_client.RESPONSE_FIELDS.split(",")
+
+    # Trailing whitespace per line is ignored; spacing inside a line and blank lines still count.
+    assert judge0_client.outputs_match("5 4 3 2 1 \n", "5 4 3 2 1")
+    assert judge0_client.outputs_match("a \r\nb\t\n", "a\nb\n")
+    assert not judge0_client.outputs_match("Case1: 3", "Case 1: 3")
+    assert not judge0_client.outputs_match("2  3", "2 3")
+    assert not judge0_client.outputs_match("a\n\nb", "a\nb")
+
+    print("classify_submission() CodeNet-eval fixes OK")
+
+
+def _run_c_java_classify_checks():
+    """C and Java crash classification (classify.py's per-language crash rules) and
+    their hint families, on stderr/exit codes as real Judge0 produced them in the
+    CodeNet eval. Python's rules are covered by the end-to-end submits above."""
+    from backend import hints
+    from backend.ai_feedback import judge_and_feedback
+
+    def failing(language, exit_code, stderr=None, stdout="", status=(11, "Runtime Error (NZEC)")):
+        result = {"passed": False, "status_id": status[0], "status_description": status[1],
+                  "stdout": stdout, "stderr": stderr, "compile_output": None,
+                  "exit_code": exit_code, "expected_stdout": "7\n"}
+        return hints.classify_submission([result], language=language)
+
+    shell = "run: line 1:     3 {} (core dumped) ./a.out\n"
+    assert failing("c", 139, shell.format("Segmentation fault")) == ("runtime_error", "SegmentationFault")
+    assert failing("c", 136, shell.format("Floating point exception")) == ("runtime_error", "FloatingPointException")
+    assert failing("c", None, shell.format("Segmentation fault")) == ("runtime_error", "SegmentationFault")
+    assert failing("c", 153, shell.format("File size limit exceeded")) == ("output_limit_exceeded", None)
+    # main() without `return 0;`: right output, but a non-zero exit -- not a wrong answer.
+    assert failing("c", 10, stdout="7\n") == ("runtime_error", "NonZeroExit")
+    assert failing("c", 0, stdout="8\n", status=(3, "Accepted")) == ("wrong_answer", None)
+
+    java_trace = ('Exception in thread "main" java.util.NoSuchElementException\n'
+                  "\tat java.base/java.util.Scanner.throwFor(Scanner.java:937)\n"
+                  "\tat Main.main(Main.java:12)\n")
+    assert failing("java", 1, java_trace) == ("runtime_error", "NoSuchElementException")
+    no_main = ("Error: Could not find or load main class Main\n"
+               "Caused by: java.lang.ClassNotFoundException: Main\n")
+    assert failing("java", 1, no_main) == ("runtime_error", "MainNotFound")
+    assert failing("java", 137, "run: line 1:     3 Killed   /usr/local/openjdk13/bin/java Main\n") == ("oom", None)
+
+    # The same stderr read as Python is unchanged (no Python exception in it -> Unknown).
+    assert failing("python", 1, java_trace) == ("runtime_error", "Unknown")
+
+    # Every C/Java type seen in the eval has its own hint family, not the generic
+    # fallback -- and aliased Java index exceptions still show their own name.
+    for error_type in ["SegmentationFault", "FloatingPointException", "NonZeroExit",
+                       "MainNotFound", "NoSuchElementException", "InputMismatchException",
+                       "NumberFormatException", "NullPointerException", "ArithmeticException",
+                       "ArrayIndexOutOfBoundsException", "StringIndexOutOfBoundsException",
+                       "IndexOutOfBoundsException"]:
+        key = hints._feedback.family_key_for("runtime_error", error_type)
+        assert key[1] != "_fallback", error_type
+        assert hints.discussion_point_for_cluster("runtime_error", error_type, 2), error_type
+    tier2 = hints.hint_for_verdict("runtime_error", "StringIndexOutOfBoundsException", 2)["hint_text"]
+    assert tier2.startswith("StringIndexOutOfBoundsException:"), tier2
+
+    graded = judge_and_feedback("", "", [{
+        "passed": False, "status_id": 11, "status_description": "Runtime Error (NZEC)",
+        "stdout": "", "stderr": no_main, "compile_output": None, "exit_code": 1,
+        "expected_stdout": "7\n"}], language="java")
+    assert graded["exec_verdict"] == "runtime_error" and graded["error_type"] == "MainNotFound", graded
+    assert "class named Main" in graded["feedback"], graded
+
+    # The Python package allow-list must not reject Java's own imports.
+    from backend.validation import pre_execution_check
+    java_source = "import java.util.Scanner;\npublic class Main { public static void main(String[] a) {} }"
+    assert pre_execution_check(java_source, language="java") is None
+    assert pre_execution_check("import numpy", language="python") == "disallowed_package"
+
+    print("C/Java crash classification + hints        OK")
+
+
+def _run_llm_provider_checks():
+    """LLM_PROVIDER=ollama sends the same Label call to local Ollama: no auth header,
+    Ollama's URL and model, and no key needed to count as available. An unknown
+    provider fails loudly rather than silently using the fallback line."""
+    from backend import aggregation as agg
+
+    ollama = agg._resolve_llm_config("ollama")
+    assert ollama["base_url"] == agg.OLLAMA_BASE_URL and ollama["api_key"] is None, ollama
+    assert agg._resolve_llm_config(" IDUN ")["provider"] == "idun"
+    try:
+        agg._resolve_llm_config("olama")
+        raise AssertionError("unknown LLM_PROVIDER should raise")
+    except ValueError:
+        pass
+
+    calls = []
+
+    def fake_ollama_post(url, json=None, headers=None, timeout=None):
+        calls.append((url, json, headers))
+        resp = MagicMock()
+        resp.raise_for_status = lambda: None
+        resp.json.return_value = {
+            "choices": [{"message": {"content": json_lib.dumps({"discussion_point": "Both add 1."})}}]
+        }
+        return resp
+
+    with patch.object(agg, "LLM", ollama),          patch("backend.aggregation.requests.post", side_effect=fake_ollama_post):
+        assert agg._llm_available()
+        assert agg._call_llm_subcluster_pattern(["print(1)", "print(2)"]) == "Both add 1."
+    url, body, headers = calls[0]
+    assert url == f"{agg.OLLAMA_BASE_URL}/chat/completions" and body["model"] == agg.OLLAMA_MODEL, calls
+    assert "Authorization" not in headers, headers
+    print("LLM_PROVIDER=ollama config + call shape   OK")
+
+
 def main():
     _run_canonicalize_boundary_checks()
+    _run_llm_provider_checks()
+    _run_classify_submission_checks()
+    _run_c_java_classify_checks()
 
     with patch("backend.judge0_client.requests.post", side_effect=fake_post), \
          patch("backend.aggregation.requests.post", side_effect=fake_post):
@@ -363,7 +507,7 @@ def _run_checks(client):
         print("wrong_answer sub-clustering separates two bug shapes  OK ->", wrong_answer_clusters)
 
         # The sub-cluster IDUN call sees the students' real code (since 2026-10-13 -- see
-        # backend/aggregation.py's _call_idun_subcluster_pattern docstring) but never
+        # backend/aggregation.py's _call_llm_subcluster_pattern docstring) but never
         # student names and never comments (the marker comments here stand in for e.g.
         # the research corpora's "# forgot to lowercase" annotations). Exactly one call
         # per sub-cluster (cached).
@@ -382,7 +526,7 @@ def _run_checks(client):
         # about. This isolates the one thing that matters here: when IDUN is
         # unreachable, a sub-cluster must fall back to the generic curated line, not
         # error or go silent. Unlike the old Ollama path, IDUN has no cheap reachability
-        # precheck (see _idun_available()'s docstring) -- "unreachable" only ever shows
+        # precheck (see _llm_available()'s docstring) -- "unreachable" only ever shows
         # up as the POST call itself failing, so that's what's simulated here.
         from backend import aggregation
         _idun_state["available"] = False

@@ -16,6 +16,7 @@ import {
   sendActivity,
   submitCode as submitCodeApi,
 } from "../shared/api";
+import { isUntouched, starterCode } from "./starterCode";
 // Monaco is most of this page's weight -- loaded only once a task is live,
 // so the join and waiting screens stay instant.
 const CodeEditor = lazy(() => import("./CodeEditor").then((m) => ({ default: m.CodeEditor })));
@@ -140,6 +141,8 @@ export default function App() {
   // state captured at effect-setup time would otherwise be stale.
   const nameRef = useRef(getJoinedName());
   const codeRef = useRef("");
+  // The live task's language, for the same callbacks (see isUntouched below).
+  const languageRef = useRef("python");
   // Set on every keystroke, cleared by each heartbeat -- so a heartbeat
   // reports "typed since the last one" without ever sending the code.
   const editedRef = useRef(false);
@@ -219,17 +222,18 @@ export default function App() {
   }
 
   // Shared by the manual Submit button and the timeout auto-submit path --
-  // both need the same Judge0-timing status text, spinner, and result/error
+  // both need the same status text, spinner, and result/error
   // handling, just triggered differently and with different validation
   // upstream of this call.
   async function performSubmit(qId: string, trimmedName: string, trimmedCode: string) {
     setSubmitting(true);
     submittingRef.current = true;
-    setStatusText("Running your code on Judge0...");
+    setStatusText("Running your tests...");
+    // Normally graded in about a second; longer means the class is submitting at
+    // once (e.g. time's up) and this one is queued -- 10-20s with 150 students
+    // (load_test.py). Say so, so a long wait doesn't look like a frozen page.
     slowNoticeRef.current = window.setTimeout(() => {
-      setStatusText(
-        "Still working. AI grading can take up to a minute, especially on the first submission of a session."
-      );
+      setStatusText("Lots of students are submitting right now, so you're in a queue. It'll be graded shortly.");
     }, 4000);
 
     try {
@@ -273,7 +277,8 @@ export default function App() {
 
     const trimmedName = nameRef.current.trim();
     const trimmedCode = codeRef.current.trim();
-    if (!trimmedName || !trimmedCode) return; // nothing to submit -- render shows the neutral note
+    // An untouched starter skeleton is nothing the student wrote, same as an empty box.
+    if (!trimmedName || isUntouched(trimmedCode, languageRef.current)) return; // render shows the neutral note
 
     setWasAutoSubmitted(true);
     performSubmit(qId, trimmedName, trimmedCode);
@@ -345,11 +350,12 @@ export default function App() {
       setHadTask(true);
       setPromptText(q.prompt);
       setLanguage(q.language);
+      languageRef.current = q.language;
       editedRef.current = false;
       setNudge(null);
       setExample(q.example);
       setDurationSeconds(q.duration_seconds);
-      updateCode("");
+      updateCode(starterCode(q.language));
       setResult(null);
       resultRef.current = null;
       setErrorMessage(null);
@@ -761,7 +767,12 @@ export default function App() {
               <span className="lang-tag">{language.charAt(0).toUpperCase() + language.slice(1)}</span>
             </div>
             <Suspense fallback={<div className="code-editor code-editor-loading">Loading editor...</div>}>
-              <CodeEditor key={questionId} language={language} onChange={handleEditorChange} />
+              <CodeEditor
+                key={questionId}
+                language={language}
+                initialValue={starterCode(language)}
+                onChange={handleEditorChange}
+              />
             </Suspense>
             <div className="editor-actions">
               {submitting && statusText && <span id="submit-status">{statusText}</span>}

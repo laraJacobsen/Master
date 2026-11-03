@@ -33,9 +33,14 @@ except AttributeError:
     }
 
 
-def pre_execution_check(source_code: str, line_limit: int = DEFAULT_LINE_LIMIT, extra_packages=None) -> str | None:
+def pre_execution_check(source_code: str, line_limit: int = DEFAULT_LINE_LIMIT, extra_packages=None,
+                        language: str = "python") -> str | None:
     """Returns a rejection_reason (see REJECTION_REASONS) if the submission
-    should be rejected before running, or None if it's fine to send to Judge0."""
+    should be rejected before running, or None if it's fine to send to Judge0.
+
+    The package allow-list is Python's (stdlib + extra_packages) and only applies
+    to Python: read as Python, Java's `import java.util.Scanner;` is a disallowed
+    package, which rejected every Java submission that read input."""
     if source_code == "":
         return "empty"
 
@@ -50,7 +55,7 @@ def pre_execution_check(source_code: str, line_limit: int = DEFAULT_LINE_LIMIT, 
     if source_code.count("\n") + 1 > line_limit:
         return "too_long"
 
-    if _first_disallowed_import(source_code, extra_packages or []):
+    if language == "python" and _first_disallowed_import(source_code, extra_packages or []):
         return "disallowed_package"
 
     return None

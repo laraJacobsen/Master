@@ -1,0 +1,11 @@
+id,name,dataset,time_limit,memory_limit,cells_covered,median_py_ac_code_size,C:Accepted,C:Wrong Answer,C:Runtime Error,C:Compile Error,C:Time Limit Exceeded,C:Memory Limit Exceeded,C:WA: Presentation Error,Java:Accepted,Java:Wrong Answer,Java:Runtime Error,Java:Compile Error,Java:Time Limit Exceeded,Java:Memory Limit Exceeded,Java:WA: Presentation Error,Python:Accepted,Python:Wrong Answer,Python:Runtime Error,Python:Compile Error,Python:Time Limit Exceeded,Python:Memory Limit Exceeded,Python:WA: Presentation Error
+p02396,Print Test Cases,AIZU,1000,131072,18,125,1989,2009,465,737,184,0,216,1294,832,649,507,53,26,266,2070,506,706,0,30,0,160
+p02406,Structured Programming,AIZU,1000,131072,17,236,867,1684,75,328,106,0,539,784,1254,87,338,55,0,787,1002,655,131,0,28,0,459
+p02403,Print a Rectangle,AIZU,1000,131072,16,177,1506,522,117,434,125,0,1631,1003,219,112,194,39,3,858,1589,162,228,0,8,0,545
+p00006,Reverse Sequence,AIZU,1000,131072,15,32,752,542,390,219,29,0,338,394,27,31,65,0,0,123,358,22,25,0,0,0,24
+p02415,Toggling Cases,AIZU,1000,131072,15,38,791,406,71,220,72,0,188,690,127,50,74,0,0,123,987,69,74,0,0,0,47
+p02407,Reversing Numbers,AIZU,1000,131072,15,98,1267,572,163,262,45,0,1048,833,275,140,166,0,0,587,1467,204,138,0,0,0,172
+p02393,Sorting Three Numbers,AIZU,1000,131072,15,99,2528,2650,201,1222,58,0,894,1394,548,103,398,14,0,449,2189,377,394,0,2,0,120
+p02256,Greatest Common Divisor,AIZU,1000,131072,15,156,1801,862,311,415,369,0,216,527,106,79,95,63,1,17,904,92,138,0,56,0,2
+p02397,Swapping Two Numbers,AIZU,1000,131072,15,159,1860,1681,177,587,102,0,23,975,667,174,281,36,0,76,1999,480,393,0,18,2,12
+p02258,Maximum Profit,AIZU,1000,131072,15,216,1176,1933,324,504,577,1,195,530,418,84,142,165,2,11,1119,522,243,0,227,15,3
