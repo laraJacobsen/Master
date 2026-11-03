@@ -544,6 +544,37 @@ def _group_wrong_answers(rows: list, reference_solution: str, question_id: str =
     return groups
 
 
+def _shared_failing_cases(group: list) -> list:
+    """Every test case all rows in `group` failed with the same (normalized)
+    output, in test order, as {"stdin", "expected_stdout", "stdout"} dicts --
+    see _shared_failing_case() for the first one alone."""
+    parsed = []
+    for row in group:
+        try:
+            results = json.loads(row.get("raw_test_results") or "[]")
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(results, list) or not results:
+            return []
+        parsed.append({r.get("case_index", i): r for i, r in enumerate(results) if isinstance(r, dict)})
+    shared = []
+    for index in sorted(parsed[0]):
+        cases = [p.get(index) for p in parsed]
+        if any(c is None or c.get("passed") for c in cases):
+            continue
+        outputs = {" ".join((c.get("stdout") or "").split()) for c in cases}
+        if len(outputs) == 1:
+            first = cases[0]
+            shared.append(
+                {
+                    "stdin": first.get("stdin", ""),
+                    "expected_stdout": first.get("expected_stdout", ""),
+                    "stdout": outputs.pop(),
+                }
+            )
+    return shared
+
+
 def _shared_failing_case(group: list):
     """The first test case every row in `group` failed with the same (normalized)
     output, as {"stdin", "expected_stdout", "stdout"} -- or None if there isn't one.
@@ -552,28 +583,8 @@ def _shared_failing_case(group: list):
     round-5 sample and a planned control run. Always found for a final signature group (its rows printed
     the same thing on every test); not guaranteed for a diff-clustered group, whose
     rows are alike in code, not necessarily in output."""
-    parsed = []
-    for row in group:
-        try:
-            results = json.loads(row.get("raw_test_results") or "[]")
-        except (TypeError, ValueError):
-            return None
-        if not isinstance(results, list) or not results:
-            return None
-        parsed.append({r.get("case_index", i): r for i, r in enumerate(results) if isinstance(r, dict)})
-    for index in sorted(parsed[0]):
-        cases = [p.get(index) for p in parsed]
-        if any(c is None or c.get("passed") for c in cases):
-            continue
-        outputs = {" ".join((c.get("stdout") or "").split()) for c in cases}
-        if len(outputs) == 1:
-            first = cases[0]
-            return {
-                "stdin": first.get("stdin", ""),
-                "expected_stdout": first.get("expected_stdout", ""),
-                "stdout": outputs.pop(),
-            }
-    return None
+    cases = _shared_failing_cases(group)
+    return cases[0] if cases else None
 
 
 def _representative_snippets(group: list, max_n: int = 3) -> list:
@@ -1015,45 +1026,123 @@ def session_summary(lecture_id: int) -> list:
     return tasks
 
 
+def _distinguishing_case(cases: list, sibling_cases: list):
+    """The first of a group's shared failing cases (see _shared_failing_cases())
+    whose wrong output no other group on the same task also printed for that
+    input -- so two different bugs that happen to print the same thing on the
+    first test don't show identical evidence. Falls back to the first case."""
+    taken = {(c["stdin"], c["stdout"]) for sibling in sibling_cases for c in sibling}
+    for case in cases:
+        if (case["stdin"], case["stdout"]) not in taken:
+            return case
+    return cases[0] if cases else None
+
+
 def carry_forward_discussion_points(lecture_id: int) -> list:
-    """Issues that cleared the discussion threshold on 2+ distinct tasks in
-    this lecture -- worth raising again next time rather than treated as
-    resolved. Coarse (exec_verdict, error_type) grouping only, same as
-    cluster_submissions() uses for every category except wrong_answer:
-    wrong_answer's code-similarity sub-clustering is inherently per-question
-    (comparing code across different exercises is meaningless -- see this
-    module's docstring), so it wouldn't make sense to carry a specific bug
-    *shape* forward across tasks. This only asks "did wrong_answer itself
-    recur," not "did the same bug recur.\""""
-    occurrences_by_signature = defaultdict(list)  # (exec_verdict, error_type) -> [(question, student_count), ...]
+    """What students were still stuck on when each task ended -- the summary's
+    "worth revisiting next time" list.
+
+    Built from the same issues the live dashboard showed (cluster_submissions()'s
+    grouping, including wrong_answer's per-task sub-clusters), not a coarser
+    lecture-wide regrouping. The earlier version grouped by (exec_verdict,
+    error_type) only and kept what recurred on 2+ tasks; since nearly every
+    mistake is a wrong_answer, that collapsed each lecture into the single
+    generic "wrong output" line "recurring" on every task -- true of any lecture
+    and no use to anyone.
+
+    A student counts as stuck on an issue if they never got a correct result on
+    that task and their *latest* submission is in it -- where they ended up, not
+    every bug they passed through on the way (one they fixed in class isn't
+    worth carrying forward). An issue is kept once MIN_STUDENTS_FOR_DISCUSSION
+    students are stuck on it, same bar as the live dashboard's talking points.
+
+    wrong_answer sub-clusters stay per task (outputs/code aren't comparable
+    across exercises -- see this module's docstring) and carry the shared failing
+    test as evidence. Other categories (NameError, syntax_error, ...) mean the
+    same thing on any task, so those merge across the lecture, listing every task
+    they left students stuck on."""
+    items = []
+    merged = {}  # (exec_verdict, error_type) -> item, for the non-wrong_answer categories
     for question in store.questions_for_lecture(lecture_id):
-        students_by_signature = defaultdict(set)
-        for row in store.all_submissions(question["id"]):
-            key = (row.get("exec_verdict"), row.get("error_type"))
-            students_by_signature[key].add(row["student_name"])
-        for key, students in students_by_signature.items():
-            if len(students) >= MIN_STUDENTS_FOR_DISCUSSION:
-                occurrences_by_signature[key].append((question, len(students)))
+        rows = store.all_submissions(question["id"])
+        solved = {r["student_name"] for r in rows if r.get("verdict") == "correct"}
+        latest_id = {name: row["id"] for name, row in _latest_submission_per_student(question["id"]).items()}
 
-    result = []
-    for (exec_verdict, error_type), occurrences in occurrences_by_signature.items():
-        if len(occurrences) < 2:
-            continue  # only on one task this lecture -- not a carry-forward pattern
-        total_students = sum(count for _, count in occurrences)
-        point = _generate_discussion_point(exec_verdict, error_type, total_students)
-        if not point:
-            continue  # unrecognized family -- nothing safe to say, same rule as the live dashboard
-        result.append(
-            {
-                "exec_verdict": exec_verdict,
-                "error_type": error_type,
-                "task_titles": [q["title"] for q, _ in occurrences],
-                "discussion_point": point,
-            }
-        )
+        def stuck_in(group):
+            return {r["student_name"] for r in group if r["student_name"] not in solved and latest_id.get(r["student_name"]) == r["id"]}
 
-    result.sort(key=lambda c: len(c["task_titles"]), reverse=True)
-    return result
+        by_key = defaultdict(list)
+        for row in rows:
+            by_key[(row.get("exec_verdict"), row.get("error_type"))].append(row)
+
+        for (exec_verdict, error_type), members in by_key.items():
+            if exec_verdict in (None, "pass"):
+                continue
+            if exec_verdict == "wrong_answer":
+                groups = _group_wrong_answers(members, question.get("reference_solution") or "", question["id"])
+                cases_by_group = [_shared_failing_cases(g) for g in groups]
+                for gi, group in enumerate(groups):
+                    stuck = stuck_in(group)
+                    if len(stuck) < MIN_STUDENTS_FOR_DISCUSSION:
+                        continue
+                    students = {r["student_name"] for r in group}
+                    items.append(
+                        {
+                            "exec_verdict": exec_verdict,
+                            "error_type": None,
+                            "task_titles": [question["title"]],
+                            "students": len(students),
+                            "stuck": len(stuck),
+                            "example": _distinguishing_case(cases_by_group[gi], cases_by_group[:gi] + cases_by_group[gi + 1:]),
+                            "raised": _is_raised(question["id"], exec_verdict, None, students),
+                            "_group": group,
+                        }
+                    )
+                continue
+            stuck = stuck_in(members)
+            if not stuck:
+                continue
+            item = merged.setdefault(
+                (exec_verdict, error_type),
+                {
+                    "exec_verdict": exec_verdict,
+                    "error_type": error_type,
+                    "task_titles": [],
+                    "students": 0,
+                    "stuck": 0,
+                    "example": None,
+                    "raised": False,
+                },
+            )
+            students = {r["student_name"] for r in members}
+            item["task_titles"].append(question["title"])
+            # Summed per task: the same student stuck on two tasks is two
+            # (student, task) cases to revisit, not one.
+            item["students"] += len(students)
+            item["stuck"] += len(stuck)
+            item["raised"] = item["raised"] or _is_raised(question["id"], exec_verdict, error_type, students)
+
+    for item in merged.values():
+        if item["stuck"] < MIN_STUDENTS_FOR_DISCUSSION:
+            continue
+        item["discussion_point"] = _generate_discussion_point(item["exec_verdict"], item["error_type"], item["stuck"])
+        if item["discussion_point"]:
+            items.append(item)
+
+    # wrong_answer labels: the same Label call (and cache -- same groups, same
+    # submission ids) the live dashboard used, so a lecture summarized right
+    # after it ends reuses those labels instead of asking again.
+    wrong = [i for i in items if "_group" in i]
+    labels = _generate_subcluster_labels(
+        [(i["_group"], store.get_question_row(i["_group"][0]["question_id"]).get("reference_solution"), i["students"]) for i in wrong],
+        [i["raised"] for i in wrong],
+    )
+    for item, label in zip(wrong, labels):
+        del item["_group"]
+        item["discussion_point"] = label or hints.discussion_point_for_cluster("wrong_answer", None, item["stuck"])
+
+    items.sort(key=lambda i: (i["stuck"], i["students"]), reverse=True)
+    return items
 
 
 def student_recap(lecture_id: int, student_name: str) -> dict:
