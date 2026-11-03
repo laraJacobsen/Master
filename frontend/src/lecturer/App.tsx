@@ -7,7 +7,6 @@ import type {
   QuestionRow,
   StudentActivity,
   SubmissionRow,
-  ValidationTestResult,
 } from "../shared/types";
 import {
   fetchActiveLecture,
@@ -25,6 +24,8 @@ import {
   raiseIssue,
 } from "../shared/api";
 import { ClassProgress } from "./ClassProgress";
+import { ExampleBlock } from "./ExampleBlock";
+import { StudentGrid } from "./StudentGrid";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
@@ -96,6 +97,14 @@ function issueKey(c: ClusterRow) {
   return `${c.exec_verdict}|${c.error_type ?? ""}|${c.discussion_point ?? Math.min(...ids)}`;
 }
 
+// Colour family for an issue's marker and bar -- same palette as the progress bar.
+function issueKind(c: ClusterRow): "pass" | "wrong" | "error" | "rejected" {
+  if (c.exec_verdict === "pass") return "pass";
+  if (c.exec_verdict === "rejected") return "rejected";
+  if (c.exec_verdict === "wrong_answer") return "wrong";
+  return "error";
+}
+
 function issueText(c: ClusterRow) {
   if (c.exec_verdict === "pass") return "Passed every test.";
   if (c.discussion_point) return c.discussion_point;
@@ -113,42 +122,6 @@ function groupByCode(subs: SubmissionRow[]): SubmissionRow[][] {
     groups.set(key, [...(groups.get(key) ?? []), sub]);
   }
   return [...groups.values()];
-}
-
-function ExampleBlock({ subs }: { subs: SubmissionRow[] }) {
-  const sub = subs[0];
-  const names = subs.map((s) => s.student_name).join(", ");
-  const meta = `${subs.length > 1 ? `${subs.length} students: ` : ""}${names} · ${sub.tests_passed}/${sub.tests_total} tests passed`;
-
-  const results: ValidationTestResult[] = JSON.parse(sub.raw_test_results || "[]");
-  const failing = results.find((r) => !r.passed);
-  // A program that didn't compile has no stderr -- the compiler's message is the error output.
-  const errorOutput = failing && (failing.stderr || failing.compile_output);
-
-  return (
-    <div className="example">
-      <div className="example-meta">{meta}</div>
-      {failing && (
-        <div className="example-diff">
-          <div>
-            <strong>Input:</strong> <code>{failing.stdin ?? ""}</code>
-          </div>
-          <div>
-            <strong>Expected output:</strong> <code>{failing.expected_stdout ?? ""}</code>
-          </div>
-          <div>
-            <strong>Actual output:</strong> <code>{(failing.stdout || "").trim() || "(none)"}</code>
-          </div>
-          {errorOutput && (
-            <div>
-              <strong>Error output:</strong> <code>{errorOutput}</code>
-            </div>
-          )}
-        </div>
-      )}
-      <code className="example-code">{sub.source_code}</code>
-    </div>
-  );
 }
 
 export default function App() {
@@ -564,6 +537,9 @@ export default function App() {
   }
 
   const lastTask = hasNextTask === false;
+  const taskRunning = secondsRemaining != null && secondsRemaining > 0;
+  // What an issue's bar is a share of: everyone who's submitted so far.
+  const classSize = Math.max(progress?.submitted ?? 0, ...clusters.map((c) => c.count), 1);
 
   return (
     <>
@@ -582,21 +558,23 @@ export default function App() {
         onConfirm={handleFinishLecture}
         onCancel={() => setConfirmFinishOpen(false)}
       />
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <h1 id="page-title">{pageTitle}</h1>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div id="stats">
-            {!LECTURE_ID && !LOBBY_ID && `${subRows.length} submission${subRows.length === 1 ? "" : "s"}`}
+      {!(QUESTION_ID && !LECTURE_ID) && (
+        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <h1 id="page-title">{pageTitle}</h1>
           </div>
-          {!LECTURE_ID && !LOBBY_ID && (
-            <HeaderNavLink href="setup.html" style={{ fontSize: "0.85rem" }}>
-              Question setup &rarr;
-            </HeaderNavLink>
-          )}
-        </div>
-      </header>
+          <div style={{ textAlign: "right" }}>
+            <div id="stats">
+              {!LECTURE_ID && !LOBBY_ID && `${subRows.length} submission${subRows.length === 1 ? "" : "s"}`}
+            </div>
+            {!LECTURE_ID && !LOBBY_ID && (
+              <HeaderNavLink href="setup.html" style={{ fontSize: "0.85rem" }}>
+                Question setup &rarr;
+              </HeaderNavLink>
+            )}
+          </div>
+        </header>
+      )}
       <main>
         {LOBBY_ID && (
           <div className="card" id="lobby-card">
@@ -637,7 +615,27 @@ export default function App() {
           </div>
         )}
         {QUESTION_ID && !LECTURE_ID && (
+          // Everything about the running task in one strip: what it is, the
+          // clock, where the class is, and what to do next.
           <div className="card" id="task-control-card">
+            <div className="strip-head">
+              <h1 id="page-title">{pageTitle}</h1>
+              <div className="strip-links">
+                {joinCode && (
+                  <div id="join-code-pill" className="join-code-pill">
+                    Join code <strong>{joinCode}</strong>
+                  </div>
+                )}
+                {/* The big-screen view for the room: task, countdown, and
+                    whatever "Show to students" puts up (see src/present/). */}
+                <a href="present.html" target="_blank" rel="noopener" className="projector-link">
+                  Projector view ↗
+                </a>
+                <a href="setup.html" className="projector-link">
+                  Question setup
+                </a>
+              </div>
+            </div>
             {lectureFinished ? (
               <div id="lecture-finished-banner">
                 <h2>Lecture finished</h2>
@@ -645,115 +643,90 @@ export default function App() {
               </div>
             ) : (
               <>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <h2>Task control</h2>
-                  <div className="task-control-meta">
-                    {joinCode && (
-                      <div id="join-code-pill" className="join-code-pill">
-                        Join code <strong>{joinCode}</strong>
-                      </div>
-                    )}
-                    {/* The big-screen view for the room: task, countdown, and
-                        whatever "Show to students" puts up (see src/present/). */}
-                    <a href="present.html" target="_blank" rel="noopener" className="projector-link">
-                      Open projector view ↗
-                    </a>
+                <div className="strip">
+                  <div className={secondsRemaining === 0 ? "strip-timer time-up" : "strip-timer"}>
+                    <div className="timer-label">{secondsRemaining === 0 ? "Time's up" : "Time left"}</div>
+                    <div className="timer-value">
+                      {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
+                    </div>
                   </div>
-                </div>
-                <div className="task-control-row">
-                  <div>
-                    {secondsRemaining === 0 ? (
+                  <div className="strip-progress" id="progress-card">
+                    {progress && (
                       <>
-                        <div className="timer-label">Pacing</div>
-                        <div className="timer-value time-up">
-                          Time's up --{" "}
-                          {progress ? submittedText(progress.submitted, progress.expected) : "-- submitted"}
+                        <div id="progress-text" className="strip-progress-head">
+                          {submittedText(progress.submitted, progress.expected)}
                         </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="timer-label">Time remaining</div>
-                        <div className="timer-value">
-                          {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
-                        </div>
+                        <ClassProgress
+                          subs={subRows}
+                          expected={progress.expected}
+                          // Activity only means something while students can still type --
+                          // once time's up everyone's heartbeat stops and would read "away".
+                          activity={taskRunning ? activity : null}
+                          showStudents={false}
+                        />
                       </>
                     )}
                   </div>
-                  <div className="task-control-actions">
-                    {secondsRemaining != null && secondsRemaining > 0 && (
-                      <button className="secondary" onClick={handleEndTaskNow} disabled={advancing}>
-                        End task now
-                      </button>
-                    )}
+                  <div className="strip-actions">
+                    <div className="task-control-actions">
+                      {secondsRemaining != null && secondsRemaining > 0 && (
+                        <button className="secondary" onClick={handleEndTaskNow} disabled={advancing}>
+                          End task now
+                        </button>
+                      )}
+                      {lastTask ? (
+                        <button
+                          className={secondsRemaining === 0 ? undefined : "secondary"}
+                          onClick={() => setConfirmFinishOpen(true)}
+                          disabled={advancing}
+                        >
+                          End lecture
+                        </button>
+                      ) : (
+                        <button
+                          className={secondsRemaining === 0 ? undefined : "secondary"}
+                          onClick={handleNextTask}
+                          disabled={advancing}
+                        >
+                          Next task
+                        </button>
+                      )}
+                    </div>
+                    {/* Ending early, with tasks still to go -- once this is the last
+                        task, the main button above already does it. */}
                     {lastTask ? (
+                      <span className="last-task-chip">Last task</span>
+                    ) : (
                       <button
-                        className={secondsRemaining === 0 ? undefined : "secondary"}
+                        className="end-lecture-link"
                         onClick={() => setConfirmFinishOpen(true)}
                         disabled={advancing}
                       >
-                        End lecture
-                      </button>
-                    ) : (
-                      <button
-                        className={secondsRemaining === 0 ? undefined : "secondary"}
-                        onClick={handleNextTask}
-                        disabled={advancing}
-                      >
-                        Next task
+                        End lecture early...
                       </button>
                     )}
                   </div>
                 </div>
                 {secondsRemaining === 0 && (
                   <div className="advance-message">
-                    Students are on their waiting screen. Use "Show to students" on an issue below to go
-                    over it with them, then {lastTask ? '"End lecture"' : '"Next task"'} when you're ready.
+                    Students are waiting. Pick issues to "Show to students", then{" "}
+                    {lastTask ? '"End lecture"' : '"Next task"'}.
                   </div>
-                )}
-                {lastTask && secondsRemaining !== 0 && (
-                  <div className="advance-message">This is the last task.</div>
                 )}
                 {advanceMessage && <div className="advance-message">{advanceMessage}</div>}
-                {/* Ending early, with tasks still to go -- once this is the last
-                    task, the main button above already does it. */}
-                {!lastTask && (
-                  <div className="end-lecture-row">
-                    <button
-                      className="end-lecture-link"
-                      onClick={() => setConfirmFinishOpen(true)}
-                      disabled={advancing}
-                    >
-                      End lecture early...
-                    </button>
-                  </div>
-                )}
               </>
             )}
           </div>
         )}
         {!lectureFinished && !LECTURE_ID && !LOBBY_ID && (
-        <>
-        <div className="card" id="progress-card" style={{ display: progress ? "block" : "none" }}>
-          <h2>Class progress</h2>
-          <div id="progress-text" style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
-            {progress && submittedText(progress.submitted, progress.expected)}
-          </div>
-          {progress && (
-            <ClassProgress
-              subs={subRows}
-              expected={progress.expected}
-              // Activity only means something while students can still type --
-              // once time's up everyone's heartbeat stops and would read "away".
-              activity={secondsRemaining != null && secondsRemaining > 0 ? activity : null}
-            />
-          )}
-        </div>
         <div className="grid">
           <div className="card" id="issues-card">
-            <h2>
-              Common issues
-              {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
-            </h2>
+            <div className="card-head">
+              <h2>
+                Common issues
+                {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
+              </h2>
+            </div>
             {raiseError && <div className="issue-error">{raiseError}</div>}
             {issueRows.length === 0 ? (
               <div className="card-empty">Nothing yet.</div>
@@ -770,32 +743,57 @@ export default function App() {
                   return (
                     <li
                       key={key}
-                      className={["issue", isPass && "issue-pass", c.raised && "issue-raised"].filter(Boolean).join(" ")}
+                      className={["issue", `issue-k-${issueKind(c)}`, c.raised && "issue-raised"].filter(Boolean).join(" ")}
                     >
-                      <div className="issue-head">
-                        <span className="issue-count">
-                          {c.count} {c.count === 1 ? "student" : "students"}
-                        </span>
-                        <span className="issue-tag">{issueTag(c)}</span>
-                        {c.raised && <span className="issue-raised-badge">Showing to students</span>}
-                      </div>
-                      <p className={c.discussion_point ? "issue-point" : "issue-point issue-point-muted"}>
-                        {issueText(c)}
-                      </p>
-                      <div className="issue-actions">
-                        <button className="view-example-btn" aria-expanded={open} onClick={() => toggleIssue(c)}>
-                          {open ? "Hide code" : "View code"}
-                        </button>
-                        {!isPass && QUESTION_ID && (
-                          <button
-                            className="view-example-btn"
-                            aria-pressed={c.raised}
-                            disabled={raisingKey !== null}
-                            onClick={() => toggleRaised(c)}
+                      <div className="issue-row">
+                        <div className="issue-count">
+                          <span className="issue-count-num">{c.count}</span>
+                          <span className="issue-count-unit">{c.count === 1 ? "student" : "students"}</span>
+                        </div>
+                        <div className="issue-body">
+                          <div className="issue-head">
+                            <span className="issue-tag">{issueTag(c)}</span>
+                            {c.raised && <span className="issue-raised-badge">Showing to students</span>}
+                          </div>
+                          <div
+                            className="issue-meter"
+                            title={`${c.count} of ${classSize} students who submitted`}
+                            aria-hidden="true"
                           >
-                            {raising ? (c.raised ? "Removing..." : "Sharing...") : c.raised ? "Stop showing" : "Show to students"}
+                            <span style={{ width: `${Math.round((100 * c.count) / classSize)}%` }} />
+                          </div>
+                          {!isPass && (
+                            // Two lines until opened -- the full text is one click
+                            // (or a hover) away.
+                            <p
+                              className={[
+                                "issue-point",
+                                !c.discussion_point && "issue-point-muted",
+                                !open && "issue-point-clamped",
+                              ]
+                                .filter(Boolean)
+                                .join(" ")}
+                              title={open ? undefined : issueText(c)}
+                            >
+                              {issueText(c)}
+                            </p>
+                          )}
+                        </div>
+                        <div className="issue-actions">
+                          <button className="view-example-btn" aria-expanded={open} onClick={() => toggleIssue(c)}>
+                            {open ? "Hide code" : "View code"}
                           </button>
-                        )}
+                          {!isPass && QUESTION_ID && (
+                            <button
+                              className="view-example-btn"
+                              aria-pressed={c.raised}
+                              disabled={raisingKey !== null}
+                              onClick={() => toggleRaised(c)}
+                            >
+                              {raising ? (c.raised ? "Removing..." : "Sharing...") : c.raised ? "Stop showing" : "Show to students"}
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {open && (
                         <div className="issue-examples">
@@ -812,60 +810,62 @@ export default function App() {
               </ul>
             )}
           </div>
-          <div className="card">
-            <h2>
-              {QUESTION_ID && settled ? "Submissions" : "Submissions (live)"}
-              {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
-            </h2>
-            <div id="empty-state" style={{ display: subRows.length === 0 ? "block" : "none" }}>
-              No submissions yet.
-            </div>
-            <table id="sub-table" style={{ display: subRows.length === 0 ? "none" : "table" }}>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Student</th>
-                  <th>Result</th>
-                  <th>Score</th>
-                </tr>
-              </thead>
-              <tbody id="sub-body">
-                {subRows.map((row) => {
-                  const time = (row.created_at || "").split(" ")[1] || row.created_at;
-                  const isOpen = expandedSubIds.has(row.id);
-                  return (
-                    <Fragment key={row.id}>
-                      <tr>
-                        <td>{time || ""}</td>
-                        <td>
-                          <button className="student-name-btn" onClick={() => toggleExpanded(row.id)}>
-                            {isOpen ? "▾" : "▸"} {row.student_name}
-                          </button>
-                        </td>
-                        <td>
-                          <span className={verdictClass(row.verdict || "")}>
-                            {verdictLabel(row.verdict || "")}
-                          </span>
-                        </td>
-                        <td>
-                          {row.tests_passed}/{row.tests_total}
-                        </td>
-                      </tr>
-                      {isOpen && (
-                        <tr className="detail-row">
-                          <td colSpan={4}>
-                            <pre>{row.source_code}</pre>
+          {QUESTION_ID ? (
+            <StudentGrid subs={subRows} activity={taskRunning ? activity : null} />
+          ) : (
+            // No ?question_id= (the old everything-at-once view): students span
+            // several questions there, so it keeps the plain attempt log.
+            <div className="card">
+              <h2>Submissions</h2>
+              <div id="empty-state" style={{ display: subRows.length === 0 ? "block" : "none" }}>
+                No submissions yet.
+              </div>
+              <table id="sub-table" style={{ display: subRows.length === 0 ? "none" : "table" }}>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Student</th>
+                    <th>Result</th>
+                    <th>Score</th>
+                  </tr>
+                </thead>
+                <tbody id="sub-body">
+                  {subRows.map((row) => {
+                    const time = (row.created_at || "").split(" ")[1] || row.created_at;
+                    const isOpen = expandedSubIds.has(row.id);
+                    return (
+                      <Fragment key={row.id}>
+                        <tr>
+                          <td>{time || ""}</td>
+                          <td>
+                            <button className="student-name-btn" onClick={() => toggleExpanded(row.id)}>
+                              {isOpen ? "▾" : "▸"} {row.student_name}
+                            </button>
+                          </td>
+                          <td>
+                            <span className={verdictClass(row.verdict || "")}>
+                              {verdictLabel(row.verdict || "")}
+                            </span>
+                          </td>
+                          <td>
+                            {row.tests_passed}/{row.tests_total}
                           </td>
                         </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        {isOpen && (
+                          <tr className="detail-row">
+                            <td colSpan={4}>
+                              <pre>{row.source_code}</pre>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-        </>
         )}
         {(lectureFinished || LECTURE_ID) && (
           <>

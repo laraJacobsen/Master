@@ -1,5 +1,17 @@
 import { useState } from "react";
 import type { ActivityStatus, StudentActivity, SubmissionRow, Verdict } from "../shared/types";
+import {
+  ACTIVITY_LABEL,
+  LABEL,
+  ORDER,
+  activityText,
+  activityTitle,
+  attemptTitle,
+  buildTracks,
+  isSolved,
+  verdictOf,
+} from "./studentTracks";
+import type { StudentTrack } from "./studentTracks";
 
 // Class progress visualization for the live dashboard (see
 // docs/decisions/class-progress-visualization-decision.md). Two layers:
@@ -12,104 +24,11 @@ import type { ActivityStatus, StudentActivity, SubmissionRow, Verdict } from "..
 //      progress toward "correct" are visible per student without opening code.
 // Built from data the dashboard already polls, plus the activity heartbeat.
 
-const ORDER: Verdict[] = ["correct", "partially_correct", "incorrect", "error"];
-
-const LABEL: Record<Verdict, string> = {
-  correct: "correct",
-  partially_correct: "partial",
-  incorrect: "incorrect",
-  error: "error",
-};
-
-const ACTIVITY_LABEL: Record<ActivityStatus, string> = {
-  active: "active",
-  idle: "idle",
-  away: "away",
-};
-
-// Higher is better -- picks each student's best attempt for the summary bar.
-const RANK: Record<Verdict, number> = { error: 0, incorrect: 1, partially_correct: 2, correct: 3 };
-
 // Long attempt strips are cut to their most recent squares so one very busy
 // student can't stretch the row; the cut is shown as "+N".
 const MAX_SQUARES = 20;
 
 const OPEN_KEY = "lecturer.classProgress.open";
-
-interface StudentTrack {
-  name: string;
-  attempts: SubmissionRow[]; // oldest first; empty if they haven't submitted yet
-  best: SubmissionRow | null;
-  activity: StudentActivity | null;
-}
-
-function verdictOf(s: SubmissionRow): Verdict {
-  return s.verdict ?? "error";
-}
-
-function isBetter(a: SubmissionRow, b: SubmissionRow): boolean {
-  const ra = RANK[verdictOf(a)];
-  const rb = RANK[verdictOf(b)];
-  if (ra !== rb) return ra > rb;
-  return a.tests_passed >= b.tests_passed; // ties go to the later attempt
-}
-
-function isSolved(t: StudentTrack): boolean {
-  return t.best != null && verdictOf(t.best) === "correct";
-}
-
-// Everyone who submitted, plus (while activity is known) everyone who joined
-// or opened the editor without submitting -- alphabetical, so rows stay put
-// across polls.
-function buildTracks(subs: SubmissionRow[], activity: StudentActivity[] | null): StudentTrack[] {
-  const byName = new Map<string, SubmissionRow[]>();
-  for (const sub of [...subs].sort((a, b) => a.id - b.id)) {
-    byName.set(sub.student_name, [...(byName.get(sub.student_name) ?? []), sub]);
-  }
-  const activityByName = new Map((activity ?? []).map((a) => [a.student_name, a]));
-  const names = new Set([...byName.keys(), ...activityByName.keys()]);
-  return [...names]
-    .map((name) => {
-      const attempts = byName.get(name) ?? [];
-      return {
-        name,
-        attempts,
-        best: attempts.length ? attempts.reduce((best, s) => (isBetter(s, best) ? s : best)) : null,
-        activity: activityByName.get(name) ?? null,
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function attemptTitle(s: SubmissionRow): string {
-  const time = (s.created_at || "").split(" ")[1] || s.created_at;
-  const result = s.rejection_reason
-    ? `rejected (${s.rejection_reason})`
-    : `${LABEL[verdictOf(s)]}, ${s.tests_passed}/${s.tests_total} tests`;
-  const kind = s.error_type && s.error_type !== "none" ? ` · ${s.error_type}` : "";
-  return `Attempt ${s.attempt_number} at ${time}: ${result}${kind}`;
-}
-
-function formatIdle(seconds: number): string {
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m`;
-}
-
-function activityText(a: StudentActivity): string {
-  if (a.status === "idle" && a.idle_seconds != null) return `idle ${formatIdle(a.idle_seconds)}`;
-  return ACTIVITY_LABEL[a.status];
-}
-
-function activityTitle(a: StudentActivity): string {
-  const base =
-    a.status === "away"
-      ? a.idle_seconds == null
-        ? "Joined, but hasn't opened this task"
-        : "No signal from their editor (tab closed, asleep or offline)"
-      : a.idle_seconds != null && a.idle_seconds >= 60
-      ? `Last typed ${formatIdle(a.idle_seconds)} ago`
-      : "Typing";
-  return a.nudged ? `${base} · got an automatic nudge` : base;
-}
 
 function readOpen(): boolean {
   try {
@@ -182,6 +101,7 @@ export function ClassProgress({
   expected,
   activity,
   finished = false,
+  showStudents = true,
 }: {
   subs: SubmissionRow[];
   expected: number | null;
@@ -189,6 +109,9 @@ export function ClassProgress({
   activity: StudentActivity[] | null;
   // The task is over (end-of-lecture summary) -- wording only.
   finished?: boolean;
+  // The live dashboard shows students in its own tile grid (StudentGrid) --
+  // there this is just the summary bar, legend and activity counts.
+  showStudents?: boolean;
 }) {
   // Collapsed by default: the per-student rows carry names, and this
   // dashboard is often on the projector. The summary above stays visible
@@ -282,12 +205,12 @@ export function ClassProgress({
         </ul>
       )}
 
-      {tracks.length > 0 && (
+      {showStudents && tracks.length > 0 && (
         <button className="view-example-btn cp-toggle" aria-expanded={open} onClick={toggle}>
           {open ? "▾ Hide students" : `▸ Show students (${tracks.length})`}
         </button>
       )}
-      {open && tracks.length > 0 && (
+      {showStudents && open && tracks.length > 0 && (
         <div className="cp-students">
           <Group title="Idle or away" tracks={needsAttention} showActivity={showActivity} />
           <Group title={showActivity ? "Working" : "Not solved"} tracks={working} showActivity={showActivity} />

@@ -174,3 +174,28 @@ verdict-pill column. That column counted each student's *latest* result,
 while the chart counts their *best*, so keeping both would have shown two
 different breakdowns of the same task side by side. The task title, the
 submitted count and "View task →" stay as each task's header row.
+
+## Update (2026-11-03): compact live dashboard
+
+Feedback: on longer tasks the live dashboard got cluttered -- a lot of
+whitespace and text, and the submissions table grew by one row per attempt
+(~2,200px tall for one 24-student task). The live single-task view
+(`lecturer.html?question_id=`) is now:
+
+- **One status strip** -- title, join code, timer, the Class progress bar +
+  legend + activity counts, and the task buttons in a single card (the
+  separate Task control and Class progress cards are merged).
+- **Common issues as visual rows** -- big student count, a bar for that
+  issue's share of the students who submitted, colour by kind (wrong answer /
+  error / passing), and the discussion point clamped to two lines until
+  "View code" opens it.
+- **Student tiles instead of the attempt table** (`StudentGrid.tsx`) -- one
+  tile per student, coloured by best result, with a square per attempt and
+  the activity dot; worst results first. Clicking a tile shows that
+  student's attempts and code. This is layer 2 above in tile form, so the
+  "Show students" rows are no longer on the live view. Names stay hidden by
+  default, as before (tiles are anonymous until "Show names").
+
+The end-of-lecture summary still uses the Class progress chart with its
+collapsible rows, unchanged. The no-`question_id` view keeps the attempt
+table, since students there span several questions.
