@@ -41,6 +41,11 @@ backend/
                         LLM_PROVIDER) for wrong_answer sub-clusters
                         (code-similarity grouping). Also holds the
                         lecturer's "Show to students" flags (in-memory only)
+  code_shape.py        "Same code, different names" key for the lecturer's "View
+                        code": renames only names the student binds (not max/min/
+                        print), ignores comments/whitespace/quote style, so an
+                        issue's code is shown once per shape with each naming as a
+                        switchable variant (Python only; others match exactly)
   hints.py             THE deterministic Judge0-result classifier (via
                         feedback-research/classify.py) plus tier-escalating hint
                         lookup (via feedback-research/feedback.py) -- one

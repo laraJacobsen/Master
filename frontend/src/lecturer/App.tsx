@@ -25,6 +25,7 @@ import {
 } from "../shared/api";
 import { ClassProgress } from "./ClassProgress";
 import { ExampleBlock } from "./ExampleBlock";
+import { groupByShape, groupKey } from "./codeGroups";
 import { StudentGrid } from "./StudentGrid";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
@@ -111,17 +112,6 @@ function issueText(c: ClusterRow) {
   return c.count < 2
     ? "Only one student so far. Show it to the students if it's worth going over anyway."
     : "No discussion point for this issue.";
-}
-
-// Students in one cluster often submit character-for-character identical
-// code -- shown once, with everyone who wrote it, instead of N copies.
-function groupByCode(subs: SubmissionRow[]): SubmissionRow[][] {
-  const groups = new Map<string, SubmissionRow[]>();
-  for (const sub of subs) {
-    const key = sub.source_code.trim();
-    groups.set(key, [...(groups.get(key) ?? []), sub]);
-  }
-  return [...groups.values()];
 }
 
 export default function App() {
@@ -798,7 +788,7 @@ export default function App() {
                       {open && (
                         <div className="issue-examples">
                           {subs.length > 0
-                            ? groupByCode(subs).map((group) => <ExampleBlock key={group[0].id} subs={group} />)
+                            ? groupByShape(subs).map((group) => <ExampleBlock key={groupKey(group[0])} subs={group} />)
                             : issueLoadError
                             ? "Could not load these submissions."
                             : "Loading..."}

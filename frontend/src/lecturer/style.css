@@ -476,3 +476,37 @@ button:disabled { background: #b6bacb; cursor: not-allowed; }
 .sg-attempt:hover:not(:disabled) { opacity: 1; }
 .sg-close { margin-left: auto; background: none; color: var(--muted); padding: 0 0.3rem; font-size: 1.2rem; line-height: 1; }
 .sg-close:hover:not(:disabled) { background: none; color: var(--ink); }
+
+/* "Same code, different names" (ExampleBlock + codeGroups.ts): one chip per
+   naming, and the names that differ between students marked in the code. */
+.spelling-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-bottom: 0.45rem; }
+.spelling-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.12rem 0.6rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.spelling-chip:hover:not(:disabled) { background: var(--tint); }
+.spelling-chip[aria-pressed="true"] { background: var(--navy); border-color: var(--navy); color: #fff; }
+.spelling-chip[aria-pressed="true"]:hover:not(:disabled) { background: var(--navy-hover); }
+.spelling-chip-count {
+  font-family: "Inter Variable", system-ui, sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  opacity: 0.75;
+}
+.spelling-by { color: var(--muted); font-size: 0.75rem; margin-left: 0.25rem; }
+.name-var {
+  background: rgba(31, 42, 107, 0.1);
+  color: inherit;
+  border-bottom: 2px dotted var(--navy);
+  border-radius: 2px;
+  cursor: help;
+}

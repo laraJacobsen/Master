@@ -221,6 +221,13 @@ export interface SubmissionRow {
   feedback: string | null;
   discussion_point: string | null;
   raw_test_results: string; // JSON-encoded ValidationTestResult[]
+  // "Same code, different names" grouping (backend/code_shape.py) -- null key
+  // for non-Python or code that doesn't parse. shape_names[i] is what this
+  // submission called its i-th own name; spans are [slot, start, end] offsets
+  // into source_code.
+  shape_key?: string | null;
+  shape_names?: string[];
+  shape_spans?: [number, number, number][];
 }
 
 // GET /api/lecturer/clusters

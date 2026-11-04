@@ -340,8 +340,42 @@ def _run_llm_provider_checks():
     print("LLM_PROVIDER=ollama config + call shape   OK")
 
 
+def _run_code_shape_checks():
+    """backend/code_shape.py -- the dashboard's "same code, different names"
+    grouping. Pure function, no network/DB."""
+    from backend.code_shape import code_shape
+
+    def key(src):
+        return code_shape(src, "python")["shape_key"]
+
+    base = "nums = list(map(int, input().split()))\nbest = 0\nfor n in nums:\n    if n > best:\n        best = n\nprint(best)\n"
+    renamed = "# mine\nxs = list(map(int, input().split()))\nm = 0\nfor x in xs:\n    if x > m:\n        m = x\nprint(m)  # done\n"
+    assert key(base) == key(renamed), "own names/comments must not split a group"
+    # Unlike _canonicalize(), names the student didn't bind stay as written --
+    # max vs min is the bug, not a naming choice.
+    assert key("a = input().split()\nprint(max(a))") != key("b = input().split()\nprint(min(b))")
+    # Indentation is structure: the same lines with print() moved into the loop differ.
+    assert key(base) != key(base.replace("\nprint(best)", "\n    print(best)"))
+    assert key("print('YES')") == key('print("YES")')
+    # Names inside f-strings (one STRING token before Python 3.12) count too.
+    assert key('avg = 1\nprint(f"{avg:.1f}")') == key('mean = 1\nprint(f"{mean:.1f}")')
+    assert key('avg = 1\nprint(f"{avg:.1f}")') != key('avg = 1\nprint(f"{avg:.2f}")')
+    # obj.best is an attribute, not the variable best.
+    shape = code_shape("best = 1\nclass A: pass\na = A()\na.best = best", "python")
+    assert shape["shape_names"] == ["best", "A", "a"], shape["shape_names"]
+    # Spans point at every occurrence of the student's own names.
+    shape = code_shape(renamed, "python")
+    assert [renamed[s:e] for _, s, e in shape["shape_spans"]][:3] == ["xs", "m", "x"], shape["shape_spans"]
+    # No shape (exact-text fallback) for code that doesn't parse, or isn't Python.
+    assert code_shape("for x in y\n  pass", "python")["shape_key"] is None
+    assert code_shape("int x = 0;", "java")["shape_key"] is None
+
+    print("code_shape() same-code-different-names grouping   OK")
+
+
 def main():
     _run_canonicalize_boundary_checks()
+    _run_code_shape_checks()
     _run_llm_provider_checks()
     _run_classify_submission_checks()
     _run_c_java_classify_checks()

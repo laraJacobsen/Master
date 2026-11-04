@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from backend import store
+from backend.code_shape import with_shape
 from backend.aggregation import (
     carry_forward_discussion_points,
     cluster_submissions,
@@ -792,7 +793,9 @@ def _submit(req: SubmitRequest):
 
 @app.get("/api/lecturer/submissions")
 def api_lecturer_submissions(question_id: str = None):
-    return store.all_submissions(question_id)
+    # shape_* fields: "same code, different names" grouping for the dashboard's
+    # "View code" -- see backend/code_shape.py.
+    return [with_shape(row) for row in store.all_submissions(question_id)]
 
 
 @app.get("/api/lecturer/submissions/{sub_id}")
@@ -800,7 +803,7 @@ def api_lecturer_submission_detail(sub_id: int):
     row = store.get_submission(sub_id)
     if not row:
         raise HTTPException(status_code=404, detail="Not found")
-    return row
+    return with_shape(row)
 
 
 @app.get("/api/lecturer/questions/{question_id}/progress")
