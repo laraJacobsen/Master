@@ -1,23 +1,29 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { SubmissionRow, ValidationTestResult } from "../shared/types";
-import { spellings, varyingSlots } from "./codeGroups";
+import { nameSlots } from "./codeGroups";
 
-// Names to mark in the code: slot -> tooltip ("also: m, biggest").
+// Names to mark in the code: slot -> tooltip ("also called ...").
 type NameMarks = Map<number, string>;
 
-function markedCode(sub: SubmissionRow, marks: NameMarks | undefined): ReactNode {
-  const spans = (sub.shape_spans ?? []).filter(([slot]) => marks?.has(slot));
-  if (!marks || spans.length === 0) return sub.source_code;
+// The code as text with the student's own names swapped for `names` (when
+// given) and the slots in `marks` wrapped in a <mark>.
+function markedCode(sub: SubmissionRow, names: string[] | undefined, marks: NameMarks | undefined): ReactNode {
+  if (!names && !marks) return sub.source_code;
   const out: ReactNode[] = [];
   let at = 0;
-  for (const [slot, start, end] of [...spans].sort((a, b) => a[1] - b[1])) {
+  for (const [slot, start, end] of [...(sub.shape_spans ?? [])].sort((a, b) => a[1] - b[1])) {
     if (start < at) continue;
+    const text = names?.[slot] ?? sub.source_code.slice(start, end);
     out.push(sub.source_code.slice(at, start));
     out.push(
-      <mark key={start} className="name-var" title={marks.get(slot)}>
-        {sub.source_code.slice(start, end)}
-      </mark>,
+      marks?.has(slot) ? (
+        <mark key={start} className="name-var" title={marks.get(slot)}>
+          {text}
+        </mark>
+      ) : (
+        text
+      ),
     );
     at = end;
   }
@@ -28,7 +34,14 @@ function markedCode(sub: SubmissionRow, marks: NameMarks | undefined): ReactNode
 // One submission's code plus the first test it failed, as an
 // input / expected / got strip -- shared by an issue's "View code" and a
 // student tile's detail panel.
-export function SubmissionDetail({ sub, marks }: { sub: SubmissionRow; marks?: NameMarks }) {
+export interface SubmissionDetailProps {
+  sub: SubmissionRow;
+  // Show the code with these names in place of the student's own (by slot).
+  names?: string[];
+  marks?: NameMarks;
+}
+
+export function SubmissionDetail({ sub, names, marks }: SubmissionDetailProps) {
   const results: ValidationTestResult[] = JSON.parse(sub.raw_test_results || "[]");
   const failing = results.find((r) => !r.passed);
   // A program that didn't compile has no stderr -- the compiler's message is the error output.
@@ -58,63 +71,85 @@ export function SubmissionDetail({ sub, marks }: { sub: SubmissionRow; marks?: N
           )}
         </div>
       )}
-      <code className="example-code">{markedCode(sub, marks)}</code>
+      <code className="example-code">{markedCode(sub, names, marks)}</code>
     </>
   );
 }
 
-function names(subs: SubmissionRow[]): string {
-  return subs.map((s) => s.student_name).join(", ");
+// "Ada, Bo, Cy +16" -- a group can be most of the class.
+function someNames(subs: SubmissionRow[]): string {
+  const all = subs.map((s) => s.student_name);
+  return all.length > 3 ? `${all.slice(0, 3).join(", ")} +${all.length - 3}` : all.join(", ");
 }
 
-// One "same code" group (see codeGroups.ts): shown once, in its most common
-// naming, with the names that differ between students marked and a chip per
-// naming to switch to how someone else wrote it.
-export function ExampleBlock({ subs }: { subs: SubmissionRow[] }) {
-  const variants = spellings(subs);
-  const varying = varyingSlots(variants);
-  // Remembered by naming, not position, so a poll that reorders the chips
-  // doesn't swap the code out from under the lecturer.
-  const [pickedKey, setPickedKey] = useState<string | null>(null);
-  const current = variants.find((v) => v.key === pickedKey) ?? variants[0];
-  const sub = current.subs[0];
+function alsoCalled(names: { name: string; count: number }[]): string {
+  return names.map((n) => (n.count > 1 ? `${n.name} (${n.count})` : n.name)).join(", ");
+}
+
+// How many alternative names to list per variable before "+N more".
+const MAX_ALTERNATIVES = 4;
+
+export interface ExampleBlockProps {
+  subs: SubmissionRow[];
+}
+
+// One "same code" group (see codeGroups.ts), shown once with the most common
+// name for each variable. The names that vary are marked, with the others
+// listed per variable underneath -- one line per variable however many
+// students there are. "Show as written by" switches to one student's exact code.
+export function ExampleBlock({ subs }: ExampleBlockProps) {
+  const [viewAs, setViewAs] = useState("");
+  const slots = nameSlots(subs);
+  const varying = slots.filter((s) => s.names.length > 1);
+  const student = subs.find((s) => s.student_name === viewAs) ?? null;
+  const base = student ?? subs[0];
+  const shown = student ? (student.shape_names ?? []) : slots.map((s) => s.names[0]?.name ?? "");
 
   const marks: NameMarks = new Map(
-    [...varying].map((slot) => {
-      const others = [...new Set(variants.map((v) => v.names[slot]))].filter((n) => n !== current.names[slot]);
-      return [slot, `Same variable, also called: ${others.join(", ")}`];
-    }),
+    varying.map((s) => [s.slot, `Also called: ${alsoCalled(s.names.filter((n) => n.name !== shown[s.slot]))}`]),
   );
 
   return (
     <div className="example">
-      <div className="example-meta">
-        {subs.length > 1 && <strong>{subs.length} students</strong>}
-        {variants.length > 1
-          ? ` · same code, ${variants.length} ways of naming it`
-          : `${subs.length > 1 ? ": " : ""}${names(subs)}`}
-        {` · ${sub.tests_passed}/${sub.tests_total} tests`}
-      </div>
-      {variants.length > 1 && (
-        <div className="spelling-chips" role="group" aria-label="Naming variants">
-          {variants.map((v) => (
-            <button
-              key={v.key}
-              className="spelling-chip"
-              aria-pressed={v === current}
-              title={names(v.subs)}
-              onClick={() => setPickedKey(v.key)}
-            >
-              <span className="spelling-chip-names">
-                {[...varying].map((slot) => v.names[slot]).join(" · ")}
-              </span>
-              {v.subs.length > 1 && <span className="spelling-chip-count">{v.subs.length}</span>}
-            </button>
-          ))}
-          <span className="spelling-by">{names(current.subs)}</span>
+      <div className="example-head">
+        <div className="example-meta">
+          {subs.length > 1 && <strong>{subs.length} students </strong>}
+          {someNames(subs)} · {base.tests_passed}/{base.tests_total} tests
         </div>
+        {varying.length > 0 && (
+          <label className="view-as">
+            Show as written by
+            <select value={student ? viewAs : ""} onChange={(e) => setViewAs(e.target.value)}>
+              <option value="">Most common names</option>
+              {[...subs]
+                .sort((a, b) => a.student_name.localeCompare(b.student_name))
+                .map((s) => (
+                  <option key={s.id} value={s.student_name}>
+                    {s.student_name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+      </div>
+      <SubmissionDetail sub={base} names={varying.length ? shown : undefined} marks={varying.length ? marks : undefined} />
+      {varying.length > 0 && (
+        <dl className="name-legend" aria-label="Other names students used">
+          {varying.map((s) => {
+            const others = s.names.filter((n) => n.name !== shown[s.slot]);
+            const more = others.length - MAX_ALTERNATIVES;
+            return (
+              <div key={s.slot} className="name-legend-row">
+                <dt>{shown[s.slot]}</dt>
+                <dd>
+                  <span className="name-legend-also">also</span> {alsoCalled(others.slice(0, MAX_ALTERNATIVES))}
+                  {more > 0 && <span className="name-legend-more"> +{more} more</span>}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
       )}
-      <SubmissionDetail sub={sub} marks={varying.size ? marks : undefined} />
     </div>
   );
 }
