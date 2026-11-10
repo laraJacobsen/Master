@@ -24,8 +24,11 @@ import {
   raiseIssue,
 } from "../shared/api";
 import { ClassProgress } from "./ClassProgress";
-import { ExampleBlock } from "./ExampleBlock";
-import { groupByShape, groupKey } from "./codeGroups";
+import { ClassBar } from "./ClassBar";
+import { IssueList } from "./IssueList";
+import { clusterIds, issueKey } from "./issues";
+import { TaskHeader } from "./TaskHeader";
+import { buildTracks } from "./studentTracks";
 import { StudentGrid } from "./StudentGrid";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
@@ -35,20 +38,6 @@ import { cx } from "../shared/cx";
 import type { Tone } from "../shared/ui";
 
 const POLL_MS = 3000;
-
-// How long after a task's timer hits zero to keep showing the "live" pulse
-// on the submissions/discussion cards -- gives the auto-submit backstop and
-// any still-resolving gradings time to land before the dashboard settles.
-// Background polling itself never stops (see the always-on intervals below);
-// this only controls the "still updating" visual affordance.
-const SETTLE_GRACE_MS = 8000;
-
-function formatMMSS(totalSeconds: number): string {
-  const s = Math.max(0, Math.round(totalSeconds));
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  return `${m}:${rem.toString().padStart(2, "0")}`;
-}
 
 // Which question this dashboard is watching -- set via ?question_id= (the
 // link the setup page's "Start"/"Live dashboard" actions send a lecturer
@@ -86,53 +75,6 @@ function verdictLabel(v: string) {
   };
   return labels[v] || v;
 }
-function issueTag(c: ClusterRow) {
-  if (c.exec_verdict === "rejected") return "Rejected";
-  if (c.exec_verdict === "pass") return "Passing";
-  const verdict = (c.exec_verdict || "unknown").replace(/_/g, " ");
-  const label = verdict.charAt(0).toUpperCase() + verdict.slice(1);
-  return c.error_type && c.error_type !== "none" ? `${label} · ${c.error_type}` : label;
-}
-
-// Stable across polls even as students join a cluster (its submission_ids
-// and example_submission_id both change then), so an open issue doesn't
-// snap shut on the next refresh. Sub-clusters of one verdict are told apart
-// by their discussion point, or by their earliest submission when there's
-// no point yet (a single-student sub-cluster).
-function issueKey(c: ClusterRow) {
-  const ids = c.submission_ids && c.submission_ids.length ? c.submission_ids : [c.example_submission_id];
-  return `${c.exec_verdict}|${c.error_type ?? ""}|${c.discussion_point ?? Math.min(...ids)}`;
-}
-
-// Colour family for an issue's marker and bar -- same palette as the progress bar.
-type IssueKind = "pass" | "wrong" | "error" | "rejected";
-function issueKind(c: ClusterRow): IssueKind {
-  if (c.exec_verdict === "pass") return "pass";
-  if (c.exec_verdict === "rejected") return "rejected";
-  if (c.exec_verdict === "wrong_answer") return "wrong";
-  return "error";
-}
-const ISSUE_RULE: Record<IssueKind, string> = {
-  pass: "border-emerald-600",
-  wrong: "border-amber-400",
-  error: "border-red-600",
-  rejected: "border-zinc-400",
-};
-const ISSUE_BAR: Record<IssueKind, string> = {
-  pass: "bg-emerald-600",
-  wrong: "bg-amber-400",
-  error: "bg-red-600",
-  rejected: "bg-zinc-400",
-};
-
-function issueText(c: ClusterRow) {
-  if (c.exec_verdict === "pass") return "Passed every test.";
-  if (c.discussion_point) return c.discussion_point;
-  return c.count < 2
-    ? "Only one student so far. Show it to the students if it's worth going over anyway."
-    : "No discussion point for this issue.";
-}
-
 export default function App() {
   const [pageTitle, setPageTitle] = useState("Lecturer Dashboard");
 
@@ -172,11 +114,6 @@ export default function App() {
   // lecture controls -- see api_lecture_next/finish in backend/main.py.
   const [question, setQuestion] = useState<QuestionRow | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
-  // False while the task is active, and for SETTLE_GRACE_MS after its timer
-  // hits zero -- drives the "live" pulse on the submissions/discussion
-  // cards below. Data itself keeps polling regardless (see the always-on
-  // intervals below); this only controls that visual affordance.
-  const [settled, setSettled] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [advanceMessage, setAdvanceMessage] = useState<string | null>(null);
   const [lectureFinished, setLectureFinished] = useState(false);
@@ -368,16 +305,13 @@ export default function App() {
   useEffect(() => {
     if (!question || question.status !== "live" || !question.started_at) {
       setSecondsRemaining(null);
-      setSettled(false);
       return;
     }
     const startedMs = new Date(question.started_at.replace(" ", "T") + "Z").getTime();
     const endMs = startedMs + question.duration_seconds * 1000;
-    const settleAtMs = endMs + SETTLE_GRACE_MS;
     const tick = () => {
       const now = Date.now();
       setSecondsRemaining(Math.max(0, Math.round((endMs - now) / 1000)));
-      setSettled(now >= settleAtMs);
     };
     tick();
     const t = window.setInterval(tick, 1000);
@@ -479,10 +413,6 @@ export default function App() {
   // discussion point is a starting point to investigate, not the only
   // evidence. The polled submissions list already carries everything shown;
   // only ids missing from it (none, normally) are fetched individually.
-  function clusterIds(c: ClusterRow) {
-    return c.submission_ids && c.submission_ids.length ? c.submission_ids : [c.example_submission_id];
-  }
-
   function knownSub(id: number) {
     return subRows.find((r) => r.id === id) ?? fetchedSubs[id];
   }
@@ -527,12 +457,6 @@ export default function App() {
     }
   }
 
-  // Passing last: it's context ("how many got there"), not an issue to discuss.
-  const issueRows = [
-    ...clusters.filter((c) => c.exec_verdict !== "pass"),
-    ...clusters.filter((c) => c.exec_verdict === "pass"),
-  ];
-
   // `expected` is just a number the lecturer typed in at setup time (see
   // live-submission-progress-scoping-decision.md) -- there's no roster, so
   // it can be wrong in either direction. Submitted > expected is a normal
@@ -549,12 +473,11 @@ export default function App() {
   const taskRunning = secondsRemaining != null && secondsRemaining > 0;
   // What an issue's bar is a share of: everyone who's submitted so far.
   const classSize = Math.max(progress?.submitted ?? 0, ...clusters.map((c) => c.count), 1);
-
-  const timeUp = secondsRemaining === 0;
+  const tracks = buildTracks(subRows, taskRunning ? activity : null);
 
   return (
     <>
-      <NavBar />
+      <NavBar wide={Boolean(QUESTION_ID && !LECTURE_ID)} />
       <ConfirmDialog
         open={confirmFinishOpen}
         title="End the whole lecture?"
@@ -569,7 +492,7 @@ export default function App() {
         onConfirm={handleFinishLecture}
         onCancel={() => setConfirmFinishOpen(false)}
       />
-      <Page width="wide">
+      <Page width={QUESTION_ID && !LECTURE_ID ? "full" : "wide"}>
         {!(QUESTION_ID && !LECTURE_ID) && (
           <PageHeader
             eyebrow={LECTURE_ID ? "Lecture summary" : LOBBY_ID ? "Lobby" : "Dashboard"}
@@ -630,248 +553,64 @@ export default function App() {
         )}
 
         {QUESTION_ID && !LECTURE_ID && (
-          // Everything about the running task in one strip: what it is, the
-          // clock, where the class is, and what to do next.
-          <section className="pt-8 pb-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="min-w-0">
-                <Eyebrow>Live task</Eyebrow>
-                <h1 className="mt-2 text-3xl font-bold tracking-tight text-zinc-950">{pageTitle}</h1>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {joinCode && (
-                  <span className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] text-zinc-500">
-                    Join code
-                    <strong className="font-mono font-bold tracking-[0.12em] text-zinc-950">{joinCode}</strong>
-                  </span>
-                )}
-                {/* The big-screen view for the room: task, countdown, and
-                    whatever "Show to students" puts up (see src/present/). */}
-                <LinkButton href="present.html" target="_blank" rel="noopener" variant="secondary" size="sm">
-                  Projector view ↗
-                </LinkButton>
-                <LinkButton href="setup.html" variant="ghost" size="sm">
-                  Question setup
-                </LinkButton>
-              </div>
-            </div>
-            {lectureFinished ? (
-              <Callout tone="success" className="mt-5">
-                <h2 className="font-bold">Lecture finished</h2>
-                <p className="mt-1">Students now see an end-of-lecture screen. The session summary is below.</p>
-              </Callout>
-            ) : (
-              <Card className="mt-6 p-0 sm:p-0">
-                <div className="grid items-center md:grid-cols-[auto_1fr_auto]">
-                  <div
-                    className={cx(
-                      "min-w-40 border-b border-zinc-200 px-6 py-5 md:border-r md:border-b-0",
-                      timeUp && "bg-red-50/60",
-                    )}
-                  >
-                    <Eyebrow className={timeUp ? "text-red-600" : undefined}>{timeUp ? "Time's up" : "Time left"}</Eyebrow>
-                    <div
-                      className={cx(
-                        "mt-1 font-mono text-4xl leading-none font-bold tracking-tight tabular-nums",
-                        timeUp ? "text-red-600" : "text-zinc-950",
-                      )}
-                    >
-                      {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
-                    </div>
-                  </div>
-                  <div className="min-w-0 px-6 py-5">
-                    {progress && (
-                      <>
-                        <div className="text-[15px] font-bold tracking-tight text-zinc-950">
-                          {submittedText(progress.submitted, progress.expected)}
-                        </div>
-                        <ClassProgress
-                          subs={subRows}
-                          expected={progress.expected}
-                          // Activity only means something while students can still type --
-                          // once time's up everyone's heartbeat stops and would read "away".
-                          activity={taskRunning ? activity : null}
-                          showStudents={false}
-                          large
-                        />
-                      </>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-start gap-2 border-t border-zinc-200 px-6 py-5 md:items-end md:border-t-0">
-                    <div className="flex gap-2">
-                      {secondsRemaining != null && secondsRemaining > 0 && (
-                        <Button variant="secondary" onClick={handleEndTaskNow} disabled={advancing}>
-                          End task now
-                        </Button>
-                      )}
-                      {lastTask ? (
-                        <Button
-                          variant={timeUp ? "primary" : "secondary"}
-                          onClick={() => setConfirmFinishOpen(true)}
-                          disabled={advancing}
-                        >
-                          End lecture
-                        </Button>
-                      ) : (
-                        <Button variant={timeUp ? "primary" : "secondary"} onClick={handleNextTask} disabled={advancing}>
-                          Next task
-                        </Button>
-                      )}
-                    </div>
-                    {/* Ending early, with tasks still to go -- once this is the last
-                        task, the main button above already does it. */}
-                    {lastTask ? (
-                      <Badge>Last task</Badge>
-                    ) : (
-                      <button
-                        type="button"
-                        className="rounded-sm text-xs text-zinc-500 underline underline-offset-2 transition-colors hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-300"
-                        onClick={() => setConfirmFinishOpen(true)}
-                        disabled={advancing}
-                      >
-                        End lecture early...
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {(timeUp || advanceMessage) && (
-                  <div className="grid gap-1 border-t border-zinc-200 bg-zinc-50 px-6 py-3 text-[13px] text-zinc-600">
-                    {timeUp && (
-                      <p>
-                        Students are waiting. Pick issues to "Show to students", then{" "}
-                        {lastTask ? '"End lecture"' : '"Next task"'}.
-                      </p>
-                    )}
-                    {advanceMessage && <p className="text-red-600">{advanceMessage}</p>}
-                  </div>
-                )}
-              </Card>
-            )}
-          </section>
+          lectureFinished ? (
+            <Callout tone="success" className="mt-8">
+              <h2 className="font-bold">Lecture finished</h2>
+              <p className="mt-1">Students now see an end-of-lecture screen. The session summary is below.</p>
+            </Callout>
+          ) : (
+            <>
+              <TaskHeader
+                title={pageTitle}
+                question={question}
+                secondsRemaining={secondsRemaining}
+                joinCode={joinCode}
+                lastTask={lastTask}
+                advancing={advancing}
+                advanceMessage={advanceMessage}
+                onNextTask={handleNextTask}
+                onEndTaskNow={handleEndTaskNow}
+                onEndLecture={() => setConfirmFinishOpen(true)}
+              />
+              <section className="pt-10 pb-12" aria-label="Class progress">
+                <ClassBar
+                  tracks={tracks}
+                  submitted={progress?.submitted ?? tracks.filter((t) => t.best).length}
+                  expected={progress?.expected ?? null}
+                  showActivity={taskRunning}
+                />
+              </section>
+            </>
+          )
         )}
 
         {!lectureFinished && !LECTURE_ID && !LOBBY_ID && (
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-            <Card>
-              <SectionTitle
-                meta={
-                  QUESTION_ID &&
-                  !settled && (
-                    <Badge tone="success" dot pulse title="Still updating">
-                      Live
-                    </Badge>
-                  )
+          <div className="grid items-start gap-x-14 gap-y-12 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] 2xl:grid-cols-[minmax(0,1fr)_minmax(18rem,30rem)]">
+            <section aria-label="Common issues" className="min-w-0">
+              <div className="mb-4 flex items-baseline gap-3">
+                <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Issues</h2>
+                <span className="text-[13px] text-zinc-400">biggest first · click one to see the code</span>
+              </div>
+              {raiseError && <ErrorText className="mb-3">{raiseError}</ErrorText>}
+              <IssueList
+                issues={clusters}
+                classSize={classSize}
+                openKeys={openIssues}
+                onToggleOpen={toggleIssue}
+                subsFor={(c) =>
+                  clusterIds(c)
+                    .map(knownSub)
+                    .filter((sub): sub is SubmissionRow => !!sub)
                 }
-              >
-                Common issues
-              </SectionTitle>
-              {raiseError && <ErrorText className="mt-3">{raiseError}</ErrorText>}
-              {issueRows.length === 0 ? (
-                <p className="mt-3 text-sm text-zinc-500">Nothing yet.</p>
-              ) : (
-                <ul className="mt-4 grid gap-2">
-                  {issueRows.map((c) => {
-                    const key = issueKey(c);
-                    const open = openIssues.has(key);
-                    const subs = clusterIds(c)
-                      .map(knownSub)
-                      .filter((sub): sub is SubmissionRow => !!sub);
-                    const isPass = c.exec_verdict === "pass";
-                    const raising = raisingKey === key;
-                    const kind = issueKind(c);
-                    return (
-                      <li
-                        key={key}
-                        className={cx(
-                          "rounded-lg border px-4 py-3 transition-colors",
-                          c.raised ? "border-zinc-900 bg-zinc-50" : "border-zinc-200",
-                        )}
-                      >
-                        <div className="grid grid-cols-[3.25rem_1fr] items-center gap-4 sm:grid-cols-[3.25rem_1fr_auto]">
-                          <div className={cx("flex flex-col items-start border-l-[3px] pl-2.5 leading-none", ISSUE_RULE[kind])}>
-                            <span
-                              className={cx(
-                                "font-mono text-2xl font-bold tabular-nums",
-                                isPass ? "text-emerald-700" : "text-zinc-950",
-                              )}
-                            >
-                              {c.count}
-                            </span>
-                            <span className="mt-1 text-[10px] text-zinc-500">{c.count === 1 ? "student" : "students"}</span>
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-[13px] font-semibold text-zinc-950">{issueTag(c)}</span>
-                              {c.raised && <Badge tone="inverse">Showing to students</Badge>}
-                            </div>
-                            <div
-                              className="mt-1.5 mb-2 h-1 overflow-hidden rounded-sm bg-zinc-100"
-                              title={`${c.count} of ${classSize} students who submitted`}
-                              aria-hidden="true"
-                            >
-                              <span
-                                className={cx("block h-full min-w-1 rounded-sm", ISSUE_BAR[kind])}
-                                style={{ width: `${Math.round((100 * c.count) / classSize)}%` }}
-                              />
-                            </div>
-                            {!isPass && (
-                              // Two lines until opened -- the full text is one click
-                              // (or a hover) away.
-                              <p
-                                className={cx(
-                                  "text-sm leading-snug",
-                                  c.discussion_point ? "text-zinc-800" : "text-zinc-500",
-                                  !open && "line-clamp-2",
-                                )}
-                                title={open ? undefined : issueText(c)}
-                              >
-                                {issueText(c)}
-                              </p>
-                            )}
-                          </div>
-                          <div className="col-start-2 flex gap-1.5 sm:col-start-auto sm:flex-col sm:items-stretch">
-                            <Button variant="secondary" size="sm" aria-expanded={open} onClick={() => toggleIssue(c)}>
-                              {open ? "Hide code" : "View code"}
-                            </Button>
-                            {!isPass && QUESTION_ID && (
-                              <Button
-                                variant={c.raised ? "primary" : "secondary"}
-                                size="sm"
-                                aria-pressed={c.raised}
-                                disabled={raisingKey !== null}
-                                className={raising ? "cursor-wait" : undefined}
-                                onClick={() => toggleRaised(c)}
-                              >
-                                {raising
-                                  ? c.raised
-                                    ? "Removing..."
-                                    : "Sharing..."
-                                  : c.raised
-                                    ? "Stop showing"
-                                    : "Show to students"}
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                        {open && (
-                          <div className="mt-4 animate-fade-in border-l-2 border-zinc-200 pl-4 text-[13px] sm:ml-[4.25rem]">
-                            {subs.length > 0 ? (
-                              groupByShape(subs).map((group) => <ExampleBlock key={groupKey(group[0])} subs={group} />)
-                            ) : issueLoadError ? (
-                              <span className="text-red-600">Could not load these submissions.</span>
-                            ) : (
-                              <span className="text-zinc-500">Loading...</span>
-                            )}
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </Card>
+                loadError={issueLoadError}
+                raisingKey={raisingKey}
+                onToggleRaised={QUESTION_ID ? toggleRaised : null}
+              />
+            </section>
             {QUESTION_ID ? (
-              <StudentGrid subs={subRows} activity={taskRunning ? activity : null} />
+              <div className="lg:sticky lg:top-20">
+                <StudentGrid subs={subRows} activity={taskRunning ? activity : null} />
+              </div>
             ) : (
               // No ?question_id= (the old everything-at-once view): students span
               // several questions there, so it keeps the plain attempt log.

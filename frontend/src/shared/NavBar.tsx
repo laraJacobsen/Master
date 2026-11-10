@@ -33,7 +33,12 @@ function isCurrentPage(href: string): boolean {
 // home" link, so unlike the brand link, it must not render at all when it
 // would just point at the page already open -- a button that claims to do
 // something and then doesn't is worse than no button.
-export function NavBar() {
+export interface NavBarProps {
+  /** Match a full-width page (the live dashboard). */
+  wide?: boolean;
+}
+
+export function NavBar({ wide = false }: NavBarProps) {
   const [active, setActive] = useState<ActiveLectureResponse | null>(null);
 
   useEffect(() => {
@@ -54,7 +59,7 @@ export function NavBar() {
 
   return (
     <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-zinc-50/85 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-5 sm:px-8">
+      <div className={cx("mx-auto flex h-14 items-center gap-6 px-5 sm:px-8", wide ? "max-w-[112rem]" : "max-w-7xl")}>
         <a
           href="index.html"
           className="group flex items-center gap-2.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-900"

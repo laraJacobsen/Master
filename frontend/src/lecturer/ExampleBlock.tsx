@@ -44,9 +44,16 @@ export interface SubmissionDetailProps {
   // Show the code with these names in place of the student's own (by slot).
   names?: string[];
   marks?: NameMarks;
+  /** Cap the code's height (scrolls inside, with an Expand toggle). Off in the drawer, which scrolls itself. */
+  clamp?: boolean;
 }
 
-export function SubmissionDetail({ sub, names, marks }: SubmissionDetailProps) {
+// Code longer than this many lines starts capped when `clamp` is on.
+const CLAMP_LINES = 22;
+
+export function SubmissionDetail({ sub, names, marks, clamp = true }: SubmissionDetailProps) {
+  const [expanded, setExpanded] = useState(false);
+  const long = clamp && sub.source_code.split("\n").length > CLAMP_LINES;
   const results: ValidationTestResult[] = JSON.parse(sub.raw_test_results || "[]");
   const failing = results.find((r) => !r.passed);
   // A program that didn't compile has no stderr -- the compiler's message is the error output.
@@ -62,9 +69,25 @@ export function SubmissionDetail({ sub, names, marks }: SubmissionDetailProps) {
           {errorOutput && <IoCell label="Error" value={errorOutput.trim().split("\n").pop() ?? ""} bad />}
         </div>
       )}
-      <code className="block overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-zinc-900">
-        {markedCode(sub, names, marks)}
-      </code>
+      <div className="relative">
+        <code
+          className={cx(
+            "block overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-[13px] leading-relaxed whitespace-pre text-zinc-900",
+            long && !expanded && "max-h-[26rem]",
+          )}
+        >
+          {markedCode(sub, names, marks)}
+        </code>
+        {long && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="absolute right-2 bottom-2 rounded-md border border-zinc-200 bg-white/95 px-2 py-1 text-xs font-medium text-zinc-600 shadow-sm backdrop-blur transition-colors hover:text-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+          >
+            {expanded ? "Collapse" : `Expand · ${sub.source_code.split("\n").length} lines`}
+          </button>
+        )}
+      </div>
     </>
   );
 }
@@ -126,7 +149,7 @@ export function ExampleBlock({ subs }: ExampleBlockProps) {
   );
 
   return (
-    <div className="border-b border-zinc-200 pb-4 last:border-b-0 last:pb-0 [&+&]:pt-4">
+    <div>
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <div className="text-xs text-zinc-500">
           {subs.length > 1 && <strong className="font-semibold text-zinc-900">{subs.length} students </strong>}

@@ -172,12 +172,13 @@ export function PageHeader({ title, eyebrow, description, actions, className }: 
 
 export interface PageProps {
   children: ReactNode;
-  width?: "narrow" | "default" | "wide";
+  width?: "narrow" | "default" | "wide" | "full";
   className?: string;
 }
 
 export function Page({ children, width = "default", className }: PageProps) {
-  const max = width === "narrow" ? "max-w-3xl" : width === "wide" ? "max-w-7xl" : "max-w-6xl";
+  const max =
+    width === "narrow" ? "max-w-3xl" : width === "wide" ? "max-w-7xl" : width === "full" ? "max-w-[112rem]" : "max-w-6xl";
   return <div className={cx("mx-auto w-full px-5 pb-20 sm:px-8", max, className)}>{children}</div>;
 }
 
