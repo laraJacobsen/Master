@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { SubmissionRow, ValidationTestResult } from "../shared/types";
 import { nameSlots } from "./codeGroups";
-import { cx } from "../shared/cx";
+import { CodeBlock, FailingTestStrip } from "../shared/code";
 
 // Names to mark in the code: slot -> tooltip ("also called ...").
 type NameMarks = Map<number, string>;
@@ -48,12 +48,7 @@ export interface SubmissionDetailProps {
   clamp?: boolean;
 }
 
-// Code longer than this many lines starts capped when `clamp` is on.
-const CLAMP_LINES = 22;
-
 export function SubmissionDetail({ sub, names, marks, clamp = true }: SubmissionDetailProps) {
-  const [expanded, setExpanded] = useState(false);
-  const long = clamp && sub.source_code.split("\n").length > CLAMP_LINES;
   const results: ValidationTestResult[] = JSON.parse(sub.raw_test_results || "[]");
   const failing = results.find((r) => !r.passed);
   // A program that didn't compile has no stderr -- the compiler's message is the error output.
@@ -62,56 +57,20 @@ export function SubmissionDetail({ sub, names, marks, clamp = true }: Submission
   return (
     <>
       {failing && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          <IoCell label="Input" value={(failing.stdin ?? "").trimEnd() || "(none)"} />
-          <IoCell label="Expected" value={(failing.expected_stdout ?? "").trimEnd()} />
-          <IoCell label="Got" value={(failing.stdout || "").trim() || "(nothing)"} bad />
-          {errorOutput && <IoCell label="Error" value={errorOutput.trim().split("\n").pop() ?? ""} bad />}
-        </div>
+        <FailingTestStrip
+          className="mb-2"
+          test={{
+            stdin: failing.stdin ?? "",
+            expected: failing.expected_stdout ?? "",
+            got: failing.stdout || "",
+            error: errorOutput,
+          }}
+        />
       )}
-      <div className="relative">
-        <code
-          className={cx(
-            "block overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-[13px] leading-relaxed whitespace-pre text-zinc-900",
-            long && !expanded && "max-h-[26rem]",
-          )}
-        >
-          {markedCode(sub, names, marks)}
-        </code>
-        {long && (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="absolute right-2 bottom-2 rounded-md border border-zinc-200 bg-white/95 px-2 py-1 text-xs font-medium text-zinc-600 shadow-sm backdrop-blur transition-colors hover:text-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
-          >
-            {expanded ? "Collapse" : `Expand · ${sub.source_code.split("\n").length} lines`}
-          </button>
-        )}
-      </div>
+      <CodeBlock lines={sub.source_code.split("\n").length} clamp={clamp}>
+        {markedCode(sub, names, marks)}
+      </CodeBlock>
     </>
-  );
-}
-
-export interface IoCellProps {
-  label: string;
-  value: string;
-  /** Mark as the wrong part (got / error). */
-  bad?: boolean;
-}
-
-function IoCell({ label, value, bad = false }: IoCellProps) {
-  return (
-    <div
-      className={cx(
-        "flex max-w-full items-baseline gap-2 rounded-md border px-2 py-1 text-xs",
-        bad ? "border-red-200 bg-red-50" : "border-zinc-200 bg-zinc-50",
-      )}
-    >
-      <span className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">{label}</span>
-      <code className={cx("font-mono break-words whitespace-pre-wrap", bad ? "text-red-700" : "text-zinc-900")}>
-        {value}
-      </code>
-    </div>
   );
 }
 

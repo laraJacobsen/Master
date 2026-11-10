@@ -12,7 +12,7 @@ import {
   verdictOf,
 } from "./studentTracks";
 import type { StudentTrack } from "./studentTracks";
-import { ACTIVITY_DOT, VERDICT_FILL } from "./verdictStyles";
+import { ACTIVITY_DOT, VERDICT_FILL } from "../shared/verdictStyles";
 import { Button } from "../shared/ui";
 import { cx } from "../shared/cx";
 

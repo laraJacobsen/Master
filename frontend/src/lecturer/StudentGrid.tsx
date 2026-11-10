@@ -4,7 +4,7 @@ import { LABEL, activityText, activityTitle, attemptTitle, buildTracks, isSolved
 import type { StudentTrack } from "./studentTracks";
 import { SubmissionDetail } from "./ExampleBlock";
 import { ActivityDot } from "./ClassProgress";
-import { SCORE_LINE, TILE_TONE, VERDICT_BORDER } from "./verdictStyles";
+import { SCORE_LINE, TILE_HOVER, TILE_TONE, VERDICT_BORDER } from "../shared/verdictStyles";
 import { Drawer } from "../shared/Drawer";
 import { Badge } from "../shared/ui";
 import type { Tone } from "../shared/ui";
@@ -139,6 +139,7 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
                     "relative flex h-12 w-full flex-col justify-between rounded-md border px-2 pt-1.5 pb-2 text-left transition-[border-color,box-shadow]",
                     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900",
                     TILE_TONE[group],
+                    TILE_HOVER[group],
                     selected === t.name && "ring-2 ring-zinc-900 ring-offset-1",
                   )}
                 >

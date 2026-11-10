@@ -2,7 +2,7 @@ import type { ActivityStatus, Verdict } from "../shared/types";
 import { ACTIVITY_LABEL, LABEL, ORDER, isSolved, verdictOf } from "./studentTracks";
 import type { StudentTrack } from "./studentTracks";
 import { ActivityDot } from "./ClassProgress";
-import { HERO_FILL } from "./verdictStyles";
+import { HERO_FILL } from "../shared/verdictStyles";
 import { cx } from "../shared/cx";
 
 export interface ClassBarProps {

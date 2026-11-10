@@ -1,4 +1,4 @@
-import type { ActivityStatus, Verdict } from "../shared/types";
+import type { ActivityStatus, Verdict } from "./types";
 
 // One palette for every verdict mark on the lecturer pages (progress bar,
 // attempt squares, roster bars). Amber is stepped lighter than red so the two
@@ -42,12 +42,21 @@ export const HERO_FILL: Record<Verdict | "none", string> = {
 
 // Student tiles: a light tint of the verdict hue, solid in the score line.
 export const TILE_TONE: Record<Verdict | "none", string> = {
-  correct: "border-emerald-200 bg-emerald-50 text-emerald-900 hover:border-emerald-400",
-  partially_correct: "border-amber-200 bg-amber-50 text-amber-900 hover:border-amber-400",
-  incorrect: "border-red-200 bg-red-50 text-red-900 hover:border-red-400",
+  correct: "border-emerald-200 bg-emerald-50 text-emerald-900",
+  partially_correct: "border-amber-200 bg-amber-50 text-amber-900",
+  incorrect: "border-red-200 bg-red-50 text-red-900",
   error:
-    "border-red-300 text-red-900 hover:border-red-500 bg-red-50 bg-[repeating-linear-gradient(135deg,transparent_0_5px,rgb(220_38_38/0.08)_5px_10px)]",
-  none: "border-dashed border-zinc-300 bg-white text-zinc-500 hover:border-zinc-400",
+    "border-red-300 text-red-900 bg-red-50 bg-[repeating-linear-gradient(135deg,transparent_0_5px,rgb(220_38_38/0.08)_5px_10px)]",
+  none: "border-dashed border-zinc-300 bg-white text-zinc-500",
+};
+
+// Hover border for tiles that are buttons (the lecturer's student tiles).
+export const TILE_HOVER: Record<Verdict | "none", string> = {
+  correct: "hover:border-emerald-400",
+  partially_correct: "hover:border-amber-400",
+  incorrect: "hover:border-red-400",
+  error: "hover:border-red-500",
+  none: "hover:border-zinc-400",
 };
 
 export const SCORE_LINE: Record<Verdict, string> = {

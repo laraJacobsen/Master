@@ -452,3 +452,85 @@ export function BrandMark({ compact = false, className }: BrandMarkProps) {
     </span>
   );
 }
+
+export interface StatusLineProps {
+  /** "live" pulses green; "closed" and "idle" are muted. */
+  state: "live" | "closed" | "idle";
+  label: string;
+  /** Further plain facts, shown separated by slashes (language, ...). */
+  items?: Array<ReactNode | false | null | undefined>;
+  className?: string;
+}
+
+/** The small line above a page title: "● Live / Python / Last task". */
+export function StatusLine({ state, label, items = [], className }: StatusLineProps) {
+  const rest = items.filter(Boolean);
+  return (
+    <div className={cx("flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-medium", className)}>
+      {state === "live" ? (
+        <span className="inline-flex items-center gap-1.5 text-emerald-700">
+          <span className="size-1.5 animate-pulse-dot rounded-[2px] bg-emerald-500" aria-hidden="true" />
+          {label}
+        </span>
+      ) : (
+        <span className="text-zinc-500">{label}</span>
+      )}
+      {rest.map((item, i) => (
+        <span key={i} className="contents">
+          <span className="text-zinc-300" aria-hidden="true">
+            /
+          </span>
+          <span className="text-zinc-500">{item}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export interface TimeLineProps {
+  /** Share of the time left, 0..1. */
+  fraction: number;
+  className?: string;
+}
+
+/** The time left as a hairline draining across the page; red near the end. */
+export function TimeLine({ fraction, className }: TimeLineProps) {
+  const f = Math.min(1, Math.max(0, fraction));
+  return (
+    <div className={cx("h-0.5 w-full bg-zinc-200", className)} aria-hidden="true">
+      <div
+        className={cx("h-full transition-[width] duration-1000 ease-linear", f <= 0.15 ? "bg-red-500" : "bg-zinc-900")}
+        style={{ width: `${f * 100}%` }}
+      />
+    </div>
+  );
+}
+
+export interface BigTimerProps {
+  seconds: number | null;
+  className?: string;
+}
+
+function formatMMSS(totalSeconds: number): string {
+  const s = Math.max(0, Math.round(totalSeconds));
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+}
+
+/** "Time left 4:12" -- big monospace, red once it hits zero. */
+export function BigTimer({ seconds, className }: BigTimerProps) {
+  const up = seconds === 0;
+  return (
+    <div className={cx("sm:text-right", className)}>
+      <Eyebrow className={up ? "text-red-600" : undefined}>{up ? "Time's up" : "Time left"}</Eyebrow>
+      <div
+        role="timer"
+        className={cx(
+          "mt-1 font-mono text-5xl leading-none font-semibold tracking-tight tabular-nums",
+          up ? "text-red-600" : "text-zinc-950",
+        )}
+      >
+        {seconds != null ? formatMMSS(seconds) : "--:--"}
+      </div>
+    </div>
+  );
+}

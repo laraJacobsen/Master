@@ -12,9 +12,9 @@ export interface CodeEditorProps {
 
 export function CodeEditor({ language, initialValue, onChange }: CodeEditorProps) {
   return (
-    <div className="overflow-hidden rounded-lg border border-zinc-200 pt-1.5 transition-colors focus-within:border-zinc-900">
+    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white transition-colors focus-within:border-zinc-900">
       <Editor
-        height="320px"
+        height="460px"
         defaultLanguage={language}
         defaultValue={initialValue}
         onChange={(v) => onChange(v ?? "")}
@@ -27,7 +27,11 @@ export function CodeEditor({ language, initialValue, onChange }: CodeEditorProps
           scrollBeyondLastLine: false,
           automaticLayout: true,
           lineNumbersMinChars: 3,
-          renderLineHighlight: "line",
+          renderLineHighlight: "none",
+          overviewRulerLanes: 0,
+          overviewRulerBorder: false,
+          hideCursorInOverviewRuler: true,
+          padding: { top: 8, bottom: 8 },
           // No autocomplete: it would suggest code, and this is an exercise.
           quickSuggestions: false,
           suggestOnTriggerCharacters: false,

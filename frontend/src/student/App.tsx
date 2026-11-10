@@ -20,7 +20,9 @@ import {
 } from "../shared/api";
 import { isUntouched, starterCode } from "./starterCode";
 import { TestFiles } from "./TestFiles";
-import { Badge, BrandMark, Button, Callout, Card, Code, Eyebrow, Input, Label, ProgressBar, SectionTitle, Spinner } from "../shared/ui";
+import { Badge, BigTimer, BrandMark, Button, Callout, Card, Code, Eyebrow, Input, Label, Spinner, StatusLine, TimeLine } from "../shared/ui";
+import { CodeBlock, FailingTestStrip } from "../shared/code";
+import { HERO_FILL, SCORE_LINE, TILE_TONE } from "../shared/verdictStyles";
 import { cx } from "../shared/cx";
 import type { Tone } from "../shared/ui";
 // Monaco is most of this page's weight -- loaded only once a task is live,
@@ -53,58 +55,35 @@ function VerdictBadge({ verdict }: VerdictBadgeProps) {
   );
 }
 
-export interface TestsPassedProps {
-  passed: number;
-  total: number;
+export interface ExampleIoProps {
+  rows: Array<[label: string, value: string]>;
 }
 
-function TestsPassed({ passed, total }: TestsPassedProps) {
+// The task's example, label above a monospace box -- same as the lecturer's
+// "Show task" panel. Long values scroll inside their box.
+function ExampleIo({ rows }: ExampleIoProps) {
   return (
-    <span className="text-[13px] text-zinc-500">
-      <span className="font-mono text-zinc-900 tabular-nums">
-        {passed}/{total}
-      </span>{" "}
-      tests passed
-    </span>
+    <div className="grid gap-3">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <div className="mb-1.5 text-xs text-zinc-500">{label}</div>
+          <pre className="max-h-40 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-[13px] text-zinc-900">
+            {value}
+          </pre>
+        </div>
+      ))}
+    </div>
   );
 }
 
-export interface IoListProps {
-  rows: Array<[label: string, value: string]>;
+export interface StudentPageProps {
+  children: ReactNode;
   className?: string;
 }
 
-// Label / monospace value pairs (example input, expected, got, ...).
-function IoList({ rows, className }: IoListProps) {
-  return (
-    <dl className={cx("grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-[13px]", className)}>
-      {rows.map(([label, value]) => (
-        <div key={label} className="contents">
-          <dt className="text-zinc-500">{label}</dt>
-          <dd className="font-mono break-words whitespace-pre-wrap text-zinc-900">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function failingRows(t: NonNullable<SharedExample["failing_test"]>): Array<[string, string]> {
-  const rows: Array<[string, string]> = [
-    ["Input", t.stdin.trimEnd()],
-    ["Expected", t.expected_stdout.trimEnd()],
-    ["Got", t.stdout.trim() || "(nothing)"],
-  ];
-  if (t.stderr) rows.push(["Error", t.stderr.trim().split("\n").pop() ?? ""]);
-  return rows;
-}
-
-export interface NarrowMainProps {
-  children: ReactNode;
-}
-
-// Single-column screens: join, waiting, finished.
-function NarrowMain({ children }: NarrowMainProps) {
-  return <main className="mx-auto grid w-full max-w-xl gap-5 px-5 pt-12 pb-20 sm:pt-20">{children}</main>;
+// Same frame as the lecturer's live dashboard: full width, generous sides.
+function StudentPage({ children, className }: StudentPageProps) {
+  return <main className={cx("mx-auto w-full max-w-[112rem] px-5 pb-24 sm:px-8", className)}>{children}</main>;
 }
 
 // How often the student page checks in with the backend for the live
@@ -183,13 +162,6 @@ function markJoinedThisSession(studentName: string, lectureId: number): void {
 
 type Phase = "join" | "loading" | "answering" | "waiting" | "finished";
 
-function formatMMSS(totalSeconds: number): string {
-  const s = Math.max(0, Math.round(totalSeconds));
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  return `${m}:${rem.toString().padStart(2, "0")}`;
-}
-
 export default function App() {
   const [joined, setJoined] = useState(hasJoinedThisSession);
   const [phase, setPhase] = useState<Phase>(() => (hasJoinedThisSession() ? "loading" : "join"));
@@ -205,6 +177,7 @@ export default function App() {
   const [questionId, setQuestionId] = useState<string | null>(null);
   const [language, setLanguage] = useState("python");
   const [promptText, setPromptText] = useState("");
+  const [taskTitle, setTaskTitle] = useState("");
   const [example, setExample] = useState<TestCase | null>(null);
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
@@ -435,6 +408,7 @@ export default function App() {
       setQuestionId(q.id);
       setHadTask(true);
       setPromptText(q.prompt);
+      setTaskTitle(q.title);
       setLanguage(q.language);
       languageRef.current = q.language;
       editedRef.current = false;
@@ -579,60 +553,66 @@ export default function App() {
     return (
       <>
         <StudentBar />
-        <NarrowMain>
-          <div className="animate-fade-in-up">
+        <StudentPage className="grid max-w-6xl gap-10 pt-14 sm:pt-24 lg:grid-cols-12 lg:gap-16">
+          <section className="animate-fade-in-up lg:col-span-5">
             <Eyebrow>Student</Eyebrow>
-            <h1 className="mt-3 text-4xl font-bold tracking-tight text-zinc-950">Join a lecture</h1>
-            <p className="mt-3 text-[15px] text-zinc-500">Enter your name and the code your lecturer shared.</p>
-          </div>
-          <Card className="animate-fade-in-up p-6 sm:p-7">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleJoin();
-              }}
-            >
-              {joinNotice && (
-                <Callout tone="info" className="mb-5">
-                  {joinNotice}
-                </Callout>
-              )}
-              <Label htmlFor="join-name">Your name</Label>
-              <Input
-                type="text"
-                id="join-name"
-                placeholder="e.g. Lara Pinheiro"
-                autoFocus
-                className="h-11 text-[15px]"
-                value={joinNameInput}
-                onChange={(e) => setJoinNameInput(e.target.value)}
-              />
-              <Label htmlFor="join-code" className="mt-5">
-                Join code
-              </Label>
-              <Input
-                type="text"
-                id="join-code"
-                placeholder="482913"
-                inputMode="numeric"
-                autoComplete="off"
-                mono
-                className="h-14 text-2xl font-semibold tracking-[0.2em] tabular-nums"
-                value={joinCodeInput}
-                onChange={(e) => setJoinCodeInput(e.target.value)}
-              />
-              <Button type="submit" size="lg" className="mt-6 w-full" disabled={joining}>
-                {joining && <Spinner />}
-                {joining ? "Joining..." : "Join"}
-              </Button>
-              {joinError && (
-                <Callout tone="danger" role="alert" className="mt-4">
-                  {joinError}
-                </Callout>
-              )}
-            </form>
-          </Card>
-        </NarrowMain>
+            <h1 className="mt-4 text-4xl font-bold tracking-tight text-balance text-zinc-950 sm:text-5xl">
+              Join a lecture
+            </h1>
+            <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-zinc-500">
+              Enter your name and the code your lecturer shared. You'll get each task here as it starts.
+            </p>
+          </section>
+          <section className="lg:col-span-7 lg:pt-8">
+            <Card className="animate-fade-in-up p-6 sm:p-8">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleJoin();
+                }}
+              >
+                {joinNotice && (
+                  <Callout tone="info" className="mb-6">
+                    {joinNotice}
+                  </Callout>
+                )}
+                <Label htmlFor="join-name">Your name</Label>
+                <Input
+                  type="text"
+                  id="join-name"
+                  placeholder="e.g. Lara Pinheiro"
+                  autoFocus
+                  className="h-11 text-[15px]"
+                  value={joinNameInput}
+                  onChange={(e) => setJoinNameInput(e.target.value)}
+                />
+                <Label htmlFor="join-code" className="mt-6">
+                  Join code
+                </Label>
+                <Input
+                  type="text"
+                  id="join-code"
+                  placeholder="482913"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  mono
+                  className="h-16 text-3xl font-bold tracking-[0.18em] tabular-nums"
+                  value={joinCodeInput}
+                  onChange={(e) => setJoinCodeInput(e.target.value)}
+                />
+                <Button type="submit" size="lg" className="mt-7 w-full" disabled={joining}>
+                  {joining && <Spinner />}
+                  {joining ? "Joining..." : "Join"}
+                </Button>
+                {joinError && (
+                  <Callout tone="danger" role="alert" className="mt-4">
+                    {joinError}
+                  </Callout>
+                )}
+              </form>
+            </Card>
+          </section>
+        </StudentPage>
       </>
     );
   }
@@ -641,11 +621,11 @@ export default function App() {
     return (
       <>
         <StudentBar name={joinedName} />
-        <NarrowMain>
+        <StudentPage className="pt-14">
           <p className="flex items-center gap-2 text-sm text-zinc-500">
             <Spinner /> Loading...
           </p>
-        </NarrowMain>
+        </StudentPage>
       </>
     );
   }
@@ -655,50 +635,52 @@ export default function App() {
     return (
       <>
         <StudentBar name={joinedName} />
-        <NarrowMain>
-          <div className="animate-fade-in-up">
-            <h1 className="text-3xl font-bold tracking-tight text-balance text-zinc-950">
-              That's the lecture. Thanks for working through it.
+        <StudentPage className="grid max-w-6xl gap-10 pt-14 sm:pt-24 lg:grid-cols-12 lg:gap-16">
+          <section className="animate-fade-in-up lg:col-span-5">
+            <StatusLine state="closed" label="Lecture over" />
+            <h1 className="mt-4 text-4xl font-bold tracking-tight text-balance text-zinc-950 sm:text-5xl">
+              Thanks for working through it.
             </h1>
-            <p className="mt-3 text-[15px] text-zinc-500">Nothing else needed from you here. It's safe to close this tab.</p>
+            <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-zinc-500">
+              Nothing else needed from you here. It's safe to close this tab.
+            </p>
             {/* The join screen is the student's "home" -- this tab's join was
                 already forgotten when the lecture ended (see applyStatus), so a
                 fresh load lands there, ready for the next lecture's code. */}
-            <Button variant="secondary" className="mt-6" onClick={() => (window.location.href = "student.html")}>
+            <Button variant="secondary" className="mt-8" onClick={() => (window.location.href = "student.html")}>
               Back to home
             </Button>
-          </div>
+          </section>
           {recap && (
-            <Card className="animate-fade-in-up">
-              <SectionTitle
-                meta={
-                  <>
-                    <span className="font-mono tabular-nums">{recap.attempted}</span> of{" "}
-                    <span className="font-mono tabular-nums">{recap.total}</span> tasks attempted,{" "}
-                    <span className="font-mono tabular-nums">{correctCount}</span> correct
-                  </>
-                }
-              >
-                Your recap
-              </SectionTitle>
-              <ul className="mt-3">
-                {recap.results.map((r) => (
-                  <li
-                    key={r.question_id}
-                    className="flex items-center justify-between gap-4 border-t border-zinc-200 py-3 text-sm first:border-t-0 last:pb-0"
-                  >
-                    <span className="text-zinc-900">{r.title}</span>
-                    {r.attempted && r.verdict ? (
-                      <VerdictBadge verdict={r.verdict} />
-                    ) : (
-                      <span className="text-[13px] text-zinc-400">Not attempted</span>
-                    )}
-                  </li>
-                ))}
+            <section className="animate-fade-in-up lg:col-span-7 lg:pt-8" aria-label="Your recap">
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-4xl font-semibold tracking-tight text-zinc-950 tabular-nums">
+                  {correctCount}
+                </span>
+                <span className="font-mono text-xl text-zinc-400 tabular-nums">/ {recap.total}</span>
+                <span className="ml-1 text-sm text-zinc-500">
+                  correct · {recap.attempted} attempted
+                </span>
+              </div>
+              <ul className="mt-6 border-t border-zinc-200">
+                {recap.results.map((r) => {
+                  const kind = r.attempted && r.verdict ? r.verdict : "none";
+                  return (
+                    <li key={r.question_id} className="flex items-center gap-4 border-b border-zinc-200 py-4">
+                      <span className={cx("size-3 flex-none rounded-[3px]", HERO_FILL[kind], kind === "none" && "border border-zinc-300")} aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate text-[15px] text-zinc-900">{r.title}</span>
+                      {r.attempted && r.verdict ? (
+                        <VerdictBadge verdict={r.verdict} />
+                      ) : (
+                        <span className="text-[13px] text-zinc-400">Not attempted</span>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
-            </Card>
+            </section>
           )}
-        </NarrowMain>
+        </StudentPage>
       </>
     );
   }
@@ -727,187 +709,224 @@ export default function App() {
       title = `You're in${name.trim() ? `, ${name.trim()}` : ""}!`;
       message = "Waiting for your lecturer to start the first task.";
     }
+    const showFiles = questionId != null && files.some((f) => f.test > 0);
 
     return (
       <>
         <StudentBar name={joinedName} />
-        <NarrowMain>
-          <div className="animate-fade-in-up">
-            <div className="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[13px] font-medium text-zinc-600">
-              {submitting ? (
-                <Spinner />
-              ) : (
-                <span className="size-1.5 animate-pulse-dot rounded-[2px] bg-emerald-500" aria-hidden="true" />
-              )}
-              {submitting ? statusText || "Grading..." : "Waiting for your lecturer"}
-            </div>
-            <h1 className="mt-5 text-4xl font-bold tracking-tight text-balance text-zinc-950">{title}</h1>
-            <p className="mt-3 text-[15px] leading-relaxed text-zinc-500">{message}</p>
-            {result && !submitting && (
-              <div className="mt-5 flex items-center gap-3">
-                <VerdictBadge verdict={result.verdict} />
-                <TestsPassed passed={result.tests_passed} total={result.tests_total} />
+        <StudentPage>
+          <header className="animate-fade-in-up pt-10 sm:pt-14">
+            <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-6">
+              <div className="min-w-0 flex-1 basis-96">
+                {submitting ? (
+                  <div className="flex items-center gap-2 text-[13px] font-medium text-zinc-600">
+                    <Spinner /> {statusText || "Grading..."}
+                  </div>
+                ) : (
+                  <StatusLine
+                    state="live"
+                    label="Waiting for your lecturer"
+                    items={[hadTask && taskTitle]}
+                  />
+                )}
+                <h1 className="mt-3 text-4xl font-bold tracking-tight text-balance text-zinc-950 lg:text-5xl">{title}</h1>
+                <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-zinc-500">{message}</p>
               </div>
-            )}
+              {result && !submitting && (
+                <div className="text-right">
+                  <VerdictBadge verdict={result.verdict} />
+                  <div className="mt-2 font-mono text-5xl leading-none font-semibold tracking-tight text-zinc-950 tabular-nums">
+                    {result.tests_passed}
+                    <span className="text-2xl text-zinc-400">/{result.tests_total}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">tests passed</div>
+                </div>
+              )}
+            </div>
             {errorMessage && !submitting && (
-              <Callout tone="danger" role="alert" className="mt-5">
+              <Callout tone="danger" role="alert" className="mt-6 max-w-2xl">
                 {errorMessage}
               </Callout>
             )}
-          </div>
+            <div className="mt-8 h-px w-full bg-zinc-200" aria-hidden="true" />
+          </header>
 
-          {questionId && files.some((f) => f.test > 0) && (
-            <Card className="mt-4 animate-fade-in-up">
-              <SectionTitle>Test files</SectionTitle>
-              <p className="mt-1 mb-4 text-[13px] text-zinc-500">Time&apos;s up, so every test&apos;s files are open now.</p>
-              <TestFiles key={questionId} questionId={questionId} files={files} groupByTest />
-            </Card>
-          )}
-
-          {shownExamples.length > 0 && (
-            <Card className="animate-fade-in-up">
-              <SectionTitle>Let's look at this together</SectionTitle>
-              <p className="mt-1 mb-5 text-[13px] text-zinc-500">
-                {shownExamples.length > 1
-                  ? "Your lecturer picked these attempts from the class to go over."
-                  : "Your lecturer picked this attempt from the class to go over."}
-              </p>
-              <div className="grid divide-y divide-zinc-200">
-                {shownExamples.map((ex, i) => (
-                  <div className="py-5 first:pt-0 last:pb-0" key={i}>
-                    {shownExamples.length > 1 && (
-                      <div className="mb-2 text-[13px] font-semibold text-zinc-900">Example {i + 1}</div>
-                    )}
-                    <pre className="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap">
-                      {ex.source_code}
-                    </pre>
-                    {ex.failing_test && <IoList className="mt-3" rows={failingRows(ex.failing_test)} />}
+          {(shownExamples.length > 0 || showFiles) && (
+            <div
+              className={cx(
+                "grid items-start gap-x-14 gap-y-12 pt-10",
+                shownExamples.length > 0 && showFiles && "lg:grid-cols-[minmax(0,1fr)_minmax(18rem,26rem)]",
+              )}
+            >
+              {shownExamples.length > 0 && (
+                <section className="min-w-0 animate-fade-in-up" aria-label="On your lecturer's screen">
+                  <div className="mb-5 flex flex-wrap items-baseline gap-3">
+                    <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Let's look at this together</h2>
+                    <span className="text-[13px] text-zinc-400">
+                      {shownExamples.length > 1
+                        ? "attempts your lecturer picked from the class"
+                        : "an attempt your lecturer picked from the class"}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </Card>
+                  <div className={cx("grid gap-8", shownExamples.length > 1 && "2xl:grid-cols-2")}>
+                    {shownExamples.map((ex, i) => (
+                      <div key={i} className="min-w-0">
+                        {shownExamples.length > 1 && <Eyebrow className="mb-2">Example {i + 1}</Eyebrow>}
+                        {ex.failing_test && (
+                          <FailingTestStrip
+                            className="mb-2"
+                            test={{
+                              stdin: ex.failing_test.stdin,
+                              expected: ex.failing_test.expected_stdout,
+                              got: ex.failing_test.stdout,
+                              error: ex.failing_test.stderr,
+                            }}
+                          />
+                        )}
+                        <CodeBlock lines={ex.source_code.split("\n").length}>{ex.source_code}</CodeBlock>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {showFiles && questionId && (
+                <section className="min-w-0 animate-fade-in-up" aria-label="Test files">
+                  <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Test files</h2>
+                  <p className="mt-1 mb-4 text-[13px] text-zinc-500">Time&apos;s up, so every test&apos;s files are open now.</p>
+                  <TestFiles key={questionId} questionId={questionId} files={files} groupByTest />
+                </section>
+              )}
+            </div>
           )}
-        </NarrowMain>
+        </StudentPage>
       </>
     );
   }
 
   const timeFraction = durationSeconds && secondsRemaining != null ? secondsRemaining / durationSeconds : 0;
+  const exampleFiles = files.filter((f) => f.test === 0);
 
   return (
     <>
       <StudentBar name={joinedName || name} />
-      <main className="mx-auto grid w-full max-w-6xl items-start gap-5 px-5 pt-8 pb-20 sm:px-8 md:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="grid gap-5 md:sticky md:top-20">
-          <Card>
-            {secondsRemaining != null && (
-              <div className="mb-6">
-                <div className="flex items-baseline justify-between">
-                  <Eyebrow>Time left</Eyebrow>
-                  <span
-                    className={cx(
-                      "font-mono text-2xl font-semibold tracking-tight tabular-nums",
-                      secondsRemaining === 0 ? "text-red-600" : "text-zinc-950",
-                    )}
-                  >
-                    {formatMMSS(secondsRemaining)}
-                  </span>
-                </div>
-                <ProgressBar
-                  className="mt-2"
-                  value={timeFraction}
-                  tone={timeFraction <= 0.15 ? "danger" : "neutral"}
-                  label="Time left"
-                />
-              </div>
-            )}
+      <StudentPage>
+        <header className="pt-8 sm:pt-10">
+          <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-6">
+            <div className="min-w-0 flex-1 basis-96">
+              <StatusLine
+                state={secondsRemaining === 0 ? "closed" : "live"}
+                label={secondsRemaining === 0 ? "Closed" : "Live"}
+                items={[
+                  <span className="capitalize">{language}</span>,
+                  history && `${history.length} attempt${history.length === 1 ? "" : "s"}`,
+                ]}
+              />
+              <h1 className="mt-3 text-4xl font-bold tracking-tight text-balance text-zinc-950 lg:text-5xl">
+                {taskTitle || "Task"}
+              </h1>
+            </div>
+            {secondsRemaining != null && <BigTimer seconds={secondsRemaining} />}
+          </div>
+          <TimeLine fraction={timeFraction} className="mt-8" />
+        </header>
 
-            <h2 className="text-lg font-bold tracking-tight text-zinc-950">Task</h2>
-            <p className="mt-2 text-sm leading-relaxed whitespace-pre-wrap text-zinc-700">{promptText}</p>
-            {outputFile && (
-              <div className="mt-4 border-l-2 border-zinc-900 bg-zinc-50 py-2.5 pr-3 pl-3.5 text-[13px] leading-relaxed text-zinc-700">
-                Write your answer to <Code>{outputFile}</Code>. That file is checked, not what your program prints.
-              </div>
-            )}
+        <div className="grid items-start gap-x-14 gap-y-10 pt-10 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
+          <aside className="grid min-w-0 gap-8 lg:sticky lg:top-20" aria-label="Task">
+            <section>
+              <Eyebrow>Task</Eyebrow>
+              <p className="mt-2 max-h-[45vh] overflow-y-auto pr-2 text-[15px] leading-relaxed whitespace-pre-wrap text-zinc-800">
+                {promptText}
+              </p>
+              {outputFile && (
+                <div className="mt-4 border-l-2 border-zinc-900 py-1 pl-3.5 text-[13px] leading-relaxed text-zinc-600">
+                  Write your answer to <Code>{outputFile}</Code>. That file is checked, not what your program prints.
+                </div>
+              )}
+            </section>
             {example && (
-              <div className="mt-5">
-                <Eyebrow className="mb-2">Example</Eyebrow>
-                <IoList
-                  className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3"
+              <section>
+                <Eyebrow className="mb-3">Example</Eyebrow>
+                <ExampleIo
                   rows={[
                     ["Input", example.stdin.trimEnd() || "(none)"],
-                    [outputFile ?? "Output", example.expected_stdout.trimEnd()],
+                    [outputFile ? `Expected ${outputFile}` : "Expected output", example.expected_stdout.trimEnd()],
                   ]}
                 />
-              </div>
+              </section>
             )}
-            {questionId && files.some((f) => f.test === 0) && (
-              <div className="mt-5">
+            {questionId && exampleFiles.length > 0 && (
+              <section>
                 <Eyebrow className="mb-2">Files</Eyebrow>
                 <p className="mb-3 text-[13px] leading-relaxed text-zinc-500">
-                  Your program can open these by name, e.g.{" "}
-                  <Code>open(&quot;{files.find((f) => f.test === 0)?.name}&quot;)</Code>. The graded tests use their own
-                  versions, shown when time is up.
+                  Your program can open these by name, e.g. <Code>open(&quot;{exampleFiles[0].name}&quot;)</Code>. The
+                  graded tests use their own versions, shown when time is up.
                 </p>
-                <TestFiles key={questionId} questionId={questionId} files={files.filter((f) => f.test === 0)} />
+                <TestFiles key={questionId} questionId={questionId} files={exampleFiles} />
+              </section>
+            )}
+            {history && (
+              <section aria-label="Your attempts">
+                <Eyebrow className="mb-3">Your attempts</Eyebrow>
+                <ul className="grid grid-cols-[repeat(auto-fill,minmax(3.25rem,1fr))] gap-1.5">
+                  {history.map((row) => {
+                    const v = row.verdict ?? "error";
+                    const share = row.tests_total ? row.tests_passed / row.tests_total : 0;
+                    return (
+                      <li
+                        key={row.id}
+                        title={`Attempt ${row.attempt_number}: ${row.verdict || "unknown"}, ${row.tests_passed}/${row.tests_total} tests`}
+                        className={cx(
+                          "flex h-12 flex-col justify-between rounded-md border px-2 pt-1.5 pb-2",
+                          TILE_TONE[v],
+                        )}
+                      >
+                        <span className="font-mono text-xs leading-tight">#{row.attempt_number}</span>
+                        <span className="block h-[3px] overflow-hidden rounded-sm bg-black/10" aria-hidden="true">
+                          <span
+                            className={cx("block h-full rounded-sm", SCORE_LINE[v])}
+                            style={{ width: `${Math.max(share, 0.04) * 100}%` }}
+                          />
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+          </aside>
+
+          <div className="grid min-w-0 gap-6">
+            {nudge && (
+              <div
+                className="flex animate-fade-in-up flex-col items-start gap-3 rounded-lg border border-sky-200 bg-sky-50 px-5 py-4 sm:flex-row sm:items-center"
+                role="status"
+              >
+                <p className="flex-1 text-sm leading-relaxed text-sky-950">{nudge}</p>
+                <Button variant="secondary" size="sm" onClick={() => setNudge(null)}>
+                  Got it
+                </Button>
               </div>
             )}
-          </Card>
 
-          {history && (
-            <Card>
-              <SectionTitle>Your attempts</SectionTitle>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {history.map((row) => (
-                  <div
-                    key={row.id}
-                    className={cx(
-                      "grid size-7 place-items-center rounded-md font-mono text-[11px] font-semibold text-white tabular-nums",
-                      row.verdict === "correct"
-                        ? "bg-emerald-600"
-                        : row.verdict === "partially_correct"
-                          ? "bg-amber-500"
-                          : "bg-red-600",
-                    )}
-                    title={`Attempt ${row.attempt_number}: ${row.verdict || "unknown"}`}
-                  >
-                    {row.attempt_number}
-                  </div>
-                ))}
+            <section aria-label="Your code">
+              <div className="mb-3 flex items-center gap-3">
+                <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Your code</h2>
+                <div className="ml-auto flex items-center gap-3">
+                  {submitting && statusText && (
+                    <span className="hidden text-[13px] text-zinc-500 sm:inline">{statusText}</span>
+                  )}
+                  <Button size="lg" disabled={submitting} onClick={handleSubmit}>
+                    {submitting && <Spinner />}
+                    {submitting ? "Running..." : "Submit"}
+                  </Button>
+                </div>
               </div>
-              <p className="mt-3 text-[13px] text-zinc-500">
-                {(() => {
-                  const passed = history.filter((r) => r.verdict === "correct").length;
-                  return (
-                    `${history.length} attempt${history.length === 1 ? "" : "s"} so far` +
-                    (passed ? `, ${passed} correct` : "")
-                  );
-                })()}
-              </p>
-            </Card>
-          )}
-        </div>
-
-        <div className="grid min-w-0 gap-5">
-          {nudge && (
-            <div
-              className="flex animate-fade-in-up flex-col items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 px-5 py-4 sm:flex-row sm:items-center"
-              role="status"
-            >
-              <p className="flex-1 text-sm leading-relaxed text-sky-950">{nudge}</p>
-              <Button variant="secondary" size="sm" onClick={() => setNudge(null)}>
-                Got it
-              </Button>
-            </div>
-          )}
-          <Card>
-            <SectionTitle actions={<Badge>{language.charAt(0).toUpperCase() + language.slice(1)}</Badge>}>
-              Your code
-            </SectionTitle>
-            <div className="mt-4">
               <Suspense
                 fallback={
-                  <div className="h-80 rounded-lg border border-zinc-200 p-3 text-sm text-zinc-500">Loading editor...</div>
+                  <div className="h-[460px] rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-500">
+                    Loading editor...
+                  </div>
                 }
               >
                 <CodeEditor
@@ -917,64 +936,65 @@ export default function App() {
                   onChange={handleEditorChange}
                 />
               </Suspense>
-            </div>
-            <div className="mt-4 flex items-center justify-end gap-3">
-              {submitting && statusText && <span className="text-[13px] text-zinc-500">{statusText}</span>}
-              <Button size="lg" disabled={submitting} onClick={handleSubmit}>
-                {submitting && <Spinner />}
-                {submitting ? "Running..." : "Submit"}
-              </Button>
-            </div>
-            {errorMessage && (
-              <Callout tone="danger" role="alert" className="mt-4">
-                {errorMessage}
-              </Callout>
-            )}
-          </Card>
-          {result && (
-            <Card className="animate-fade-in-up">
-              <div className="flex flex-wrap items-center gap-3">
-                <VerdictBadge verdict={result.verdict} />
-                <TestsPassed passed={result.tests_passed} total={result.tests_total} />
-              </div>
-              {result.hint_tier ? (
-                <div className="mt-5">
-                  <div className="mb-2 text-xs font-medium text-zinc-500">
-                    Hint <span className="font-mono">{result.hint_tier}</span> of{" "}
-                    <span className="font-mono">{result.hint_ceiling}</span>
+              {submitting && statusText && <p className="mt-2 text-[13px] text-zinc-500 sm:hidden">{statusText}</p>}
+              {errorMessage && (
+                <Callout tone="danger" role="alert" className="mt-4">
+                  {errorMessage}
+                </Callout>
+              )}
+            </section>
+
+            {result && (
+              <section className="animate-fade-in-up border-t border-zinc-200 pt-8" aria-label="Result">
+                <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+                  <div>
+                    <div className="font-mono text-4xl leading-none font-semibold tracking-tight text-zinc-950 tabular-nums">
+                      {result.tests_passed}
+                      <span className="text-xl text-zinc-400">/{result.tests_total}</span>
+                    </div>
+                    <div className="mt-1.5 text-xs text-zinc-500">tests passed</div>
                   </div>
-                  <div className="flex gap-1">
-                    {Array.from({ length: result.hint_ceiling ?? 0 }, (_, i) => i + 1).map((i) => (
-                      <div
-                        key={i}
-                        className={cx("h-1 flex-1 rounded-sm", i <= (result.hint_tier ?? 0) ? "bg-zinc-900" : "bg-zinc-200")}
-                      />
-                    ))}
-                  </div>
+                  <VerdictBadge verdict={result.verdict} />
+                  {result.hint_tier ? (
+                    <div className="ml-auto w-44">
+                      <div className="mb-1.5 text-xs text-zinc-500">
+                        Hint <span className="font-mono text-zinc-900">{result.hint_tier}</span> of{" "}
+                        <span className="font-mono text-zinc-900">{result.hint_ceiling}</span>
+                      </div>
+                      <div className="flex gap-1">
+                        {Array.from({ length: result.hint_ceiling ?? 0 }, (_, i) => i + 1).map((i) => (
+                          <div
+                            key={i}
+                            className={cx("h-1 flex-1 rounded-sm", i <= (result.hint_tier ?? 0) ? "bg-zinc-900" : "bg-zinc-200")}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-              <div className="mt-5 text-[15px] leading-relaxed text-zinc-800">{result.feedback}</div>
-              {result.traceback && (
-                <details className="group mt-5 border-t border-zinc-200 pt-4">
-                  <summary className="cursor-pointer rounded-sm text-[13px] font-medium text-zinc-500 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900">
-                    Your program's error output
-                  </summary>
-                  <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-950 px-4 py-3 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-zinc-100">
-                    {result.traceback}
-                  </pre>
-                </details>
-              )}
-              {result.hidden_crash && (
-                <p className="mt-4 text-sm leading-relaxed text-zinc-500">
-                  Your program crashed on a hidden test{result.hidden_error ? ` (${result.hidden_error})` : ""}. Its error
-                  output isn&apos;t shown, because it could reveal that test&apos;s data. Try inputs like the hidden tests
-                  might use.
-                </p>
-              )}
-            </Card>
-          )}
+                <p className="mt-6 max-w-3xl text-base leading-relaxed text-zinc-900">{result.feedback}</p>
+                {result.traceback && (
+                  <details className="mt-6">
+                    <summary className="cursor-pointer rounded-sm text-[13px] font-medium text-zinc-500 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900">
+                      Your program's error output
+                    </summary>
+                    <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-zinc-950 px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-100">
+                      {result.traceback}
+                    </pre>
+                  </details>
+                )}
+                {result.hidden_crash && (
+                  <p className="mt-4 max-w-3xl text-sm leading-relaxed text-zinc-500">
+                    Your program crashed on a hidden test{result.hidden_error ? ` (${result.hidden_error})` : ""}. Its
+                    error output isn&apos;t shown, because it could reveal that test&apos;s data. Try inputs like the
+                    hidden tests might use.
+                  </p>
+                )}
+              </section>
+            )}
+          </div>
         </div>
-      </main>
+      </StudentPage>
     </>
   );
 }
@@ -989,11 +1009,14 @@ export interface StudentBarProps {
 function StudentBar({ name }: StudentBarProps) {
   return (
     <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-zinc-50/85 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-5 sm:px-8">
+      <div className="mx-auto flex h-14 max-w-[112rem] items-center justify-between gap-4 px-5 sm:px-8">
         <BrandMark compact />
         {name && (
-          <span className="max-w-[60%] truncate text-[13px] text-zinc-500">
-            Joined as <strong className="font-semibold text-zinc-900">{name}</strong>
+          <span className="flex max-w-[60%] items-center gap-2 truncate text-[13px] text-zinc-500">
+            <span className="grid size-6 flex-none place-items-center rounded-md bg-zinc-200 font-mono text-[11px] font-semibold text-zinc-700">
+              {name.trim().charAt(0).toUpperCase()}
+            </span>
+            <strong className="truncate font-semibold text-zinc-900">{name}</strong>
           </span>
         )}
       </div>
