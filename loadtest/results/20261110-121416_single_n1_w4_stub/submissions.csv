@@ -1,0 +1,2 @@
+student,step,attempt_number,entry_id,category,submission_id,t_submit,t_verdict,t_submit_vs_time_up,latency_s,outcome,verdict,tests_passed,expected_verdict,expected_tests_passed,verdict_ok,slot_wait_s,prep_s,judge0_calls_s,judge0_total_s,classify_s,db_write_s,server_total_s,client_minus_server_s,visible_after_verdict_s
+LT-Student001,1,1,01_correct_clean,correct,1,12.08,12.7901,-3587.999,0.7101,ok,correct,2,,,,0.001311,0.002482,0.2351;0.2384;0.2185,0.692147,0.000574,0.00323,0.700107,0.01,2.4787

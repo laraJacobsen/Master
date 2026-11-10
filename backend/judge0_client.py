@@ -16,6 +16,7 @@ something a question's setup page exposes.
 
 import base64
 import os
+import time
 
 import requests
 
@@ -130,8 +131,14 @@ def run_test_cases(
     language: str = "python",
     cpu_time_limit: float = None,
     memory_limit_kb: int = None,
+    call_timings: list = None,
 ) -> list:
     """Run one submission's code against a list of test cases.
+
+    call_timings, if given, gets one entry per test case: the wall-clock round
+    trip of that Judge0 call in seconds. Only loadtest/ asks for it (via
+    LOADTEST_TIMING in main.py); kept out of the result dicts so the stored
+    raw_test_results are the same either way.
 
     Each test case is {"stdin": "...", "expected_stdout": "..."}.
     Returns a list of per-case result dicts (the run_submission dict, plus
@@ -142,6 +149,7 @@ def run_test_cases(
     """
     results = []
     for i, case in enumerate(test_cases):
+        t0 = time.perf_counter()
         result = run_submission(
             source_code,
             case["stdin"],
@@ -149,6 +157,8 @@ def run_test_cases(
             cpu_time_limit=cpu_time_limit,
             memory_limit_kb=memory_limit_kb,
         )
+        if call_timings is not None:
+            call_timings.append(time.perf_counter() - t0)
         result["case_index"] = i
         result["stdin"] = case["stdin"]
         result["expected_stdout"] = case["expected_stdout"]

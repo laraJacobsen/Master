@@ -19,6 +19,7 @@ from the /root/prototype directory (see README.md).
 
 import json
 import os
+import time
 from datetime import datetime
 
 import anyio
@@ -664,12 +665,45 @@ MAX_CONCURRENT_SUBMITS = int(os.environ.get("MAX_CONCURRENT_SUBMITS", "16"))
 _submit_limiter = anyio.CapacityLimiter(MAX_CONCURRENT_SUBMITS)
 
 
+# Per-stage timing of a submit, for loadtest/ only. With LOADTEST_TIMING=1 the
+# submit response gets an extra "_timing" object (seconds): slot_wait_s (waiting
+# for _submit_limiter plus the hop onto a worker thread), prep_s (question
+# lookup, attempt number, pre_execution_check), judge0_calls_s (one round trip
+# per test case, in order), judge0_total_s, classify_s, db_write_s and
+# server_total_s. Off (the default), the response and behaviour are unchanged.
+LOADTEST_TIMING = os.environ.get("LOADTEST_TIMING") == "1"
+
+
+class _StageTimer:
+    """Records the seconds since the previous lap under a stage name into `out`;
+    does nothing when `out` is None (LOADTEST_TIMING off)."""
+
+    def __init__(self, out: dict | None, start: float | None):
+        self.out = out
+        self.last = start
+
+    def lap(self, stage: str) -> None:
+        if self.out is None:
+            return
+        now = time.perf_counter()
+        self.out[stage] = round(now - self.last, 6)
+        self.last = now
+
+
 @app.post("/api/submit")
 async def api_submit(req: SubmitRequest):
-    return await anyio.to_thread.run_sync(_submit, req, limiter=_submit_limiter)
+    if not LOADTEST_TIMING:
+        return await anyio.to_thread.run_sync(_submit, req, limiter=_submit_limiter)
+    arrived = time.perf_counter()
+    timing = {}
+    result = await anyio.to_thread.run_sync(_submit, req, timing, arrived, limiter=_submit_limiter)
+    result["_timing"] = {**timing, "server_total_s": round(time.perf_counter() - arrived, 6)}
+    return result
 
 
-def _submit(req: SubmitRequest):
+def _submit(req: SubmitRequest, timing: dict | None = None, arrived: float | None = None):
+    clock = _StageTimer(timing, arrived)
+    clock.lap("slot_wait_s")
     question = get_question(req.question_id)
     if not question:
         raise HTTPException(status_code=404, detail=f"Unknown question_id: {req.question_id!r}")
@@ -683,6 +717,7 @@ def _submit(req: SubmitRequest):
         req.source_code, line_limit=question["line_limit"], extra_packages=question["extra_packages"],
         language=question["language"],
     )
+    clock.lap("prep_s")
     if rejection_reason:
         # Rejected before ever reaching Judge0/Claude -- still recorded as a
         # real attempt, just tagged so it doesn't get mistaken for a graded one.
@@ -704,6 +739,7 @@ def _submit(req: SubmitRequest):
                 "raw_test_results": json.dumps([]),
             }
         )
+        clock.lap("db_write_s")
         return {
             "submission_id": sub_id,
             "tests_passed": 0,
@@ -719,11 +755,13 @@ def _submit(req: SubmitRequest):
             language=question["language"],
             cpu_time_limit=question["cpu_time_limit_s"],
             memory_limit_kb=question["memory_limit_kb"],
+            call_timings=timing.setdefault("judge0_calls_s", []) if timing is not None else None,
         )
     except Judge0Error as e:
         # Judge0 itself is unreachable/broken -- distinct from the student's
         # code failing, which is a normal 200 response below.
         raise HTTPException(status_code=502, detail=str(e))
+    clock.lap("judge0_total_s")
 
     try:
         feedback = judge_and_feedback(
@@ -755,6 +793,7 @@ def _submit(req: SubmitRequest):
             hint_ceiling=None,
             traceback=None,
         )
+    clock.lap("classify_s")
 
     sub_id = store.save_submission(
         {
@@ -777,6 +816,7 @@ def _submit(req: SubmitRequest):
             "raw_test_results": json.dumps(test_results),
         }
     )
+    clock.lap("db_write_s")
 
     return {
         "submission_id": sub_id,

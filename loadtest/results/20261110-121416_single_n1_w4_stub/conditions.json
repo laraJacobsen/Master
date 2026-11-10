@@ -1,0 +1,159 @@
+{
+  "run": "20261110-121416_single_n1_w4_stub",
+  "started": "20261110-121416",
+  "scenario": {
+    "name": "single",
+    "students": 1,
+    "window_s": 3600,
+    "seed": 1,
+    "burst_share": null,
+    "burst_spread_s": null,
+    "mix": null
+  },
+  "judge0": {
+    "version": "1.13.1",
+    "worker_processes": 4,
+    "COUNT": "4",
+    "config": {
+      "cpu_time_limit": 5.0,
+      "max_cpu_time_limit": 15.0,
+      "cpu_extra_time": 1.0,
+      "wall_time_limit": 10.0,
+      "max_wall_time_limit": 20.0,
+      "memory_limit": 128000,
+      "max_memory_limit": 512000,
+      "stack_limit": 64000,
+      "max_queue_size": 100,
+      "max_processes_and_or_threads": 60,
+      "enable_network": false,
+      "number_of_runs": 1
+    }
+  },
+  "backend": {
+    "MAX_CONCURRENT_SUBMITS": 16,
+    "MAX_CONCURRENT_SUBMITS_source": "app default",
+    "uvicorn_workers": 1,
+    "LOADTEST_TIMING": true,
+    "db": "fresh per run (results folder)",
+    "commit": "8bb4bab",
+    "backend_dirty": true
+  },
+  "question": {
+    "id": "palindrome-check",
+    "title": "Palindrome check",
+    "cpu_time_limit_s": 5.0,
+    "memory_limit_kb": 128000,
+    "test_cases": 3
+  },
+  "llm": {
+    "mode": "stub",
+    "stub_latency_s": 2.0,
+    "model": null
+  },
+  "client": {
+    "status_poll_s": 2,
+    "heartbeat_s": 10,
+    "lecturer_poll_s": 3,
+    "lecturer_overlapping_polls": true,
+    "lecturer_max_connections": 6,
+    "student_max_connections": "unlimited",
+    "request_timeout_s": 60.0,
+    "dp_wait_cap_s": 90.0
+  },
+  "machine": {
+    "cpu_model": "Intel(R) Core(TM) i5-8265U CPU @ 1.60GHz",
+    "physical_cores": 4,
+    "logical_cpus": 8,
+    "kernel": "6.8.0-138-generic",
+    "python": "3.10.12",
+    "httpx": "0.28.1",
+    "pre_run_mem_total_mb": 7755,
+    "pre_run_mem_available_mb": 1855,
+    "pre_run_swap_total_mb": 8191,
+    "pre_run_swap_used_mb": 3930,
+    "pre_run_loadavg_1m": 2.17
+  },
+  "machine_thresholds": {
+    "pre_run_min_mem_available_mb": 2048,
+    "min_mem_available_mb": 300,
+    "max_swap_in_kb_per_s_5s": 1024,
+    "abort_mem_available_mb": 200,
+    "max_client_loop_lag_s": 0.2
+  },
+  "docker_before": [
+    [
+      "judge0-v1131_workers_1",
+      "3.15%",
+      "346.6MiB / 7.574GiB"
+    ],
+    [
+      "judge0-v1131_server_1",
+      "0.06%",
+      "135.9MiB / 7.574GiB"
+    ],
+    [
+      "judge0-v1131_db_1",
+      "0.00%",
+      "16.86MiB / 7.574GiB"
+    ],
+    [
+      "judge0-v1131_redis_1",
+      "0.86%",
+      "5.664MiB / 7.574GiB"
+    ]
+  ],
+  "docker_after": [
+    [
+      "judge0-v1131_workers_1",
+      "4.57%",
+      "347.2MiB / 7.574GiB"
+    ],
+    [
+      "judge0-v1131_server_1",
+      "0.03%",
+      "150.5MiB / 7.574GiB"
+    ],
+    [
+      "judge0-v1131_db_1",
+      "0.02%",
+      "17.07MiB / 7.574GiB"
+    ],
+    [
+      "judge0-v1131_redis_1",
+      "0.82%",
+      "5.66MiB / 7.574GiB"
+    ]
+  ],
+  "machine_eval": {
+    "machine_bound": true,
+    "machine_bound_reasons": [
+      "pre-run MemAvailable 1855 MB < 2048 MB",
+      "swap-in peaked at 1369 kB/s (5 s avg)"
+    ],
+    "client_bound": false,
+    "max_client_loop_lag_s": 0.0025,
+    "min_mem_available_mb": 1722,
+    "max_swap_in_kb_s": 4652.0,
+    "max_swap_out_kb_s": 0.0,
+    "mean_cpu_util_pct": 19.0,
+    "max_backend_rss_mb": 163
+  },
+  "aborted": null,
+  "targets": {
+    "steady_p95_submit_s": 5.0,
+    "burst_p95_submit_s": 10.0,
+    "dp_ready_after_time_up_s": 30.0,
+    "max_error_timeout_rate": 0.02
+  },
+  "stop_rule": {
+    "min_completed": 10,
+    "max_error_timeout_share": 0.2
+  },
+  "reportable": {
+    "reportable": false,
+    "reasons": [
+      "provisional: heavy apps open (Chrome, VS Code, claude-desktop); machine-bound / not for reporting",
+      "machine-bound: pre-run MemAvailable 1855 MB < 2048 MB; swap-in peaked at 1369 kB/s (5 s avg)"
+    ]
+  }
+}

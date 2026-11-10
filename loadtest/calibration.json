@@ -1,0 +1,131 @@
+{
+  "from_run": "20261110-121449_calibrate_n1_w4_stub",
+  "question": "Palindrome check",
+  "expected": {
+    "01_correct_clean": {
+      "verdict": "correct",
+      "tests_passed": 2,
+      "latency_s": 0.7097
+    },
+    "02_correct_with_debug_prints": {
+      "verdict": "incorrect",
+      "tests_passed": 0,
+      "latency_s": 0.6539
+    },
+    "03_wrong_case_sensitive": {
+      "verdict": "partially_correct",
+      "tests_passed": 1,
+      "latency_s": 0.6801
+    },
+    "04_wrong_unstripped_spaces": {
+      "verdict": "partially_correct",
+      "tests_passed": 1,
+      "latency_s": 0.6429
+    },
+    "05_wrong_off_by_one": {
+      "verdict": "partially_correct",
+      "tests_passed": 1,
+      "latency_s": 0.6971
+    },
+    "06_syntax_error": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.7288
+    },
+    "07_indentation_error": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.657
+    },
+    "08_name_error": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.7466
+    },
+    "09_type_error_str_int": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.696
+    },
+    "10_index_error": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.6619
+    },
+    "11_attribute_error": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.9123
+    },
+    "12_recursion_error": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 1.1702
+    },
+    "13_wrong_signature": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.7516
+    },
+    "14_function_not_found": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.6702
+    },
+    "15_timeout_missing_increment": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 15.9056
+    },
+    "16_output_flood": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 1.3251
+    },
+    "17_blocking_input_eof": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.8061
+    },
+    "18_oom_direct_allocation": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 1.115
+    },
+    "19_oom_growing_loop": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 1.0618
+    },
+    "20_empty_submission": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.0148
+    },
+    "21_whitespace_only": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.0064
+    },
+    "22_oversized_submission": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.0233
+    },
+    "23_unicode_content": {
+      "verdict": "correct",
+      "tests_passed": 2,
+      "latency_s": 1.038
+    },
+    "24_disallowed_import": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 0.0178
+    },
+    "25_key_error": {
+      "verdict": "error",
+      "tests_passed": 0,
+      "latency_s": 1.0628
+    }
+  }
+}

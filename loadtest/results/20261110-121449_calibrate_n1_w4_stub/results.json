@@ -1,0 +1,177 @@
+{
+  "submits": 25,
+  "students": 1,
+  "errors": 0,
+  "timeouts": 0,
+  "error_timeout_rate": 0.0,
+  "verdict_mismatches": 0,
+  "verdict_unchecked": 25,
+  "resubmits_skipped_after_time_up": 0,
+  "latency": {
+    "n": 25,
+    "p50": 0.7097,
+    "p95": 1.29412,
+    "p99": 12.406280000000024,
+    "max": 15.9056
+  },
+  "stages": {
+    "slot_wait_s": {
+      "n": 25,
+      "p50": 0.000401,
+      "p95": 0.0007282,
+      "p99": 0.0007879200000000001,
+      "max": 0.000804
+    },
+    "prep_s": {
+      "n": 25,
+      "p50": 0.00184,
+      "p95": 0.0027765999999999997,
+      "p99": 0.0030229600000000003,
+      "max": 0.0031
+    },
+    "judge0_total_s": {
+      "n": 21,
+      "p50": 0.736937,
+      "p95": 1.22763,
+      "p99": 12.95467240000001,
+      "max": 15.886433
+    },
+    "classify_s": {
+      "n": 21,
+      "p50": 0.000112,
+      "p95": 0.000712,
+      "p99": 0.0008672000000000002,
+      "max": 0.000906
+    },
+    "db_write_s": {
+      "n": 25,
+      "p50": 0.003637,
+      "p95": 0.0107378,
+      "p99": 0.07014492000000012,
+      "max": 0.088857
+    },
+    "server_total_s": {
+      "n": 25,
+      "p50": 0.699963,
+      "p95": 1.2880928,
+      "p99": 12.400098040000023,
+      "max": 15.899173
+    },
+    "client_minus_server_s": {
+      "n": 25,
+      "p50": 0.0058,
+      "p95": 0.009640000000000001,
+      "p99": 0.014260000000000009,
+      "max": 0.0157
+    }
+  },
+  "judge0_call": {
+    "n": 63,
+    "p50": 0.2439,
+    "p95": 0.4870299999999999,
+    "p99": 5.2983780000000005,
+    "max": 5.3003
+  },
+  "visible_after_verdict": {
+    "n": 25,
+    "p50": 1.4393,
+    "p95": 2.7632800000000004,
+    "p99": 2.8029159999999997,
+    "max": 2.8099
+  },
+  "by_category": {
+    "correct": {
+      "n": 3,
+      "p50": 0.7097,
+      "p95": 1.0051700000000001,
+      "p99": 1.031434,
+      "max": 1.038
+    },
+    "other": {
+      "n": 6,
+      "p50": 0.54255,
+      "p95": 1.272575,
+      "p99": 1.314595,
+      "max": 1.3251
+    },
+    "runtime": {
+      "n": 10,
+      "p50": 0.7491000000000001,
+      "p95": 1.12187,
+      "p99": 1.160534,
+      "max": 1.1702
+    },
+    "syntax": {
+      "n": 2,
+      "p50": 0.6929000000000001,
+      "p95": 0.72521,
+      "p99": 0.728082,
+      "max": 0.7288
+    },
+    "timeout": {
+      "n": 1,
+      "p50": 15.9056,
+      "p95": 15.9056,
+      "p99": 15.9056,
+      "max": 15.9056
+    },
+    "wrong_answer": {
+      "n": 3,
+      "p50": 0.6801,
+      "p95": 0.6954,
+      "p99": 0.69676,
+      "max": 0.6971
+    }
+  },
+  "batch": {
+    "students_with_verdict": 1,
+    "t_last_verdict": 45.8851,
+    "t_time_up": 3600.0996,
+    "ready": true,
+    "t_ready": 48.4086,
+    "ready_after_last_verdict_s": 2.523,
+    "ready_after_time_up_s": -3551.691,
+    "wa_groups_needing_label": 0,
+    "wa_labels_llm_final": 0,
+    "wa_labels_fallback_final": 0
+  },
+  "clusters_endpoint": {
+    "n": 17,
+    "p50": 0.0407,
+    "p95": 0.17339999999999994,
+    "p99": 0.22299999999999998,
+    "max": 0.2354,
+    "polls": 17,
+    "started_while_previous_in_flight": 0,
+    "max_in_flight": 1
+  },
+  "llm": {
+    "label_calls_logged": 0,
+    "label_call_latency": {
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null,
+      "max": null
+    },
+    "label_calls_used_model": 0,
+    "stub_http_calls": 0,
+    "distinct_prompts": 0,
+    "identical_prompt_while_in_flight": 0,
+    "identical_prompt_after_done": 0,
+    "max_concurrent_stub_calls": 0
+  },
+  "mismatch_examples": [],
+  "checks": [
+    [
+      "error/timeout rate < 2%",
+      true,
+      0.0
+    ],
+    [
+      "no verdict mismatches",
+      null,
+      "unchecked (no calibration)"
+    ]
+  ]
+}
