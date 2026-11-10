@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { SubmissionRow, ValidationTestResult } from "../shared/types";
 import { nameSlots } from "./codeGroups";
+import { cx } from "../shared/cx";
 
 // Names to mark in the code: slot -> tooltip ("also called ...").
 type NameMarks = Map<number, string>;
@@ -18,7 +19,11 @@ function markedCode(sub: SubmissionRow, names: string[] | undefined, marks: Name
     out.push(sub.source_code.slice(at, start));
     out.push(
       marks?.has(slot) ? (
-        <mark key={start} className="name-var" title={marks.get(slot)}>
+        <mark
+          key={start}
+          className="cursor-help rounded-[2px] border-b-2 border-dotted border-zinc-900 bg-zinc-900/10 text-inherit"
+          title={marks.get(slot)}
+        >
           {text}
         </mark>
       ) : (
@@ -50,29 +55,40 @@ export function SubmissionDetail({ sub, names, marks }: SubmissionDetailProps) {
   return (
     <>
       {failing && (
-        <div className="io-strip">
-          <div className="io-cell">
-            <span className="io-label">Input</span>
-            <code>{(failing.stdin ?? "").trimEnd() || "(none)"}</code>
-          </div>
-          <div className="io-cell">
-            <span className="io-label">Expected</span>
-            <code>{(failing.expected_stdout ?? "").trimEnd()}</code>
-          </div>
-          <div className="io-cell io-got">
-            <span className="io-label">Got</span>
-            <code>{(failing.stdout || "").trim() || "(nothing)"}</code>
-          </div>
-          {errorOutput && (
-            <div className="io-cell io-error">
-              <span className="io-label">Error</span>
-              <code>{errorOutput.trim().split("\n").pop()}</code>
-            </div>
-          )}
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          <IoCell label="Input" value={(failing.stdin ?? "").trimEnd() || "(none)"} />
+          <IoCell label="Expected" value={(failing.expected_stdout ?? "").trimEnd()} />
+          <IoCell label="Got" value={(failing.stdout || "").trim() || "(nothing)"} bad />
+          {errorOutput && <IoCell label="Error" value={errorOutput.trim().split("\n").pop() ?? ""} bad />}
         </div>
       )}
-      <code className="example-code">{markedCode(sub, names, marks)}</code>
+      <code className="block overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-zinc-900">
+        {markedCode(sub, names, marks)}
+      </code>
     </>
+  );
+}
+
+export interface IoCellProps {
+  label: string;
+  value: string;
+  /** Mark as the wrong part (got / error). */
+  bad?: boolean;
+}
+
+function IoCell({ label, value, bad = false }: IoCellProps) {
+  return (
+    <div
+      className={cx(
+        "flex max-w-full items-baseline gap-2 rounded-md border px-2 py-1 text-xs",
+        bad ? "border-red-200 bg-red-50" : "border-zinc-200 bg-zinc-50",
+      )}
+    >
+      <span className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">{label}</span>
+      <code className={cx("font-mono break-words whitespace-pre-wrap", bad ? "text-red-700" : "text-zinc-900")}>
+        {value}
+      </code>
+    </div>
   );
 }
 
@@ -110,16 +126,24 @@ export function ExampleBlock({ subs }: ExampleBlockProps) {
   );
 
   return (
-    <div className="example">
-      <div className="example-head">
-        <div className="example-meta">
-          {subs.length > 1 && <strong>{subs.length} students </strong>}
-          {someNames(subs)} · {base.tests_passed}/{base.tests_total} tests
+    <div className="border-b border-zinc-200 pb-4 last:border-b-0 last:pb-0 [&+&]:pt-4">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <div className="text-xs text-zinc-500">
+          {subs.length > 1 && <strong className="font-semibold text-zinc-900">{subs.length} students </strong>}
+          {someNames(subs)} ·{" "}
+          <span className="font-mono">
+            {base.tests_passed}/{base.tests_total}
+          </span>{" "}
+          tests
         </div>
         {varying.length > 0 && (
-          <label className="view-as">
+          <label className="flex items-center gap-2 text-xs text-zinc-500">
             Show as written by
-            <select value={student ? viewAs : ""} onChange={(e) => setViewAs(e.target.value)}>
+            <select
+              className="h-7 max-w-44 rounded-md border border-zinc-200 bg-white px-1.5 text-xs text-zinc-900 hover:border-zinc-300 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 focus:outline-none"
+              value={student ? viewAs : ""}
+              onChange={(e) => setViewAs(e.target.value)}
+            >
               <option value="">Most common names</option>
               {[...subs]
                 .sort((a, b) => a.student_name.localeCompare(b.student_name))
@@ -134,16 +158,16 @@ export function ExampleBlock({ subs }: ExampleBlockProps) {
       </div>
       <SubmissionDetail sub={base} names={varying.length ? shown : undefined} marks={varying.length ? marks : undefined} />
       {varying.length > 0 && (
-        <dl className="name-legend" aria-label="Other names students used">
+        <dl className="mt-2 grid gap-0.5 text-xs" aria-label="Other names students used">
           {varying.map((s) => {
             const others = s.names.filter((n) => n.name !== shown[s.slot]);
             const more = others.length - MAX_ALTERNATIVES;
             return (
-              <div key={s.slot} className="name-legend-row">
-                <dt>{shown[s.slot]}</dt>
-                <dd>
-                  <span className="name-legend-also">also</span> {alsoCalled(others.slice(0, MAX_ALTERNATIVES))}
-                  {more > 0 && <span className="name-legend-more"> +{more} more</span>}
+              <div key={s.slot} className="grid grid-cols-[minmax(4rem,max-content)_1fr] gap-3">
+                <dt className="font-mono font-semibold text-zinc-900">{shown[s.slot]}</dt>
+                <dd className="font-mono text-zinc-700">
+                  <span className="font-sans text-zinc-500">also</span> {alsoCalled(others.slice(0, MAX_ALTERNATIVES))}
+                  {more > 0 && <span className="font-sans text-zinc-500"> +{more} more</span>}
                 </dd>
               </div>
             );

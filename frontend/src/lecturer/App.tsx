@@ -30,6 +30,9 @@ import { StudentGrid } from "./StudentGrid";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
+import { Badge, Button, Card, Callout, ErrorText, Eyebrow, LinkButton, Page, PageHeader, SectionTitle, TextLink } from "../shared/ui";
+import { cx } from "../shared/cx";
+import type { Tone } from "../shared/ui";
 
 const POLL_MS = 3000;
 
@@ -68,9 +71,12 @@ const LECTURE_ID = new URLSearchParams(window.location.search).get("lecture_id")
 // only which controls/data are showing.
 const LOBBY_ID = new URLSearchParams(window.location.search).get("lobby");
 
-function verdictClass(v: string) {
-  return "verdict-pill verdict-" + v;
-}
+const VERDICT_TONE: Record<string, Tone> = {
+  correct: "success",
+  partially_correct: "warning",
+  incorrect: "danger",
+  error: "danger",
+};
 function verdictLabel(v: string) {
   const labels: Record<string, string> = {
     correct: "Correct",
@@ -99,12 +105,25 @@ function issueKey(c: ClusterRow) {
 }
 
 // Colour family for an issue's marker and bar -- same palette as the progress bar.
-function issueKind(c: ClusterRow): "pass" | "wrong" | "error" | "rejected" {
+type IssueKind = "pass" | "wrong" | "error" | "rejected";
+function issueKind(c: ClusterRow): IssueKind {
   if (c.exec_verdict === "pass") return "pass";
   if (c.exec_verdict === "rejected") return "rejected";
   if (c.exec_verdict === "wrong_answer") return "wrong";
   return "error";
 }
+const ISSUE_RULE: Record<IssueKind, string> = {
+  pass: "border-emerald-600",
+  wrong: "border-amber-400",
+  error: "border-red-600",
+  rejected: "border-zinc-400",
+};
+const ISSUE_BAR: Record<IssueKind, string> = {
+  pass: "bg-emerald-600",
+  wrong: "bg-amber-400",
+  error: "bg-red-600",
+  rejected: "bg-zinc-400",
+};
 
 function issueText(c: ClusterRow) {
   if (c.exec_verdict === "pass") return "Passed every test.";
@@ -531,6 +550,8 @@ export default function App() {
   // What an issue's bar is a share of: everyone who's submitted so far.
   const classSize = Math.max(progress?.submitted ?? 0, ...clusters.map((c) => c.count), 1);
 
+  const timeUp = secondsRemaining === 0;
+
   return (
     <>
       <NavBar />
@@ -548,102 +569,120 @@ export default function App() {
         onConfirm={handleFinishLecture}
         onCancel={() => setConfirmFinishOpen(false)}
       />
-      {!(QUESTION_ID && !LECTURE_ID) && (
-        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <h1 id="page-title">{pageTitle}</h1>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div id="stats">
-              {!LECTURE_ID && !LOBBY_ID && `${subRows.length} submission${subRows.length === 1 ? "" : "s"}`}
-            </div>
-            {!LECTURE_ID && !LOBBY_ID && (
-              <HeaderNavLink href="setup.html" style={{ fontSize: "0.85rem" }}>
-                Question setup &rarr;
-              </HeaderNavLink>
-            )}
-          </div>
-        </header>
-      )}
-      <main>
-        {LOBBY_ID && (
-          <div className="card" id="lobby-card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <h2>Lobby</h2>
-              <button className="secondary" onClick={() => (window.location.href = "setup.html")}>
-                Manage questions
-              </button>
-            </div>
-            {lobbyError && <div className="summary-status summary-error">{lobbyError}</div>}
-            {lobbyLecture && (
-              <>
-                <div id="join-code-display" className="join-code-display">
-                  <div className="join-code-label">Join code</div>
-                  <div className="join-code-value">{lobbyLecture.join_code}</div>
-                  <div className="join-code-hint">Students enter this on the student page to join.</div>
-                </div>
-                <div id="joined-count" style={{ textAlign: "center", margin: "0.9rem 0" }}>
-                  <span style={{ fontSize: "1.4rem", fontWeight: "bold" }}>
-                    {joinedCount != null ? joinedCount : "--"}
-                  </span>{" "}
-                  <span style={{ color: "var(--muted)" }}>
-                    student{joinedCount === 1 ? "" : "s"} joined
-                  </span>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <button onClick={handleStartLecture} disabled={startingLecture}>
-                    {startingLecture ? "Starting..." : "Start lecture"}
-                  </button>
-                </div>
-                {startError && (
-                  <div className="summary-status summary-error" style={{ textAlign: "center", marginTop: "0.6rem" }}>
-                    {startError}
+      <Page width="wide">
+        {!(QUESTION_ID && !LECTURE_ID) && (
+          <PageHeader
+            eyebrow={LECTURE_ID ? "Lecture summary" : LOBBY_ID ? "Lobby" : "Dashboard"}
+            title={pageTitle}
+            actions={
+              !LECTURE_ID && !LOBBY_ID ? (
+                <div className="text-right">
+                  <div className="font-mono text-sm text-zinc-500 tabular-nums">
+                    {subRows.length} submission{subRows.length === 1 ? "" : "s"}
                   </div>
+                  <HeaderNavLink href="setup.html">Question setup &rarr;</HeaderNavLink>
+                </div>
+              ) : LECTURE_ID ? (
+                /* Summaries are opened from the history page, so that's where "back" goes. */
+                <LinkButton href="history.html" variant="secondary">
+                  &larr; Lecture history
+                </LinkButton>
+              ) : undefined
+            }
+          />
+        )}
+
+        {LOBBY_ID && (
+          <div className="grid gap-6 lg:grid-cols-12">
+            <Card className="p-8 sm:p-10 lg:col-span-8">
+              {lobbyError && <ErrorText>{lobbyError}</ErrorText>}
+              {lobbyLecture && (
+                <>
+                  <Eyebrow>Join code</Eyebrow>
+                  <div className="mt-2 font-mono text-6xl font-bold tracking-[0.18em] text-zinc-950 sm:text-7xl">
+                    {lobbyLecture.join_code}
+                  </div>
+                  <p className="mt-3 text-sm text-zinc-500">Students enter this on the student page to join.</p>
+                </>
+              )}
+            </Card>
+            <Card className="flex flex-col p-8 lg:col-span-4">
+              <Eyebrow>Joined</Eyebrow>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="font-mono text-5xl font-semibold tracking-tight text-zinc-950 tabular-nums">
+                  {joinedCount != null ? joinedCount : "--"}
+                </span>
+                <span className="text-sm text-zinc-500">student{joinedCount === 1 ? "" : "s"}</span>
+              </div>
+              <div className="mt-auto grid gap-2 pt-8">
+                {lobbyLecture && (
+                  <Button size="lg" onClick={handleStartLecture} disabled={startingLecture}>
+                    {startingLecture ? "Starting..." : "Start lecture"}
+                  </Button>
                 )}
-              </>
-            )}
+                <Button variant="secondary" size="lg" onClick={() => (window.location.href = "setup.html")}>
+                  Manage questions
+                </Button>
+              </div>
+              {startError && <ErrorText className="mt-3">{startError}</ErrorText>}
+            </Card>
           </div>
         )}
+
         {QUESTION_ID && !LECTURE_ID && (
           // Everything about the running task in one strip: what it is, the
           // clock, where the class is, and what to do next.
-          <div className="card" id="task-control-card">
-            <div className="strip-head">
-              <h1 id="page-title">{pageTitle}</h1>
-              <div className="strip-links">
+          <section className="pt-8 pb-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="min-w-0">
+                <Eyebrow>Live task</Eyebrow>
+                <h1 className="mt-2 text-3xl font-bold tracking-tight text-zinc-950">{pageTitle}</h1>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 {joinCode && (
-                  <div id="join-code-pill" className="join-code-pill">
-                    Join code <strong>{joinCode}</strong>
-                  </div>
+                  <span className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] text-zinc-500">
+                    Join code
+                    <strong className="font-mono font-bold tracking-[0.12em] text-zinc-950">{joinCode}</strong>
+                  </span>
                 )}
                 {/* The big-screen view for the room: task, countdown, and
                     whatever "Show to students" puts up (see src/present/). */}
-                <a href="present.html" target="_blank" rel="noopener" className="projector-link">
+                <LinkButton href="present.html" target="_blank" rel="noopener" variant="secondary" size="sm">
                   Projector view ↗
-                </a>
-                <a href="setup.html" className="projector-link">
+                </LinkButton>
+                <LinkButton href="setup.html" variant="ghost" size="sm">
                   Question setup
-                </a>
+                </LinkButton>
               </div>
             </div>
             {lectureFinished ? (
-              <div id="lecture-finished-banner">
-                <h2>Lecture finished</h2>
-                <p>Students now see an end-of-lecture screen. The session summary is below.</p>
-              </div>
+              <Callout tone="success" className="mt-5">
+                <h2 className="font-bold">Lecture finished</h2>
+                <p className="mt-1">Students now see an end-of-lecture screen. The session summary is below.</p>
+              </Callout>
             ) : (
-              <>
-                <div className="strip">
-                  <div className={secondsRemaining === 0 ? "strip-timer time-up" : "strip-timer"}>
-                    <div className="timer-label">{secondsRemaining === 0 ? "Time's up" : "Time left"}</div>
-                    <div className="timer-value">
+              <Card className="mt-6 p-0 sm:p-0">
+                <div className="grid items-center md:grid-cols-[auto_1fr_auto]">
+                  <div
+                    className={cx(
+                      "min-w-40 border-b border-zinc-200 px-6 py-5 md:border-r md:border-b-0",
+                      timeUp && "bg-red-50/60",
+                    )}
+                  >
+                    <Eyebrow className={timeUp ? "text-red-600" : undefined}>{timeUp ? "Time's up" : "Time left"}</Eyebrow>
+                    <div
+                      className={cx(
+                        "mt-1 font-mono text-4xl leading-none font-bold tracking-tight tabular-nums",
+                        timeUp ? "text-red-600" : "text-zinc-950",
+                      )}
+                    >
                       {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
                     </div>
                   </div>
-                  <div className="strip-progress" id="progress-card">
+                  <div className="min-w-0 px-6 py-5">
                     {progress && (
                       <>
-                        <div id="progress-text" className="strip-progress-head">
+                        <div className="text-[15px] font-bold tracking-tight text-zinc-950">
                           {submittedText(progress.submitted, progress.expected)}
                         </div>
                         <ClassProgress
@@ -653,42 +692,40 @@ export default function App() {
                           // once time's up everyone's heartbeat stops and would read "away".
                           activity={taskRunning ? activity : null}
                           showStudents={false}
+                          large
                         />
                       </>
                     )}
                   </div>
-                  <div className="strip-actions">
-                    <div className="task-control-actions">
+                  <div className="flex flex-col items-start gap-2 border-t border-zinc-200 px-6 py-5 md:items-end md:border-t-0">
+                    <div className="flex gap-2">
                       {secondsRemaining != null && secondsRemaining > 0 && (
-                        <button className="secondary" onClick={handleEndTaskNow} disabled={advancing}>
+                        <Button variant="secondary" onClick={handleEndTaskNow} disabled={advancing}>
                           End task now
-                        </button>
+                        </Button>
                       )}
                       {lastTask ? (
-                        <button
-                          className={secondsRemaining === 0 ? undefined : "secondary"}
+                        <Button
+                          variant={timeUp ? "primary" : "secondary"}
                           onClick={() => setConfirmFinishOpen(true)}
                           disabled={advancing}
                         >
                           End lecture
-                        </button>
+                        </Button>
                       ) : (
-                        <button
-                          className={secondsRemaining === 0 ? undefined : "secondary"}
-                          onClick={handleNextTask}
-                          disabled={advancing}
-                        >
+                        <Button variant={timeUp ? "primary" : "secondary"} onClick={handleNextTask} disabled={advancing}>
                           Next task
-                        </button>
+                        </Button>
                       )}
                     </div>
                     {/* Ending early, with tasks still to go -- once this is the last
                         task, the main button above already does it. */}
                     {lastTask ? (
-                      <span className="last-task-chip">Last task</span>
+                      <Badge>Last task</Badge>
                     ) : (
                       <button
-                        className="end-lecture-link"
+                        type="button"
+                        className="rounded-sm text-xs text-zinc-500 underline underline-offset-2 transition-colors hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-300"
                         onClick={() => setConfirmFinishOpen(true)}
                         disabled={advancing}
                       >
@@ -697,181 +734,224 @@ export default function App() {
                     )}
                   </div>
                 </div>
-                {secondsRemaining === 0 && (
-                  <div className="advance-message">
-                    Students are waiting. Pick issues to "Show to students", then{" "}
-                    {lastTask ? '"End lecture"' : '"Next task"'}.
+                {(timeUp || advanceMessage) && (
+                  <div className="grid gap-1 border-t border-zinc-200 bg-zinc-50 px-6 py-3 text-[13px] text-zinc-600">
+                    {timeUp && (
+                      <p>
+                        Students are waiting. Pick issues to "Show to students", then{" "}
+                        {lastTask ? '"End lecture"' : '"Next task"'}.
+                      </p>
+                    )}
+                    {advanceMessage && <p className="text-red-600">{advanceMessage}</p>}
                   </div>
                 )}
-                {advanceMessage && <div className="advance-message">{advanceMessage}</div>}
-              </>
+              </Card>
             )}
-          </div>
+          </section>
         )}
+
         {!lectureFinished && !LECTURE_ID && !LOBBY_ID && (
-        <div className="grid">
-          <div className="card" id="issues-card">
-            <div className="card-head">
-              <h2>
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+            <Card>
+              <SectionTitle
+                meta={
+                  QUESTION_ID &&
+                  !settled && (
+                    <Badge tone="success" dot pulse title="Still updating">
+                      Live
+                    </Badge>
+                  )
+                }
+              >
                 Common issues
-                {QUESTION_ID && !settled && <span className="pulse-dot" title="Still updating" />}
-              </h2>
-            </div>
-            {raiseError && <div className="issue-error">{raiseError}</div>}
-            {issueRows.length === 0 ? (
-              <div className="card-empty">Nothing yet.</div>
-            ) : (
-              <ul className="issue-list">
-                {issueRows.map((c) => {
-                  const key = issueKey(c);
-                  const open = openIssues.has(key);
-                  const subs = clusterIds(c)
-                    .map(knownSub)
-                    .filter((sub): sub is SubmissionRow => !!sub);
-                  const isPass = c.exec_verdict === "pass";
-                  const raising = raisingKey === key;
-                  return (
-                    <li
-                      key={key}
-                      className={["issue", `issue-k-${issueKind(c)}`, c.raised && "issue-raised"].filter(Boolean).join(" ")}
-                    >
-                      <div className="issue-row">
-                        <div className="issue-count">
-                          <span className="issue-count-num">{c.count}</span>
-                          <span className="issue-count-unit">{c.count === 1 ? "student" : "students"}</span>
-                        </div>
-                        <div className="issue-body">
-                          <div className="issue-head">
-                            <span className="issue-tag">{issueTag(c)}</span>
-                            {c.raised && <span className="issue-raised-badge">Showing to students</span>}
-                          </div>
-                          <div
-                            className="issue-meter"
-                            title={`${c.count} of ${classSize} students who submitted`}
-                            aria-hidden="true"
-                          >
-                            <span style={{ width: `${Math.round((100 * c.count) / classSize)}%` }} />
-                          </div>
-                          {!isPass && (
-                            // Two lines until opened -- the full text is one click
-                            // (or a hover) away.
-                            <p
-                              className={[
-                                "issue-point",
-                                !c.discussion_point && "issue-point-muted",
-                                !open && "issue-point-clamped",
-                              ]
-                                .filter(Boolean)
-                                .join(" ")}
-                              title={open ? undefined : issueText(c)}
-                            >
-                              {issueText(c)}
-                            </p>
-                          )}
-                        </div>
-                        <div className="issue-actions">
-                          <button className="view-example-btn" aria-expanded={open} onClick={() => toggleIssue(c)}>
-                            {open ? "Hide code" : "View code"}
-                          </button>
-                          {!isPass && QUESTION_ID && (
-                            <button
-                              className="view-example-btn"
-                              aria-pressed={c.raised}
-                              disabled={raisingKey !== null}
-                              onClick={() => toggleRaised(c)}
-                            >
-                              {raising ? (c.raised ? "Removing..." : "Sharing...") : c.raised ? "Stop showing" : "Show to students"}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {open && (
-                        <div className="issue-examples">
-                          {subs.length > 0
-                            ? groupByShape(subs).map((group) => <ExampleBlock key={groupKey(group[0])} subs={group} />)
-                            : issueLoadError
-                            ? "Could not load these submissions."
-                            : "Loading..."}
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-          {QUESTION_ID ? (
-            <StudentGrid subs={subRows} activity={taskRunning ? activity : null} />
-          ) : (
-            // No ?question_id= (the old everything-at-once view): students span
-            // several questions there, so it keeps the plain attempt log.
-            <div className="card">
-              <h2>Submissions</h2>
-              <div id="empty-state" style={{ display: subRows.length === 0 ? "block" : "none" }}>
-                No submissions yet.
-              </div>
-              <table id="sub-table" style={{ display: subRows.length === 0 ? "none" : "table" }}>
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Student</th>
-                    <th>Result</th>
-                    <th>Score</th>
-                  </tr>
-                </thead>
-                <tbody id="sub-body">
-                  {subRows.map((row) => {
-                    const time = (row.created_at || "").split(" ")[1] || row.created_at;
-                    const isOpen = expandedSubIds.has(row.id);
+              </SectionTitle>
+              {raiseError && <ErrorText className="mt-3">{raiseError}</ErrorText>}
+              {issueRows.length === 0 ? (
+                <p className="mt-3 text-sm text-zinc-500">Nothing yet.</p>
+              ) : (
+                <ul className="mt-4 grid gap-2">
+                  {issueRows.map((c) => {
+                    const key = issueKey(c);
+                    const open = openIssues.has(key);
+                    const subs = clusterIds(c)
+                      .map(knownSub)
+                      .filter((sub): sub is SubmissionRow => !!sub);
+                    const isPass = c.exec_verdict === "pass";
+                    const raising = raisingKey === key;
+                    const kind = issueKind(c);
                     return (
-                      <Fragment key={row.id}>
-                        <tr>
-                          <td>{time || ""}</td>
-                          <td>
-                            <button className="student-name-btn" onClick={() => toggleExpanded(row.id)}>
-                              {isOpen ? "▾" : "▸"} {row.student_name}
-                            </button>
-                          </td>
-                          <td>
-                            <span className={verdictClass(row.verdict || "")}>
-                              {verdictLabel(row.verdict || "")}
-                            </span>
-                          </td>
-                          <td>
-                            {row.tests_passed}/{row.tests_total}
-                          </td>
-                        </tr>
-                        {isOpen && (
-                          <tr className="detail-row">
-                            <td colSpan={4}>
-                              <pre>{row.source_code}</pre>
-                            </td>
-                          </tr>
+                      <li
+                        key={key}
+                        className={cx(
+                          "rounded-lg border px-4 py-3 transition-colors",
+                          c.raised ? "border-zinc-900 bg-zinc-50" : "border-zinc-200",
                         )}
-                      </Fragment>
+                      >
+                        <div className="grid grid-cols-[3.25rem_1fr] items-center gap-4 sm:grid-cols-[3.25rem_1fr_auto]">
+                          <div className={cx("flex flex-col items-start border-l-[3px] pl-2.5 leading-none", ISSUE_RULE[kind])}>
+                            <span
+                              className={cx(
+                                "font-mono text-2xl font-bold tabular-nums",
+                                isPass ? "text-emerald-700" : "text-zinc-950",
+                              )}
+                            >
+                              {c.count}
+                            </span>
+                            <span className="mt-1 text-[10px] text-zinc-500">{c.count === 1 ? "student" : "students"}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[13px] font-semibold text-zinc-950">{issueTag(c)}</span>
+                              {c.raised && <Badge tone="inverse">Showing to students</Badge>}
+                            </div>
+                            <div
+                              className="mt-1.5 mb-2 h-1 overflow-hidden rounded-sm bg-zinc-100"
+                              title={`${c.count} of ${classSize} students who submitted`}
+                              aria-hidden="true"
+                            >
+                              <span
+                                className={cx("block h-full min-w-1 rounded-sm", ISSUE_BAR[kind])}
+                                style={{ width: `${Math.round((100 * c.count) / classSize)}%` }}
+                              />
+                            </div>
+                            {!isPass && (
+                              // Two lines until opened -- the full text is one click
+                              // (or a hover) away.
+                              <p
+                                className={cx(
+                                  "text-sm leading-snug",
+                                  c.discussion_point ? "text-zinc-800" : "text-zinc-500",
+                                  !open && "line-clamp-2",
+                                )}
+                                title={open ? undefined : issueText(c)}
+                              >
+                                {issueText(c)}
+                              </p>
+                            )}
+                          </div>
+                          <div className="col-start-2 flex gap-1.5 sm:col-start-auto sm:flex-col sm:items-stretch">
+                            <Button variant="secondary" size="sm" aria-expanded={open} onClick={() => toggleIssue(c)}>
+                              {open ? "Hide code" : "View code"}
+                            </Button>
+                            {!isPass && QUESTION_ID && (
+                              <Button
+                                variant={c.raised ? "primary" : "secondary"}
+                                size="sm"
+                                aria-pressed={c.raised}
+                                disabled={raisingKey !== null}
+                                className={raising ? "cursor-wait" : undefined}
+                                onClick={() => toggleRaised(c)}
+                              >
+                                {raising
+                                  ? c.raised
+                                    ? "Removing..."
+                                    : "Sharing..."
+                                  : c.raised
+                                    ? "Stop showing"
+                                    : "Show to students"}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        {open && (
+                          <div className="mt-4 animate-fade-in border-l-2 border-zinc-200 pl-4 text-[13px] sm:ml-[4.25rem]">
+                            {subs.length > 0 ? (
+                              groupByShape(subs).map((group) => <ExampleBlock key={groupKey(group[0])} subs={group} />)
+                            ) : issueLoadError ? (
+                              <span className="text-red-600">Could not load these submissions.</span>
+                            ) : (
+                              <span className="text-zinc-500">Loading...</span>
+                            )}
+                          </div>
+                        )}
+                      </li>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        )}
-        {(lectureFinished || LECTURE_ID) && (
-          <>
-          <div id="back-to-home-row">
-            {/* Summaries are opened from the history page, so that's where "back" goes. */}
-            <a href="history.html" className="back-to-home-btn">
-              &larr; Lecture history
-            </a>
+                </ul>
+              )}
+            </Card>
+            {QUESTION_ID ? (
+              <StudentGrid subs={subRows} activity={taskRunning ? activity : null} />
+            ) : (
+              // No ?question_id= (the old everything-at-once view): students span
+              // several questions there, so it keeps the plain attempt log.
+              <Card>
+                <SectionTitle>Submissions</SectionTitle>
+                {subRows.length === 0 ? (
+                  <p className="mt-3 text-sm text-zinc-500">No submissions yet.</p>
+                ) : (
+                  <table className="mt-3 w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-200 text-left text-[11px] font-semibold tracking-[0.08em] text-zinc-500 uppercase">
+                        <th className="py-2 pr-2 font-semibold">Time</th>
+                        <th className="py-2 pr-2 font-semibold">Student</th>
+                        <th className="py-2 pr-2 font-semibold">Result</th>
+                        <th className="py-2 font-semibold">Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {subRows.map((row) => {
+                        const time = (row.created_at || "").split(" ")[1] || row.created_at;
+                        const isOpen = expandedSubIds.has(row.id);
+                        return (
+                          <Fragment key={row.id}>
+                            <tr className={cx("align-top", !isOpen && "border-b border-zinc-100")}>
+                              <td className="py-2 pr-2 font-mono text-xs text-zinc-500">{time || ""}</td>
+                              <td className="py-2 pr-2">
+                                <button
+                                  type="button"
+                                  className="rounded-sm text-left text-zinc-900 underline decoration-zinc-300 decoration-dotted underline-offset-4 hover:decoration-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                                  aria-expanded={isOpen}
+                                  onClick={() => toggleExpanded(row.id)}
+                                >
+                                  {isOpen ? "▾" : "▸"} {row.student_name}
+                                </button>
+                              </td>
+                              <td className="py-2 pr-2">
+                                <Badge tone={VERDICT_TONE[row.verdict || ""] ?? "neutral"}>
+                                  {verdictLabel(row.verdict || "")}
+                                </Badge>
+                              </td>
+                              <td className="py-2 font-mono text-xs tabular-nums">
+                                {row.tests_passed}/{row.tests_total}
+                              </td>
+                            </tr>
+                            {isOpen && (
+                              <tr className="border-b border-zinc-100">
+                                <td colSpan={4} className="pb-3">
+                                  <pre className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs break-words whitespace-pre-wrap">
+                                    {row.source_code}
+                                  </pre>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </Card>
+            )}
           </div>
-          <div className="grid" id="session-summary">
-            <div className="card" id="summary-tasks-card">
-              <h2>{LECTURE_ID && summary ? summary.lecture_label : "Session summary"}</h2>
-              {summaryLoading && <div className="summary-status">Loading...</div>}
-              {summaryError && <div className="summary-status summary-error">{summaryError}</div>}
+        )}
+
+        {(lectureFinished || LECTURE_ID) && (
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+            {lectureFinished && (
+              <div className="lg:col-span-2">
+                {/* Summaries are opened from the history page, so that's where "back" goes. */}
+                <LinkButton href="history.html" variant="secondary">
+                  &larr; Lecture history
+                </LinkButton>
+              </div>
+            )}
+            <Card>
+              <SectionTitle>Tasks</SectionTitle>
+              {summaryLoading && <p className="mt-3 text-sm text-zinc-500">Loading...</p>}
+              {summaryError && <ErrorText className="mt-3">{summaryError}</ErrorText>}
               {summary && summary.tasks.length === 0 && (
-                <div className="summary-status">No tasks were run this lecture.</div>
+                <p className="mt-3 text-sm text-zinc-500">No tasks were run this lecture.</p>
               )}
               {summary && summary.tasks.length > 0 && (
                 // Same chart as the live dashboard, one per task -- each
@@ -879,54 +959,53 @@ export default function App() {
                 // students". Replaces the old verdict-pill column, which
                 // counted latest (not best) results and would have disagreed
                 // with the chart right next to it.
-                <ul id="summary-task-list">
+                <ul className="mt-2 divide-y divide-zinc-200">
                   {summary.tasks.map((t) => (
-                    <li key={t.question_id} className="summary-task">
-                      <div className="summary-task-head">
-                        <strong>{t.title}</strong>
-                        <span className="summary-task-count">{submittedText(t.submitted, t.expected)}</span>
-                        <a
-                          className="drilldown-link"
+                    <li key={t.question_id} className="py-5 last:pb-0">
+                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <strong className="text-sm font-semibold text-zinc-950">{t.title}</strong>
+                        <span className="text-[13px] text-zinc-500">{submittedText(t.submitted, t.expected)}</span>
+                        <TextLink
+                          className="ml-auto text-[13px] whitespace-nowrap"
                           href={`lecturer.html?question_id=${encodeURIComponent(t.question_id)}`}
                         >
                           View task &rarr;
-                        </a>
+                        </TextLink>
                       </div>
                       {taskSubs[t.question_id] ? (
                         <ClassProgress subs={taskSubs[t.question_id]} expected={t.expected} activity={null} finished />
                       ) : (
-                        <div className="summary-status">
+                        <p className="mt-2 text-sm text-zinc-500">
                           {taskSubsLoaded ? "Could not load this task's submissions." : "Loading..."}
-                        </div>
+                        </p>
                       )}
                     </li>
                   ))}
                 </ul>
               )}
-            </div>
-            <div className="card" id="carry-forward-card">
-              <h2>Carry-forward discussion points</h2>
-              <div className="hint" style={{ marginBottom: "0.75rem" }}>
+            </Card>
+            <Card>
+              <SectionTitle>Carry-forward discussion points</SectionTitle>
+              <p className="mt-1 text-[13px] text-zinc-500">
                 Issues that came up on more than one task this lecture, worth revisiting next time.
-              </div>
+              </p>
               {summary && summary.carry_forward_discussion_points.length === 0 && (
-                <div className="summary-status">Nothing recurred across tasks.</div>
+                <p className="mt-4 text-sm text-zinc-500">Nothing recurred across tasks.</p>
               )}
               {summary && summary.carry_forward_discussion_points.length > 0 && (
-                <ul id="carry-forward-list">
+                <ul className="mt-3 divide-y divide-zinc-200">
                   {summary.carry_forward_discussion_points.map((c, i) => (
-                    <li key={i}>
-                      <div>{c.discussion_point}</div>
-                      <div className="carry-forward-tasks">Recurred on: {c.task_titles.join(", ")}</div>
+                    <li key={i} className="py-3 text-sm leading-snug last:pb-0">
+                      <div className="text-zinc-900">{c.discussion_point}</div>
+                      <div className="mt-1 text-xs text-zinc-500">Recurred on: {c.task_titles.join(", ")}</div>
                     </li>
                   ))}
                 </ul>
               )}
-            </div>
+            </Card>
           </div>
-          </>
         )}
-      </main>
+      </Page>
     </>
   );
 }

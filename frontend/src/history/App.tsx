@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { LectureHistoryRow, LectureReview, LectureReviewTask } from "../shared/types";
 import { archiveLecture, fetchLectureHistory, fetchLectureReview, unarchiveLecture } from "../shared/api";
 import { NavBar } from "../shared/NavBar";
+import { Button, Card, Checkbox, Code, EmptyState, Eyebrow, PageHeader, Page, SectionTitle, TextLink } from "../shared/ui";
+import { cx } from "../shared/cx";
 
 // Lecture history, reachable from the nav bar on every lecturer page. Built
 // around one decision: what should a review lecture go back over? Top to
@@ -50,54 +52,83 @@ function issueName(execVerdict: string | null, errorType: string | null): string
   return errorType && errorType !== "none" ? `${label} (${errorType})` : label;
 }
 
-function Meter({ rate, size = "md" }: { rate: number; size?: "sm" | "md" }) {
+export interface MeterProps {
+  rate: number;
+  size?: "sm" | "md";
+  className?: string;
+}
+
+// One neutral hue on every bar -- a low share says "go back over this", not
+// "failed", so no red/amber/green here.
+function Meter({ rate, size = "md", className }: MeterProps) {
   return (
-    <span className={`meter meter-${size}`} role="img" aria-label={`${percent(rate)} solved`}>
-      <span className="meter-fill" style={{ width: percent(rate) }} />
+    <span
+      className={cx(
+        "inline-block overflow-hidden rounded-sm bg-zinc-200 align-middle",
+        size === "md" ? "h-1.5 w-28" : "h-1 w-full",
+        className,
+      )}
+      role="img"
+      aria-label={`${percent(rate)} solved`}
+    >
+      <span className="block h-full rounded-sm bg-zinc-900" style={{ width: percent(rate) }} />
     </span>
   );
 }
 
 // What went wrong, as concretely as the data allows: for a wrong answer, the
 // actual output most of them printed; otherwise the error kind and its line.
-function IssueLine({ task }: { task: LectureReviewTask }) {
+export interface IssueLineProps {
+  task: LectureReviewTask;
+}
+
+function IssueLine({ task }: IssueLineProps) {
   const issue = task.top_issue;
   if (!issue) {
-    return task.submitted === 0 ? <p className="issue-line muted">No submissions</p> : null;
+    return task.submitted === 0 ? <p className="mt-2 text-[13px] text-zinc-500">No submissions</p> : null;
   }
   const ex = issue.example;
   if (ex) {
     return (
-      <p className="issue-line">
-        <strong>{plural(ex.students, "student")}</strong> printed <code>{ex.stdout || "(nothing)"}</code> for input{" "}
-        <code>{ex.stdin.trim() || "(empty)"}</code>, expected <code>{ex.expected_stdout.trim()}</code>
+      <p className="mt-2 text-[13px] leading-relaxed text-zinc-700">
+        <strong className="font-semibold text-zinc-900">{plural(ex.students, "student")}</strong> printed{" "}
+        <Code>{ex.stdout || "(nothing)"}</Code> for input <Code>{ex.stdin.trim() || "(empty)"}</Code>, expected{" "}
+        <Code>{ex.expected_stdout.trim()}</Code>
       </p>
     );
   }
   return (
-    <p className="issue-line">
-      <strong>{plural(issue.students, "student")}</strong>: {issueName(issue.exec_verdict, issue.error_type)}
-      {issue.discussion_point && <span className="issue-hint"> {issue.discussion_point}</span>}
+    <p className="mt-2 text-[13px] leading-relaxed text-zinc-700">
+      <strong className="font-semibold text-zinc-900">{plural(issue.students, "student")}</strong>:{" "}
+      {issueName(issue.exec_verdict, issue.error_type)}
+      {issue.discussion_point && <span className="text-zinc-500"> {issue.discussion_point}</span>}
     </p>
   );
 }
 
-function TaskRow({ task }: { task: LectureReviewTask }) {
+export interface TaskRowProps {
+  task: LectureReviewTask;
+}
+
+function TaskRow({ task }: TaskRowProps) {
   const notSubmitted = task.students - task.submitted;
   return (
-    <li className="task-row">
-      <div className="task-row-head">
-        <span className="task-title">{task.title}</span>
-        <a className="text-link" href={`lecturer.html?question_id=${encodeURIComponent(task.question_id)}`}>
+    <li className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-semibold text-zinc-900">{task.title}</span>
+        <TextLink className="text-[13px] whitespace-nowrap" href={`lecturer.html?question_id=${encodeURIComponent(task.question_id)}`}>
           View task
-        </a>
+        </TextLink>
       </div>
       {task.solve_rate !== null && (
-        <div className="task-meter">
-          <Meter rate={task.solve_rate} size="sm" />
-          <span className="task-count">
-            {task.solved}/{task.students} solved
-            {notSubmitted > 0 && <span className="muted"> · {notSubmitted} didn't submit</span>}
+        <div className="mt-2 flex items-center gap-3">
+          <Meter rate={task.solve_rate} size="sm" className="max-w-36" />
+          <span className="text-[13px] whitespace-nowrap text-zinc-700">
+            <span className="font-mono tabular-nums">
+              {task.solved}/{task.students}
+            </span>{" "}
+            solved
+            {notSubmitted > 0 && <span className="text-zinc-500"> · {notSubmitted} didn't submit</span>}
           </span>
         </div>
       )}
@@ -106,46 +137,68 @@ function TaskRow({ task }: { task: LectureReviewTask }) {
   );
 }
 
-function LectureItem({
-  review,
-  rank,
-  open,
-  onToggle,
-}: {
+export interface LectureItemProps {
   review: LectureReview;
   rank: number;
   open: boolean;
   onToggle: () => void;
-}) {
+}
+
+function LectureItem({ review, rank, open, onToggle }: LectureItemProps) {
   const panelId = `lecture-panel-${review.lecture_id}`;
   return (
-    <li className={open ? "lecture-item is-open" : "lecture-item"}>
-      <button className="lecture-toggle" aria-expanded={open} aria-controls={panelId} onClick={onToggle}>
-        <span className="lecture-rank">{rank}</span>
-        <span className="lecture-main">
-          <span className="lecture-name">{review.display_label}</span>
-          <span className="lecture-sub">
+    <li className="border-t border-zinc-200 first:border-t-0">
+      <button
+        type="button"
+        className="group -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-4 rounded-lg px-3 py-3.5 text-left transition-colors hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={onToggle}
+      >
+        <span
+          className={cx(
+            "grid size-7 flex-none place-items-center rounded-md font-mono text-xs font-semibold",
+            rank === 1 ? "bg-zinc-950 text-white" : "border border-zinc-200 text-zinc-600",
+          )}
+        >
+          {rank}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate text-sm font-semibold text-zinc-900">{review.display_label}</span>
+          <span className="text-[13px] text-zinc-500">
             {formatDate(review.started_at)} · {plural(review.students, "student")} · {plural(review.tasks.length, "task")}
           </span>
         </span>
         {review.solve_rate !== null && (
-          <span className="lecture-score" title="Share of students who solved each task, averaged. Not submitting counts as not solved.">
-            <span className="lecture-pct">{percent(review.solve_rate)}</span>
-            <Meter rate={review.solve_rate} />
+          <span
+            className="flex flex-none items-center gap-3"
+            title="Share of students who solved each task, averaged. Not submitting counts as not solved."
+          >
+            <span className="min-w-10 text-right font-mono text-sm font-semibold tabular-nums">
+              {percent(review.solve_rate)}
+            </span>
+            <Meter rate={review.solve_rate} className="max-sm:hidden" />
           </span>
         )}
-        <span className="chevron" aria-hidden="true" />
+        <svg
+          className={cx("size-4 flex-none text-zinc-400 transition-transform group-hover:text-zinc-700", open && "rotate-180")}
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </button>
       {open && (
-        <div className="lecture-panel" id={panelId}>
-          <ul className="task-list">
+        <div className="pb-5 sm:pl-11" id={panelId}>
+          <ul className="grid gap-2.5">
             {review.tasks.map((t) => (
               <TaskRow key={t.question_id} task={t} />
             ))}
           </ul>
-          <a className="text-link panel-link" href={`lecturer.html?lecture_id=${review.lecture_id}`}>
+          <TextLink className="mt-4 inline-block text-[13px]" href={`lecturer.html?lecture_id=${review.lecture_id}`}>
             Lecture summary &rarr;
-          </a>
+          </TextLink>
         </div>
       )}
     </li>
@@ -179,39 +232,54 @@ function topicsFrom(ranked: LectureReview[]): Topic[] {
     .sort((a, b) => a.rate - b.rate);
 }
 
-function Trend({ ranked }: { ranked: LectureReview[] }) {
+export interface TrendProps {
+  ranked: LectureReview[];
+}
+
+function Trend({ ranked }: TrendProps) {
   const chronological = [...ranked]
     .sort((a, b) => parseDate(a.started_at).getTime() - parseDate(b.started_at).getTime())
     .slice(-TREND_LECTURES);
   const weakest = ranked[0]?.lecture_id;
   return (
-    <div className="trend" role="img" aria-label="Share of tasks solved per lecture, oldest to newest">
-      <div className="trend-plot">
+    <div className="mt-6" role="img" aria-label="Share of tasks solved per lecture, oldest to newest">
+      <div className="relative flex h-36 items-end justify-evenly gap-1.5 border-b border-zinc-300 pr-10 sm:gap-3">
         {[0.25, 0.5, 0.75, 1].map((y) => (
-          <span key={y} className="trend-grid" style={{ bottom: percent(y) }} />
+          <span key={y} className="absolute inset-x-0 border-t border-dashed border-zinc-200" style={{ bottom: percent(y) }} />
         ))}
         {[0.5, 1].map((y) => (
-          <span key={y} className="trend-grid-label" style={{ bottom: percent(y) }}>
+          <span
+            key={y}
+            className="absolute right-0 translate-y-1/2 bg-white pl-1 font-mono text-[11px] text-zinc-400"
+            style={{ bottom: percent(y) }}
+          >
             {percent(y)}
           </span>
         ))}
         {chronological.map((r) => (
           <div
             key={r.lecture_id}
-            className="trend-col"
+            className="group relative flex h-full max-w-24 flex-1 flex-col items-center justify-end"
             title={`${r.display_label}: ${percent(r.solve_rate ?? 0)} solved`}
           >
-            {r.lecture_id === weakest && <span className="trend-label">{percent(r.solve_rate ?? 0)}</span>}
+            {r.lecture_id === weakest && (
+              <span className="mb-1 font-mono text-xs font-semibold text-zinc-950">{percent(r.solve_rate ?? 0)}</span>
+            )}
             <span
-              className={r.lecture_id === weakest ? "trend-bar is-weakest" : "trend-bar"}
+              className={cx(
+                "min-h-0.5 w-full rounded-t-sm transition-colors",
+                r.lecture_id === weakest ? "bg-zinc-950" : "bg-zinc-300 group-hover:bg-zinc-400",
+              )}
               style={{ height: percent(r.solve_rate ?? 0) }}
             />
           </div>
         ))}
       </div>
-      <div className="trend-axis">
+      <div className="mt-2 flex justify-evenly gap-1.5 pr-10 sm:gap-3">
         {chronological.map((r) => (
-          <span key={r.lecture_id}>{shortDate(r.started_at)}</span>
+          <span key={r.lecture_id} className="max-w-24 flex-1 text-center font-mono text-[11px] whitespace-nowrap text-zinc-500">
+            {shortDate(r.started_at)}
+          </span>
         ))}
       </div>
     </div>
@@ -274,129 +342,145 @@ export default function App() {
   return (
     <>
       <NavBar />
-      <header>
-        <h1>Lecture history</h1>
-      </header>
-      <main>
-        {reviewError && (
-          <div className="card notice">Couldn't load the ranking.</div>
-        )}
-        {reviews && ranked.length === 0 && !reviewError && (
-          <div className="card notice">No finished lectures with {MIN_STUDENTS_FOR_REVIEW}+ students yet.</div>
-        )}
+      <Page>
+        <PageHeader
+          eyebrow="Review"
+          title="Lecture history"
+          description="What should a review lecture go back over? Lectures and topics, worst first."
+        />
 
-        {ranked.length > 0 && (
-          <>
-            <section className="stats" aria-label="Overview">
-              <div className="stat">
-                <span className="stat-label">Weakest lecture</span>
-                <span className="stat-value">{percent(ranked[0].solve_rate ?? 0)}</span>
-                <span className="stat-sub">{ranked[0].display_label}</span>
-              </div>
-              {topics[0] && (
-                <div className="stat">
-                  <span className="stat-label">Hardest topic</span>
-                  <span className="stat-value stat-value-text">{topics[0].title}</span>
-                  <span className="stat-sub">
-                    {percent(topics[0].rate)} solved · {plural(topics[0].lectures, "lecture")}
-                  </span>
-                </div>
-              )}
-              {average !== null && (
-                <div className="stat">
-                  <span className="stat-label">Average</span>
-                  <span className="stat-value">{percent(average)}</span>
-                  <span className="stat-sub">
-                    {plural(ranked.length, "lecture")}
-                  </span>
-                </div>
-              )}
-            </section>
-
-            <div className="card trend-card">
-              <div className="card-head">
-                <h2>Solved per lecture</h2>
-              </div>
-              <Trend ranked={ranked} />
-            </div>
-
-            <div className="layout">
-              <div className="card">
-                <div className="card-head">
-                  <h2>Lectures, worst first</h2>
-                </div>
-                <ol className="lecture-list">
-                  {ranked.map((r, i) => (
-                    <LectureItem
-                      key={r.lecture_id}
-                      review={r}
-                      rank={i + 1}
-                      open={openId === r.lecture_id}
-                      onToggle={() => setOpenId((id) => (id === r.lecture_id ? null : r.lecture_id))}
-                    />
-                  ))}
-                </ol>
-                {unranked > 0 && (
-                  <p className="footnote">
-                    {plural(unranked, "lecture")} with under {MIN_STUDENTS_FOR_REVIEW} students not ranked.
-                  </p>
-                )}
-              </div>
-
-              <div className="card">
-                <div className="card-head">
-                  <h2>Topics to revisit</h2>
-                </div>
-                <ol className="topic-list">
-                  {topics.slice(0, TOPICS_SHOWN).map((t) => (
-                    <li key={t.title} className="topic">
-                      <div className="topic-head">
-                        <span className="task-title">{t.title}</span>
-                        <span className="topic-pct">{percent(t.rate)}</span>
-                      </div>
-                      <Meter rate={t.rate} size="sm" />
-                      <span className="topic-sub">{plural(t.lectures, "lecture")}</span>
-                      <IssueLine task={t.worst} />
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="card" id="history-card">
-          <div className="card-head">
-            <h2>All lectures</h2>
-            <label className="archived-toggle">
-              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-              Show archived
-            </label>
-          </div>
-          {history && history.length === 0 && <p className="card-intro">No lectures yet.</p>}
-          {history && history.length > 0 && (
-            <ul id="lecture-list">
-              {history.map((row) => (
-                <li key={row.id} className={row.archived ? "archived" : ""}>
-                  <a className="lecture-row-link" href={`lecturer.html?lecture_id=${row.id}`}>
-                    <span className="lecture-name">{row.display_label}</span>
-                    <span className="lecture-sub">
-                      {formatDate(row.started_at)} · {plural(row.task_count, "task")} · {statsSnapshot(row)}
-                    </span>
-                  </a>
-                  <button
-                    className="secondary archive-btn"
-                    disabled={archiving === row.id}
-                    onClick={() => handleArchiveToggle(row)}
-                  >
-                    {row.archived ? "Unarchive" : "Archive"}
-                  </button>
-                </li>
-              ))}
-            </ul>
+        <div className="grid gap-6">
+          {reviewError && <EmptyState title="Couldn't load the ranking." />}
+          {reviews && ranked.length === 0 && !reviewError && (
+            <EmptyState title={`No finished lectures with ${MIN_STUDENTS_FOR_REVIEW}+ students yet.`} />
           )}
+
+          {ranked.length > 0 && (
+            <>
+              <section
+                className="grid grid-cols-1 divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white sm:grid-cols-[1fr_1.4fr_1fr] sm:divide-x sm:divide-y-0"
+                aria-label="Overview"
+              >
+                <div className="min-w-0 p-5 sm:p-6">
+                  <Eyebrow>Weakest lecture</Eyebrow>
+                  <div className="mt-2 font-mono text-3xl font-semibold tracking-tight tabular-nums">
+                    {percent(ranked[0].solve_rate ?? 0)}
+                  </div>
+                  <div className="mt-1 truncate text-[13px] text-zinc-500">{ranked[0].display_label}</div>
+                </div>
+                {topics[0] && (
+                  <div className="min-w-0 p-5 sm:p-6">
+                    <Eyebrow>Hardest topic</Eyebrow>
+                    <div className="mt-2 text-xl leading-tight font-bold tracking-tight text-zinc-950">{topics[0].title}</div>
+                    <div className="mt-1 truncate text-[13px] text-zinc-500">
+                      {percent(topics[0].rate)} solved · {plural(topics[0].lectures, "lecture")}
+                    </div>
+                  </div>
+                )}
+                {average !== null && (
+                  <div className="min-w-0 p-5 sm:p-6">
+                    <Eyebrow>Average</Eyebrow>
+                    <div className="mt-2 font-mono text-3xl font-semibold tracking-tight tabular-nums">{percent(average)}</div>
+                    <div className="mt-1 truncate text-[13px] text-zinc-500">{plural(ranked.length, "lecture")}</div>
+                  </div>
+                )}
+              </section>
+
+              <Card>
+                <SectionTitle>Solved per lecture</SectionTitle>
+                <Trend ranked={ranked} />
+              </Card>
+
+              <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
+                <Card>
+                  <SectionTitle className="mb-2">Lectures, worst first</SectionTitle>
+                  <ol>
+                    {ranked.map((r, i) => (
+                      <LectureItem
+                        key={r.lecture_id}
+                        review={r}
+                        rank={i + 1}
+                        open={openId === r.lecture_id}
+                        onToggle={() => setOpenId((id) => (id === r.lecture_id ? null : r.lecture_id))}
+                      />
+                    ))}
+                  </ol>
+                  {unranked > 0 && (
+                    <p className="mt-4 border-t border-zinc-200 pt-4 text-[13px] text-zinc-500">
+                      {plural(unranked, "lecture")} with under {MIN_STUDENTS_FOR_REVIEW} students not ranked.
+                    </p>
+                  )}
+                </Card>
+
+                <Card>
+                  <SectionTitle className="mb-4">Topics to revisit</SectionTitle>
+                  <ol className="grid divide-y divide-zinc-200">
+                    {topics.slice(0, TOPICS_SHOWN).map((t) => (
+                      <li key={t.title} className="grid gap-1.5 py-4 first:pt-0 last:pb-0">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-sm font-semibold text-zinc-900">{t.title}</span>
+                          <span className="font-mono text-sm font-semibold tabular-nums">{percent(t.rate)}</span>
+                        </div>
+                        <Meter rate={t.rate} size="sm" />
+                        <span className="text-xs text-zinc-500">{plural(t.lectures, "lecture")}</span>
+                        <IssueLine task={t.worst} />
+                      </li>
+                    ))}
+                  </ol>
+                </Card>
+              </div>
+            </>
+          )}
+
+          <Card>
+            <SectionTitle
+              actions={
+                <Checkbox
+                  label="Show archived"
+                  checked={showArchived}
+                  onChange={(e) => setShowArchived(e.target.checked)}
+                />
+              }
+            >
+              All lectures
+            </SectionTitle>
+            {history && history.length === 0 && <p className="mt-3 text-sm text-zinc-500">No lectures yet.</p>}
+            {history && history.length > 0 && (
+              <ul className="mt-3">
+                {history.map((row) => (
+                  <li
+                    key={row.id}
+                    className={cx(
+                      "flex items-center justify-between gap-3 border-t border-zinc-200 py-3 first:border-t-0",
+                      row.archived && "opacity-50",
+                    )}
+                  >
+                    <a
+                      className="group flex min-w-0 flex-1 flex-col gap-0.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                      href={`lecturer.html?lecture_id=${row.id}`}
+                    >
+                      <span className="truncate text-sm font-semibold text-zinc-900 group-hover:underline group-hover:underline-offset-4">
+                        {row.display_label}
+                      </span>
+                      <span className="text-[13px] text-zinc-500">
+                        {formatDate(row.started_at)} · {plural(row.task_count, "task")} · {statsSnapshot(row)}
+                      </span>
+                    </a>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={archiving === row.id}
+                      onClick={() => handleArchiveToggle(row)}
+                    >
+                      {row.archived ? "Unarchive" : "Archive"}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
         </div>
-      </main>
+      </Page>
     </>
   );
 }

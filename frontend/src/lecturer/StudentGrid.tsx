@@ -3,6 +3,10 @@ import type { StudentActivity, SubmissionRow, Verdict } from "../shared/types";
 import { LABEL, activityText, activityTitle, attemptTitle, buildTracks, isSolved, verdictOf } from "./studentTracks";
 import type { StudentTrack } from "./studentTracks";
 import { SubmissionDetail } from "./ExampleBlock";
+import { ActivityDot } from "./ClassProgress";
+import { VERDICT_BORDER } from "./verdictStyles";
+import { Button, Card } from "../shared/ui";
+import { cx } from "../shared/cx";
 
 // The live dashboard's per-student view, laid out like a gradebook: students
 // grouped under their best result (worst first), one line each -- name, a
@@ -22,13 +26,21 @@ const NAMES_KEY = "lecturer.studentGrid.names";
 type Group = Verdict | "none";
 
 // Worst first: the students worth a look sit at the top.
-const GROUPS: { key: Group; title: string }[] = [
-  { key: "error", title: "Errors" },
-  { key: "incorrect", title: "Wrong" },
-  { key: "partially_correct", title: "Partial" },
-  { key: "none", title: "No submission" },
-  { key: "correct", title: "Solved" },
+const GROUPS: { key: Group; title: string; tone: string }[] = [
+  { key: "error", title: "Errors", tone: "text-red-700" },
+  { key: "incorrect", title: "Wrong", tone: "text-red-700" },
+  { key: "partially_correct", title: "Partial", tone: "text-zinc-900" },
+  { key: "none", title: "No submission", tone: "text-zinc-900" },
+  { key: "correct", title: "Solved", tone: "text-emerald-700" },
 ];
+
+// Roster bars: solid for a run, hollow outline for an error (didn't run).
+const BAR_FILL: Record<Verdict, string> = {
+  correct: "bg-emerald-600",
+  partially_correct: "bg-amber-400",
+  incorrect: "bg-red-600",
+  error: "shadow-[inset_0_0_0_1px_var(--color-red-600)]",
+};
 
 function readShowNames(): boolean {
   try {
@@ -51,13 +63,13 @@ export interface AttemptBarsProps {
 export function AttemptBars({ attempts }: AttemptBarsProps) {
   const hidden = Math.max(0, attempts.length - MAX_BARS);
   return (
-    <span className="roster-bars" aria-hidden="true">
-      {hidden > 0 && <span className="roster-bars-more">+{hidden}</span>}
+    <span className="flex h-3.5 items-end gap-0.5" aria-hidden="true">
+      {hidden > 0 && <span className="mr-0.5 font-mono text-[10px] text-zinc-500">+{hidden}</span>}
       {attempts.slice(hidden).map((s) => {
         const verdict = verdictOf(s);
         const share = s.tests_total ? s.tests_passed / s.tests_total : 0;
         const height = verdict === "error" ? BAR_HEIGHT : Math.max(2, Math.round(share * BAR_HEIGHT));
-        return <span key={s.id} className={`roster-bar roster-bar-${verdict}`} style={{ height }} />;
+        return <span key={s.id} className={cx("w-1 rounded-[1px]", BAR_FILL[verdict])} style={{ height }} />;
       })}
     </span>
   );
@@ -101,41 +113,52 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
   }
 
   return (
-    <div className="card" id="students-card">
-      <div className="roster-head">
-        <h2>Students</h2>
-        <span className="roster-totals">
+    <Card>
+      <div className="flex items-center gap-3">
+        <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Students</h2>
+        <span className="font-mono text-xs text-zinc-500">
           {tracks.length} students · {subs.length} attempts
         </span>
         {tracks.length > 0 && (
-          <button className="roster-names-toggle" aria-pressed={showNames} onClick={toggleNames}>
+          <Button variant="secondary" size="sm" className="ml-auto" aria-pressed={showNames} onClick={toggleNames}>
             {showNames ? "Hide names" : "Show names"}
-          </button>
+          </Button>
         )}
       </div>
 
-      {tracks.length === 0 && <div className="card-empty">No one yet.</div>}
+      {tracks.length === 0 && <p className="mt-3 text-sm text-zinc-500">No one yet.</p>}
 
-      {GROUPS.map(({ key, title }) => {
+      {GROUPS.map(({ key, title, tone }) => {
         const members = tracks.filter((t) => groupOf(t) === key);
         if (members.length === 0) return null;
         return (
-          <section key={key} className={`roster-group roster-group-${key}`}>
-            <h3>
+          <section key={key} className="mt-5">
+            <h3
+              className={cx(
+                "mb-1 flex items-baseline gap-2 border-b border-zinc-200 pb-1.5 text-[13px] font-bold tracking-tight",
+                tone,
+              )}
+            >
               {title}
-              <span className="roster-group-count">{members.length}</span>
+              <span className="font-mono text-xs font-medium text-zinc-500">{members.length}</span>
             </h3>
-            <ul className="roster-list">
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.75rem,1fr))] gap-x-4">
               {members.map((t) => {
                 const a = activity && !isSolved(t) ? t.activity : null;
                 // "Away" is most students most of the time -- the top strip
                 // counts them; a dot on every line would just be noise.
                 const dot = a && a.status !== "away" ? a : null;
+                const isSelected = selected === t.name;
                 return (
                   <li key={t.name}>
                     <button
-                      className="roster-entry"
-                      aria-pressed={selected === t.name}
+                      type="button"
+                      className={cx(
+                        "-mx-1.5 grid w-[calc(100%+0.75rem)] grid-cols-[1fr_auto_2.2rem] items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] transition-colors",
+                        "focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-zinc-900",
+                        isSelected ? "bg-zinc-100 ring-1 ring-zinc-900 ring-inset" : "hover:bg-zinc-100",
+                      )}
+                      aria-pressed={isSelected}
                       onClick={() => select(t.name)}
                       title={
                         `${label(t)}: ` +
@@ -143,13 +166,23 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
                         (a ? ` · ${activityTitle(a)}` : "")
                       }
                     >
-                      <span className="roster-name">
-                        {dot && <span className={`roster-act cp-act-${dot.status}`} aria-label={activityText(dot)} />}
+                      <span
+                        className={cx(
+                          "flex min-w-0 items-center gap-1.5 truncate",
+                          key === "none" ? "text-zinc-500" : "text-zinc-900",
+                          !showNames && "font-mono text-xs",
+                        )}
+                      >
+                        {dot && (
+                          <span role="img" aria-label={activityText(dot)} className="flex">
+                            <ActivityDot status={dot.status} />
+                          </span>
+                        )}
                         {label(t)}
                       </span>
                       <AttemptBars attempts={t.attempts} />
                       {t.best && (
-                        <span className="roster-score">
+                        <span className="text-right font-mono text-xs text-zinc-500 tabular-nums">
                           {t.best.tests_passed}/{t.best.tests_total}
                         </span>
                       )}
@@ -163,31 +196,44 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
       })}
 
       {track && (
-        <div className="roster-detail">
-          <div className="roster-detail-head">
-            <strong>{label(track)}</strong>
+        <div className="mt-5 animate-fade-in border-t border-zinc-200 pt-4 text-[13px]">
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <strong className={cx("font-bold tracking-tight text-zinc-950", !showNames && "font-mono")}>
+              {label(track)}
+            </strong>
             {track.attempts.length > 0 && (
-              <span className="roster-attempts" role="group" aria-label="Attempts">
-                {track.attempts.map((s) => (
-                  <button
-                    key={s.id}
-                    className={`roster-attempt roster-attempt-${verdictOf(s)}`}
-                    aria-pressed={shownSub?.id === s.id}
-                    title={attemptTitle(s)}
-                    onClick={() => setSelectedAttempt(s.id)}
-                  >
-                    {s.attempt_number}
-                  </button>
-                ))}
+              <span className="flex flex-wrap gap-1" role="group" aria-label="Attempts">
+                {track.attempts.map((s) => {
+                  const pressed = shownSub?.id === s.id;
+                  return (
+                    <button
+                      type="button"
+                      key={s.id}
+                      className={cx(
+                        "min-w-7 rounded-md border border-b-[3px] px-1.5 py-0.5 font-mono text-xs font-semibold transition-colors",
+                        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900",
+                        VERDICT_BORDER[verdictOf(s)],
+                        pressed
+                          ? "border-x-zinc-900 border-t-zinc-900 bg-zinc-900 text-white"
+                          : "border-x-zinc-200 border-t-zinc-200 bg-white text-zinc-900 hover:bg-zinc-100",
+                      )}
+                      aria-pressed={pressed}
+                      title={attemptTitle(s)}
+                      onClick={() => setSelectedAttempt(s.id)}
+                    >
+                      {s.attempt_number}
+                    </button>
+                  );
+                })}
               </span>
             )}
-            <button className="roster-close" onClick={() => setSelected(null)}>
+            <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setSelected(null)}>
               Close
-            </button>
+            </Button>
           </div>
-          {shownSub ? <SubmissionDetail sub={shownSub} /> : <div className="card-empty">No attempts yet.</div>}
+          {shownSub ? <SubmissionDetail sub={shownSub} /> : <p className="text-sm text-zinc-500">No attempts yet.</p>}
         </div>
       )}
-    </div>
+    </Card>
   );
 }

@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { LectureStatus, SharedExample } from "../shared/types";
 import { fetchActiveLecture, fetchLectureStatus } from "../shared/api";
 import { Editor, monaco } from "../shared/monaco";
+import { BrandMark, Button, Eyebrow } from "../shared/ui";
+import { cx } from "../shared/cx";
 
 // The lecturer's projector screen: whatever task is live, a big countdown,
 // and -- once time is up -- the attempts the lecturer picked with "Show to
@@ -66,91 +69,156 @@ export default function App() {
   const timeUp = secondsRemaining === 0;
   const examples = status?.shown_examples ?? [];
 
+  const compact = timeUp && examples.length > 0;
+
   return (
-    <div className="projector">
-      <div className="projector-bar">
-        <span className="projector-brand">
-          <span className="top-nav-mark" aria-hidden="true">IL</span>
-          Interactive Lecture
-        </span>
-        <div className="projector-bar-right">
+    <div className="flex min-h-screen flex-col bg-zinc-50">
+      <div className="flex items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-3 sm:px-8">
+        <BrandMark />
+        <div className="flex items-center gap-3">
           {joinCode && question && (
-            <span className="join-code-pill">
-              Join code <strong>{joinCode}</strong>
+            <span className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-1.5 text-lg">
+              <span className="text-zinc-500">Join code</span>
+              <strong className="font-mono font-bold tracking-[0.12em] text-zinc-950">{joinCode}</strong>
             </span>
           )}
           <FullscreenButton />
         </div>
       </div>
 
-      {error && !status && <div className="projector-empty">{error}</div>}
+      {error && !status && <ProjectorEmpty>{error}</ProjectorEmpty>}
 
       {status && status.finished && !question && (
-        <div className="projector-empty">
-          <h1>That's the lecture. Thanks!</h1>
-        </div>
+        <ProjectorEmpty>
+          <h1 className="text-5xl font-bold tracking-tight">That's the lecture. Thanks!</h1>
+        </ProjectorEmpty>
       )}
 
       {status && !status.finished && !question && (
-        <div className="projector-empty">
+        <ProjectorEmpty>
           {joinCode ? (
             <>
-              <p className="join-instructions">
-                Go to <strong>{window.location.host}/student.html</strong> and enter
+              <p className="text-3xl text-zinc-500">
+                Go to <strong className="font-semibold text-zinc-950">{window.location.host}/student.html</strong> and
+                enter
               </p>
-              <div className="join-code-big">{joinCode}</div>
-              <p className="join-sub">Waiting for the first task to start.</p>
+              <div className="my-6 font-mono text-[clamp(5rem,16vw,12rem)] leading-none font-bold tracking-[0.12em] text-zinc-950">
+                {joinCode}
+              </div>
+              <p className="flex items-center gap-2.5 text-xl text-zinc-500">
+                <span className="size-2 animate-pulse-dot rounded-[2px] bg-emerald-500" aria-hidden="true" />
+                Waiting for the first task to start.
+              </p>
             </>
           ) : (
-            <h1>Waiting for the lecture to start.</h1>
+            <h1 className="text-5xl font-bold tracking-tight">Waiting for the lecture to start.</h1>
           )}
-        </div>
+        </ProjectorEmpty>
       )}
 
       {question && (
-        <main className="projector-main">
-          <section className={timeUp && examples.length > 0 ? "task-panel compact" : "task-panel"}>
-            <div className="task-text">
-              <h1>{question.title}</h1>
-              <p className="task-prompt">{question.prompt}</p>
-              {question.example && !(timeUp && examples.length > 0) && (
-                <dl className="io-table">
-                  <dt>Example input</dt>
-                  <dd>
-                    <code>{question.example.stdin.trimEnd() || "(none)"}</code>
-                  </dd>
-                  <dt>Expected output</dt>
-                  <dd>
-                    <code>{question.example.expected_stdout.trimEnd()}</code>
-                  </dd>
-                </dl>
+        <main className="mx-auto flex w-full max-w-[1500px] flex-col gap-8 p-5 sm:p-10">
+          <section className="flex flex-col items-start justify-between gap-10 lg:flex-row">
+            <div className="min-w-0 flex-1">
+              <h1
+                className={cx(
+                  "font-bold tracking-tight text-zinc-950",
+                  compact ? "mb-2 text-4xl" : "mb-4 text-6xl",
+                )}
+              >
+                {question.title}
+              </h1>
+              <p
+                className={cx(
+                  "leading-snug whitespace-pre-wrap text-zinc-700",
+                  compact ? "text-2xl" : "mb-8 text-[2rem]",
+                )}
+              >
+                {question.prompt}
+              </p>
+              {question.example && !compact && (
+                <IoTable
+                  className="text-2xl"
+                  rows={[
+                    ["Example input", question.example.stdin.trimEnd() || "(none)"],
+                    ["Expected output", question.example.expected_stdout.trimEnd()],
+                  ]}
+                />
               )}
             </div>
-            <div className={timeUp ? "timer time-up" : "timer"}>
-              <div className="timer-label">{timeUp ? "Time's up" : "Time left"}</div>
-              <div className="timer-value">{secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}</div>
+            <div
+              className={cx(
+                "flex-none rounded-xl border bg-white text-center",
+                timeUp ? "border-red-200" : "border-zinc-200",
+                compact ? "min-w-44 px-6 py-3" : "min-w-64 px-8 py-5",
+              )}
+            >
+              <Eyebrow className={cx("text-sm", timeUp && "text-red-600")}>{timeUp ? "Time's up" : "Time left"}</Eyebrow>
+              <div
+                className={cx(
+                  "font-mono leading-none font-bold tracking-tight tabular-nums",
+                  timeUp ? "text-red-600" : "text-zinc-950",
+                  compact ? "mt-2 text-5xl" : "mt-3 text-[5.5rem]",
+                )}
+              >
+                {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
+              </div>
             </div>
           </section>
 
-          {timeUp && examples.length > 0 && (
-            <section className="examples">
-              <h2>Let's look at this together</h2>
-              {examples.map((ex, i) => (
-                <ExampleCard
-                  // Keyed by content, not just position, so a poll never
-                  // remounts (and wipes the lecturer's edits/highlights on) an
-                  // example that's still up.
-                  key={`${question.id}:${i}:${ex.source_code}`}
-                  example={ex}
-                  label={examples.length > 1 ? `Example ${i + 1}` : null}
-                  language={question.language}
-                />
-              ))}
+          {compact && (
+            <section>
+              <h2 className="mb-5 text-4xl font-bold tracking-tight">Let's look at this together</h2>
+              <div className="grid gap-6">
+                {examples.map((ex, i) => (
+                  <ExampleCard
+                    // Keyed by content, not just position, so a poll never
+                    // remounts (and wipes the lecturer's edits/highlights on) an
+                    // example that's still up.
+                    key={`${question.id}:${i}:${ex.source_code}`}
+                    example={ex}
+                    label={examples.length > 1 ? `Example ${i + 1}` : null}
+                    language={question.language}
+                  />
+                ))}
+              </div>
             </section>
           )}
         </main>
       )}
     </div>
+  );
+}
+
+export interface ProjectorEmptyProps {
+  children: ReactNode;
+}
+
+function ProjectorEmpty({ children }: ProjectorEmptyProps) {
+  return (
+    <div className="flex flex-1 animate-fade-in flex-col items-center justify-center p-8 text-center">{children}</div>
+  );
+}
+
+export interface IoTableProps {
+  rows: Array<[label: string, value: string]>;
+  className?: string;
+}
+
+function IoTable({ rows, className }: IoTableProps) {
+  return (
+    <dl className={cx("grid grid-cols-[max-content_1fr] items-start gap-x-6 gap-y-3", className)}>
+      {rows.map(([label, value]) => (
+        <Fragment key={label}>
+          <dt className="pt-1 font-medium text-zinc-500">{label}</dt>
+          <dd>
+            <code className="inline-block rounded-lg border border-zinc-200 bg-white px-3 py-1 font-mono whitespace-pre-wrap text-zinc-950">
+              {value}
+            </code>
+          </dd>
+        </Fragment>
+      ))}
+    </dl>
   );
 }
 
@@ -162,15 +230,15 @@ function FullscreenButton() {
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
   return (
-    <button
-      className="secondary"
+    <Button
+      variant="secondary"
       onClick={() => {
         if (document.fullscreenElement) void document.exitFullscreen();
         else void document.documentElement.requestFullscreen();
       }}
     >
       {full ? "Exit full screen" : "Full screen"}
-    </button>
+    </Button>
   );
 }
 
@@ -181,15 +249,13 @@ const LINE_HEIGHT = 30;
 // selection (or the cursor's line) and rewrite the code live while talking
 // it through. Edits only live on this screen -- students' own waiting
 // screens keep showing the original attempt.
-function ExampleCard({
-  example,
-  label,
-  language,
-}: {
+export interface ExampleCardProps {
   example: SharedExample;
   label: string | null;
   language: string;
-}) {
+}
+
+function ExampleCard({ example, label, language }: ExampleCardProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const highlightsRef = useRef<monaco.editor.IEditorDecorationsCollection[]>([]);
   const [lineCount, setLineCount] = useState(() => example.source_code.split("\n").length);
@@ -237,23 +303,23 @@ function ExampleCard({
   const failing = example.failing_test;
 
   return (
-    <div className="example-card">
-      <div className="example-head">
-        {label && <span className="example-label">{label}</span>}
-        <div className="example-tools">
-          <button className="secondary" onClick={highlight} title="Highlight the selection, or the cursor's line (Ctrl+B)">
+    <div className="rounded-xl border border-zinc-200 bg-white p-5">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        {label && <span className="text-xl font-bold tracking-tight text-zinc-950">{label}</span>}
+        <div className="ml-auto flex gap-2">
+          <Button variant="secondary" onClick={highlight} title="Highlight the selection, or the cursor's line (Ctrl+B)">
             Highlight
-          </button>
-          <button className="secondary" onClick={clearHighlights} disabled={highlightCount === 0}>
+          </Button>
+          <Button variant="secondary" onClick={clearHighlights} disabled={highlightCount === 0}>
             Clear highlights
-          </button>
-          <button className="secondary" onClick={reset} disabled={!edited && highlightCount === 0}>
+          </Button>
+          <Button variant="secondary" onClick={reset} disabled={!edited && highlightCount === 0}>
             Reset
-          </button>
+          </Button>
         </div>
       </div>
-      <div className="example-body">
-        <div className="example-editor">
+      <div className="flex flex-col items-start gap-8 lg:flex-row">
+        <div className="w-full min-w-0 flex-1 overflow-hidden rounded-lg border border-zinc-200">
           <Editor
             height={height}
             defaultLanguage={language}
@@ -298,31 +364,20 @@ function ExampleCard({
           />
         </div>
         {failing && (
-          <dl className="io-table example-io">
-            <dt>Input</dt>
-            <dd>
-              <code>{failing.stdin.trimEnd() || "(none)"}</code>
-            </dd>
-            <dt>Expected</dt>
-            <dd>
-              <code>{failing.expected_stdout.trimEnd()}</code>
-            </dd>
-            <dt>Got</dt>
-            <dd>
-              <code>{failing.stdout.trim() || "(nothing)"}</code>
-            </dd>
-            {failing.stderr && (
-              <>
-                <dt>Error</dt>
-                <dd>
-                  <code>{failing.stderr.trim().split("\n").pop()}</code>
-                </dd>
-              </>
-            )}
-          </dl>
+          <IoTable
+            className="flex-none text-xl lg:max-w-[40%]"
+            rows={[
+              ["Input", failing.stdin.trimEnd() || "(none)"],
+              ["Expected", failing.expected_stdout.trimEnd()],
+              ["Got", failing.stdout.trim() || "(nothing)"],
+              ...(failing.stderr
+                ? ([["Error", failing.stderr.trim().split("\n").pop() ?? ""]] as Array<[string, string]>)
+                : []),
+            ]}
+          />
         )}
       </div>
-      {edited && <div className="example-note">Edited here only. Students still see the original.</div>}
+      {edited && <p className="mt-3 text-[15px] text-zinc-500">Edited here only. Students still see the original.</p>}
     </div>
   );
 }

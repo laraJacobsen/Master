@@ -14,6 +14,9 @@ import {
 } from "../shared/api";
 import { NavBar } from "../shared/NavBar";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { Badge, Button, Card, Code, Input, Label, LinkButton, Page, PageHeader, Select, Textarea } from "../shared/ui";
+import { cx } from "../shared/cx";
+import type { Tone } from "../shared/ui";
 
 // Lecture preparation. Top: the lecture itself and its one next action (open
 // the lobby, or go back to it / the live dashboard). Left: the questions in
@@ -58,13 +61,104 @@ const STEPS = ["Task", "Tests & solution", "Timing & class"] as const;
 // request per keystroke.
 const AUTOSAVE_MS = 900;
 
+type StatusKind = "live" | "done" | "ready" | "check";
+
 // Plain-language status for the question list.
-function statusLabel(q: QuestionRow): { text: string; kind: string } {
+function statusLabel(q: QuestionRow): { text: string; kind: StatusKind } {
   if (q.status === "live") return { text: "Live", kind: "live" };
   if (q.status === "closed") return { text: "Done", kind: "done" };
   if (q.status === "skipped") return { text: "Skipped", kind: "done" };
   return q.validated ? { text: "Ready", kind: "ready" } : { text: "Needs a check", kind: "check" };
 }
+
+const STATUS_DOT: Record<StatusKind, string> = {
+  live: "bg-emerald-500 animate-pulse-dot",
+  ready: "bg-emerald-500",
+  check: "bg-amber-500",
+  done: "bg-zinc-300",
+};
+const STATUS_TEXT: Record<StatusKind, string> = {
+  live: "text-emerald-700",
+  ready: "text-emerald-700",
+  check: "text-amber-700",
+  done: "text-zinc-500",
+};
+
+export interface StatusTextProps {
+  kind: StatusKind;
+  children: string;
+}
+
+function StatusText({ kind, children }: StatusTextProps) {
+  return (
+    <span className={cx("inline-flex items-center gap-1.5 text-xs font-medium", STATUS_TEXT[kind])}>
+      <span className={cx("size-1.5 rounded-[2px]", STATUS_DOT[kind])} aria-hidden="true" />
+      {children}
+    </span>
+  );
+}
+
+export interface RemoveButtonProps {
+  label: string;
+  onClick: (e: MouseEvent<HTMLButtonElement>) => void;
+  className?: string;
+}
+
+// Small "x" for deleting a row (question, test case).
+function RemoveButton({ label, onClick, className }: RemoveButtonProps) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title="Remove"
+      onClick={onClick}
+      className={cx(
+        "grid size-7 flex-none place-items-center rounded-md text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600",
+        "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-zinc-900 disabled:pointer-events-none disabled:opacity-40",
+        className,
+      )}
+    >
+      <svg className="size-3.5" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M3.5 3.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+}
+
+// Dashed "attach" control wrapping a hidden file input. Greys out when the
+// step fieldset is disabled (a started question is read-only).
+export interface FilePickLabelProps {
+  children: string;
+  inputLabel: string;
+  multiple?: boolean;
+  onFiles: (files: FileList | null) => void;
+}
+
+function FilePickLabel({ children, inputLabel, multiple = false, onFiles }: FilePickLabelProps) {
+  return (
+    <label
+      className={cx(
+        "relative inline-flex cursor-pointer items-center rounded-md border border-dashed border-zinc-300 px-2 py-0.5 text-xs text-zinc-500 transition-colors",
+        "hover:border-zinc-500 hover:text-zinc-900 focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-zinc-900",
+        "group-disabled:cursor-default group-disabled:opacity-50 group-disabled:hover:border-zinc-300 group-disabled:hover:text-zinc-500",
+      )}
+    >
+      {children}
+      <input
+        type="file"
+        multiple={multiple}
+        className="pointer-events-none absolute size-px opacity-0"
+        aria-label={inputLabel}
+        onChange={(e) => {
+          onFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+    </label>
+  );
+}
+
+const LECTURE_TONE: Record<"live" | "open" | "prep", Tone> = { live: "success", open: "info", prep: "neutral" };
 
 export default function App() {
   const [questions, setQuestions] = useState<QuestionRow[]>([]);
@@ -623,114 +717,145 @@ export default function App() {
   const lobbyOpen = Boolean(activeLecture?.lobby_opened_at);
   const canStartNow = lobbyOpen && !liveQuestionId && currentStatus === "draft" && currentValidated;
 
+  const lectureState: "live" | "open" | "prep" = liveQuestionId ? "live" : lobbyOpen ? "open" : "prep";
+  const editorStatus: StatusKind =
+    currentStatus === "live" ? "live" : currentStatus !== "draft" ? "done" : currentValidated ? "ready" : "check";
+
   return (
     <>
       <NavBar />
-      <header>
-        <h1>Prepare lecture</h1>
-      </header>
-      <main>
-        {activeLecture && (
-          <section className="card lecture-bar" aria-label="Lecture">
-            <div className="lecture-bar-info">
-              <div className="lecture-bar-title">
-                <span className="lecture-bar-name">{activeLecture.display_label}</span>
-                <span className={`chip chip-${liveQuestionId ? "live" : lobbyOpen ? "open" : "prep"}`}>
+      <Page>
+        <PageHeader
+          eyebrow={activeLecture ? activeLecture.display_label : "Lecture"}
+          title="Prepare lecture"
+          description={
+            activeLecture && (
+              <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <Badge tone={LECTURE_TONE[lectureState]} dot pulse={lectureState === "live"}>
                   {liveQuestionId ? "Live" : lobbyOpen ? "Lobby open" : "Preparing"}
+                </Badge>
+                <span>
+                  {questions.length === 0 ? (
+                    "No questions yet"
+                  ) : (
+                    <>
+                      <span className="font-mono text-zinc-900 tabular-nums">
+                        {readyCount}/{draftCount}
+                      </span>{" "}
+                      ready
+                    </>
+                  )}
                 </span>
-              </div>
-              <div className="lecture-bar-sub">
-                {questions.length === 0
-                  ? "No questions yet"
-                  : `${readyCount}/${draftCount} ready`}
                 {lobbyOpen && activeLecture.join_code && (
-                  <>
-                    {" "}
-                    · Code <strong className="join-code">{activeLecture.join_code}</strong>
-                  </>
+                  <span>
+                    Code{" "}
+                    <strong className="font-mono font-bold tracking-[0.12em] text-zinc-950">
+                      {activeLecture.join_code}
+                    </strong>
+                  </span>
                 )}
-              </div>
-            </div>
-            <div className="lecture-bar-actions">
-              {!liveQuestionId && (
-                <button
-                  type="button"
-                  className="link-button danger-link"
-                  onClick={() => setConfirmDeleteLectureOpen(true)}
-                  disabled={deletingLecture}
-                >
-                  {deletingLecture ? "Deleting..." : "Delete lecture"}
-                </button>
-              )}
-              {liveQuestionId ? (
-                <a className="button-link" href={`lecturer.html?question_id=${encodeURIComponent(liveQuestionId)}`}>
-                  Back to live dashboard &rarr;
-                </a>
-              ) : lobbyOpen ? (
-                <a className="button-link" href={`lecturer.html?lobby=${activeLecture.id}`}>
-                  Back to lobby &rarr;
-                </a>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleOpenLobby}
-                  disabled={openingLobby || readyCount === 0}
-                  title={readyCount === 0 ? "No questions ready yet" : undefined}
-                >
-                  {openingLobby ? "Opening..." : "Open lobby"}
-                </button>
-              )}
-            </div>
-            {(lobbyError || deleteLectureError) && (
-              <div className="form-status bad lecture-bar-error">{lobbyError || deleteLectureError}</div>
-            )}
-          </section>
+              </span>
+            )
+          }
+          actions={
+            activeLecture && (
+              <>
+                {!liveQuestionId && (
+                  <Button
+                    variant="danger-ghost"
+                    onClick={() => setConfirmDeleteLectureOpen(true)}
+                    disabled={deletingLecture}
+                  >
+                    {deletingLecture ? "Deleting..." : "Delete lecture"}
+                  </Button>
+                )}
+                {liveQuestionId ? (
+                  <LinkButton href={`lecturer.html?question_id=${encodeURIComponent(liveQuestionId)}`}>
+                    Back to live dashboard &rarr;
+                  </LinkButton>
+                ) : lobbyOpen ? (
+                  <LinkButton href={`lecturer.html?lobby=${activeLecture.id}`}>Back to lobby &rarr;</LinkButton>
+                ) : (
+                  <Button
+                    onClick={handleOpenLobby}
+                    disabled={openingLobby || readyCount === 0}
+                    title={readyCount === 0 ? "No questions ready yet" : undefined}
+                  >
+                    {openingLobby ? "Opening..." : "Open lobby"}
+                  </Button>
+                )}
+              </>
+            )
+          }
+        />
+        {(lobbyError || deleteLectureError) && (
+          <p role="alert" className="-mt-4 mb-6 text-[13px] font-medium text-red-600">
+            {lobbyError || deleteLectureError}
+          </p>
         )}
 
-        <div className="grid">
-          <section className="card question-panel" aria-label="Questions">
-            <div className="panel-head">
-              <h2>Questions</h2>
-              <span className="panel-count">{questions.length}</span>
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+          <section aria-label="Questions" className="lg:sticky lg:top-20">
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Questions</h2>
+              <span className="font-mono text-xs text-zinc-500">{questions.length}</span>
             </div>
             {questions.length === 0 ? (
-              <div className="empty">No questions yet</div>
+              <div className="rounded-xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500">
+                No questions yet
+              </div>
             ) : (
-              <ol className="question-list">
+              <ol className="grid gap-1">
                 {/* Run order: questions start oldest first (store.next_draft_question),
                     and the API lists newest first, so reversed is exactly that order. */}
                 {[...questions].reverse().map((q, i) => {
                   const s = statusLabel(q);
+                  const selected = q.id === currentId;
                   return (
                     <li
                       key={q.id}
-                      className={q.id === currentId ? "is-selected" : undefined}
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest("a")) return;
-                        if (q.id === currentId) return;
-                        flushThen(() => loadQuestionIntoForm(q));
-                      }}
+                      className={cx(
+                        "group/q flex items-center gap-1 rounded-lg border pr-1.5 transition-colors",
+                        selected ? "border-zinc-900 bg-white" : "border-transparent hover:border-zinc-200 hover:bg-white",
+                      )}
                     >
-                      <span className="q-index">{i + 1}</span>
-                      <span className="q-body">
-                        <span className="q-title">{q.title}</span>
-                        <span className={`q-status q-status-${s.kind}`}>{s.text}</span>
-                      </span>
+                      <button
+                        type="button"
+                        aria-current={selected ? "true" : undefined}
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-2.5 pl-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900"
+                        onClick={() => {
+                          if (selected) return;
+                          flushThen(() => loadQuestionIntoForm(q));
+                        }}
+                      >
+                        <span
+                          className={cx(
+                            "grid size-6 flex-none place-items-center rounded-md font-mono text-[11px] font-semibold",
+                            selected ? "bg-zinc-950 text-white" : "border border-zinc-200 bg-white text-zinc-500",
+                          )}
+                        >
+                          {i + 1}
+                        </span>
+                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                          <span className="truncate text-sm font-semibold text-zinc-900">{q.title}</span>
+                          <StatusText kind={s.kind}>{s.text}</StatusText>
+                        </span>
+                      </button>
                       {q.status === "live" && (
-                        <a className="text-link" href={`lecturer.html?question_id=${encodeURIComponent(q.id)}`}>
+                        <LinkButton
+                          variant="ghost"
+                          size="sm"
+                          href={`lecturer.html?question_id=${encodeURIComponent(q.id)}`}
+                        >
                           Dashboard
-                        </a>
+                        </LinkButton>
                       )}
                       {q.status === "draft" && (
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label={`Delete ${q.title}`}
-                          title="Delete"
+                        <RemoveButton
+                          label={`Delete ${q.title}`}
+                          className="opacity-0 group-hover/q:opacity-100 focus-visible:opacity-100 max-lg:opacity-100"
                           onClick={(e) => handleDeleteQuestion(q, e)}
-                        >
-                          &times;
-                        </button>
+                        />
                       )}
                     </li>
                   );
@@ -741,109 +866,154 @@ export default function App() {
                 (it saves itself once it has a title) -- clicking it then did
                 nothing visible, or reset a language picked before the title back
                 to Python. */}
-            <button
-              type="button"
-              className="new-question-btn"
+            <Button
+              variant="secondary"
+              className="mt-3 w-full"
               onClick={() => flushThen(resetForm)}
               disabled={!currentId}
               title={!currentId ? "The editor is already a new question" : undefined}
             >
               + New question
-            </button>
-            <button
-              type="button"
-              className="link-button dev-link"
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mx-auto mt-2 flex"
               onClick={addTestQuestions}
               disabled={addingTestQuestions}
               title="Adds checked sample questions (Python, C, Java), for testing"
             >
               {addingTestQuestions ? "Adding..." : "Add sample questions"}
-            </button>
+            </Button>
           </section>
 
-          <section className="card editor" aria-label="Question editor">
-            <div className="editor-head">
-              <h2>{currentId ? title || "Untitled question" : "New question"}</h2>
-              {currentId && (
-                <span className={`q-status q-status-${currentValidated ? "ready" : locked ? "done" : "check"}`}>
-                  {currentStatus === "live"
-                    ? "Live"
-                    : currentStatus !== "draft"
-                    ? "Done"
-                    : currentValidated
-                    ? "Ready"
-                    : "Needs a check"}
-                </span>
-              )}
-            </div>
-            {locked && (
-              <div className="locked-banner">
-                Already run, so it can't be edited.
+          <Card flush aria-label="Question editor" role="region">
+            <div className="px-6 pt-6 sm:px-8 sm:pt-7">
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-xl font-bold tracking-tight text-zinc-950">
+                  {currentId ? title || "Untitled question" : "New question"}
+                </h2>
+                {currentId && (
+                  <StatusText kind={editorStatus}>
+                    {currentStatus === "live"
+                      ? "Live"
+                      : currentStatus !== "draft"
+                        ? "Done"
+                        : currentValidated
+                          ? "Ready"
+                          : "Needs a check"}
+                  </StatusText>
+                )}
               </div>
-            )}
+              {locked && (
+                <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-3.5 py-2.5 text-[13px] text-zinc-600">
+                  Already run, so it can't be edited.
+                </div>
+              )}
 
-            <ol className="stepper">
-              {STEPS.map((name, i) => (
-                <li key={name}>
-                  <button
-                    type="button"
-                    className={["step", i === step && "is-current", stepDone[i] && "is-done"].filter(Boolean).join(" ")}
-                    aria-current={i === step ? "step" : undefined}
-                    onClick={() => setStep(i)}
-                  >
-                    <span className="step-dot">{stepDone[i] && i !== step ? "✓" : i + 1}</span>
-                    <span className="step-name">{name}</span>
-                  </button>
-                </li>
-              ))}
-            </ol>
+              <ol className="mt-6 flex border-b border-zinc-200">
+                {STEPS.map((name, i) => {
+                  const current = i === step;
+                  const done = stepDone[i] && !current;
+                  return (
+                    <li key={name} className="flex-1">
+                      <button
+                        type="button"
+                        className={cx(
+                          "-mb-px flex w-full items-center gap-2.5 border-b-2 px-1 pt-1 pb-3 text-left text-[13px] font-semibold transition-colors",
+                          "rounded-t-md focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900",
+                          current ? "border-zinc-950 text-zinc-950" : "border-transparent text-zinc-500 hover:text-zinc-900",
+                        )}
+                        aria-current={current ? "step" : undefined}
+                        onClick={() => setStep(i)}
+                      >
+                        <span
+                          className={cx(
+                            "grid size-6 flex-none place-items-center rounded-md font-mono text-[11px] font-bold",
+                            current
+                              ? "bg-zinc-950 text-white"
+                              : done
+                                ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border border-zinc-200 bg-white",
+                          )}
+                        >
+                          {done ? "✓" : i + 1}
+                        </span>
+                        <span className={cx(!current && "max-sm:hidden")}>{name}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
 
             {/* onInput catches every typed edit in the steps (inputs, textareas, the select). */}
-            <fieldset className="step-body" disabled={locked || busy !== null} onInput={markEdited}>
+            <fieldset
+              className="group min-w-0 px-6 py-6 disabled:opacity-75 sm:px-8"
+              disabled={locked || busy !== null}
+              onInput={markEdited}
+            >
               {step === 0 && (
-                <>
-                  <label htmlFor="f-title">Title</label>
-                  <input
-                    type="text"
-                    id="f-title"
-                    placeholder="e.g. Sum of integers"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                  />
-                  <label htmlFor="f-prompt">Task description</label>
-                  <textarea
-                    id="f-prompt"
-                    className="prose"
-                    placeholder="Read a line of space-separated integers and print their sum."
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                  />
-                  <label htmlFor="f-language">Language</label>
-                  <select id="f-language" value={language} onChange={(e) => setLanguage(e.target.value)}>
-                    <option value="python">Python</option>
-                    <option value="c">C</option>
-                    <option value="java">Java</option>
-                  </select>
-                </>
+                <div className="grid gap-5">
+                  <div>
+                    <Label htmlFor="f-title">Title</Label>
+                    <Input
+                      type="text"
+                      id="f-title"
+                      placeholder="e.g. Sum of integers"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="f-prompt">Task description</Label>
+                    <Textarea
+                      id="f-prompt"
+                      className="min-h-28"
+                      placeholder="Read a line of space-separated integers and print their sum."
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                    />
+                  </div>
+                  <div className="max-w-56">
+                    <Label htmlFor="f-language">Language</Label>
+                    <Select id="f-language" value={language} onChange={(e) => setLanguage(e.target.value)}>
+                      <option value="python">Python</option>
+                      <option value="c">C</option>
+                      <option value="java">Java</option>
+                    </Select>
+                  </div>
+                </div>
               )}
 
               {step === 1 && (
                 <>
-                  <div className="field-head">
-                    <span className="field-label">What&apos;s graded</span>
-                  </div>
-                  <div className="grade-mode" role="radiogroup" aria-label="What's graded">
-                    <label className="grade-option">
-                      <input type="radio" name="grade-mode" checked={!gradeFile} onChange={() => setGradeFile(false)} />
+                  <div className="mb-2 text-[13px] font-semibold text-zinc-900">What&apos;s graded</div>
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2" role="radiogroup" aria-label="What's graded">
+                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-zinc-700 hover:text-zinc-950">
+                      <input
+                        type="radio"
+                        name="grade-mode"
+                        className="size-4 accent-zinc-900"
+                        checked={!gradeFile}
+                        onChange={() => setGradeFile(false)}
+                      />
                       What the program prints
                     </label>
-                    <label className="grade-option">
-                      <input type="radio" name="grade-mode" checked={gradeFile} onChange={() => setGradeFile(true)} />
+                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-zinc-700 hover:text-zinc-950">
+                      <input
+                        type="radio"
+                        name="grade-mode"
+                        className="size-4 accent-zinc-900"
+                        checked={gradeFile}
+                        onChange={() => setGradeFile(true)}
+                      />
                       A file the program writes:
                     </label>
-                    <input
+                    <Input
                       type="text"
-                      className="output-file-name"
+                      mono
+                      className="h-8 w-48 text-[13px] disabled:opacity-55"
                       aria-label="Output file name"
                       value={outputFile}
                       disabled={!gradeFile}
@@ -851,136 +1021,141 @@ export default function App() {
                     />
                   </div>
                   {gradeFile && (
-                    <p className="hint grade-mode-note">
-                      Students write their answer to <code>{outputFile.trim() || "result.txt"}</code>. That file is
+                    <p className="mt-2 text-[13px] text-zinc-500">
+                      Students write their answer to <Code>{outputFile.trim() || "result.txt"}</Code>. That file is
                       compared with the expected output; what the program prints isn&apos;t graded.
                     </p>
                   )}
 
-                  <div className="field-head">
-                    <span className="field-label">Test cases</span>
-                  </div>
-                  <div className="tc-table">
-                    <div className="tc-header" aria-hidden="true">
+                  <div className="mt-7 mb-2 text-[13px] font-semibold text-zinc-900">Test cases</div>
+                  <div className="grid gap-3">
+                    <div
+                      className="grid grid-cols-[1fr_1fr_1.75rem] gap-2 text-[11px] font-semibold tracking-[0.08em] text-zinc-500 uppercase"
+                      aria-hidden="true"
+                    >
                       <span>Input</span>
                       <span>{gradeFile ? `Expected ${outputFile.trim() || "result.txt"}` : "Expected output"}</span>
                       <span />
                     </div>
                     {testCases.map((tc, i) => (
-                      <div className="tc-case" key={i}>
-                      <div className="tc-row">
-                        <textarea
-                          aria-label={`Test ${i + 1} input`}
-                          placeholder="1 2 3"
-                          value={tc.stdin}
-                          onChange={(e) => updateTestCase(i, "stdin", e.target.value)}
-                        />
-                        <textarea
-                          aria-label={`Test ${i + 1} expected output`}
-                          placeholder="6"
-                          value={tc.expected}
-                          onChange={(e) => updateTestCase(i, "expected", e.target.value)}
-                        />
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label={`Remove test ${i + 1}`}
-                          title="Remove"
-                          onClick={() => removeTestCaseRow(i)}
-                        >
-                          &times;
-                        </button>
-                      </div>
-                      <div className="tc-files">
-                        {tc.files.map((f) => (
-                          <span className="file-chip" key={f.name} title={f.name}>
-                            <span className="file-chip-name">{f.name}</span>
-                            <span className="file-chip-size">{formatBytes(new Blob([f.content]).size)}</span>
-                            <button
-                              type="button"
-                              className="file-chip-remove"
-                              aria-label={`Remove ${f.name} from test ${i + 1}`}
-                              onClick={() => removeFile(i, f.name)}
+                      <div className="grid gap-1.5" key={i}>
+                        <div className="grid grid-cols-[1fr_1fr_1.75rem] items-start gap-2">
+                          <Textarea
+                            mono
+                            className="min-h-11"
+                            aria-label={`Test ${i + 1} input`}
+                            placeholder="1 2 3"
+                            value={tc.stdin}
+                            onChange={(e) => updateTestCase(i, "stdin", e.target.value)}
+                          />
+                          <Textarea
+                            mono
+                            className="min-h-11"
+                            aria-label={`Test ${i + 1} expected output`}
+                            placeholder="6"
+                            value={tc.expected}
+                            onChange={(e) => updateTestCase(i, "expected", e.target.value)}
+                          />
+                          <RemoveButton
+                            label={`Remove test ${i + 1}`}
+                            className="mt-2"
+                            onClick={() => removeTestCaseRow(i)}
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 pr-9">
+                          {tc.files.map((f) => (
+                            <span
+                              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 py-0.5 pr-0.5 pl-2 text-xs"
+                              key={f.name}
+                              title={f.name}
                             >
-                              &times;
-                            </button>
-                          </span>
-                        ))}
-                        <label className="attach-file">
-                          Expected from file
-                          <input
-                            type="file"
-                            aria-label={`Load test ${i + 1}'s expected output from a file`}
-                            onChange={(e) => {
-                              void loadExpectedFromFile(i, e.target.files);
-                              e.target.value = "";
-                            }}
-                          />
-                        </label>
-                        <label className="attach-file">
-                          + File
-                          <input
-                            type="file"
+                              <span className="truncate font-mono text-zinc-900">{f.name}</span>
+                              <span className="font-mono text-zinc-500">{formatBytes(new Blob([f.content]).size)}</span>
+                              <button
+                                type="button"
+                                className="rounded px-1 leading-none text-zinc-400 transition-colors group-disabled:hidden hover:bg-red-50 hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-zinc-900"
+                                aria-label={`Remove ${f.name} from test ${i + 1}`}
+                                onClick={() => removeFile(i, f.name)}
+                              >
+                                &times;
+                              </button>
+                            </span>
+                          ))}
+                          <FilePickLabel
+                            inputLabel={`Load test ${i + 1}'s expected output from a file`}
+                            onFiles={(files) => void loadExpectedFromFile(i, files)}
+                          >
+                            Expected from file
+                          </FilePickLabel>
+                          <FilePickLabel
                             multiple
-                            aria-label={`Attach files to test ${i + 1}`}
-                            onChange={(e) => {
-                              void attachFiles(i, e.target.files);
-                              e.target.value = "";
-                            }}
-                          />
-                        </label>
-                        {i === 0 && tc.files.length > 0 && (
-                          <span className="hint">Test 1 is the example: students can open its files.</span>
-                        )}
-                      </div>
+                            inputLabel={`Attach files to test ${i + 1}`}
+                            onFiles={(files) => void attachFiles(i, files)}
+                          >
+                            + File
+                          </FilePickLabel>
+                          {i === 0 && tc.files.length > 0 && (
+                            <span className="text-xs text-zinc-500">Test 1 is the example: students can open its files.</span>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
-                  <p className="hint tc-files-note">
+                  <p className="mt-3 text-[13px] leading-relaxed text-zinc-500">
                     Files are put next to the student&apos;s program, which opens them by name, e.g.{" "}
-                    <code>open(&quot;numbers.txt&quot;)</code>. Text files, up to 1 MB each. Students see the
+                    <Code>open(&quot;numbers.txt&quot;)</Code>. Text files, up to 1 MB each. Students see the
                     example&apos;s files during the task and every test&apos;s files once time is up.
                   </p>
                   {fileError && (
-                    <div className="check-result fail" role="alert">
+                    <div
+                      className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-900"
+                      role="alert"
+                    >
                       {fileError}
                     </div>
                   )}
-                  <button type="button" className="secondary small" onClick={addTestCaseRow}>
+                  <Button variant="secondary" size="sm" className="mt-3" onClick={addTestCaseRow}>
                     + Add test case
-                  </button>
+                  </Button>
 
-                  <label htmlFor="f-reference" className="spaced">
-                    Reference solution <span className="hint">hidden from students</span>
-                  </label>
-                  <textarea
-                    id="f-reference"
-                    className="code"
-                    placeholder="print(sum(int(x) for x in input().split()))"
-                    value={referenceSolution}
-                    onChange={(e) => setReferenceSolution(e.target.value)}
-                  />
-                  <div className="check-row">
-                    <button type="button" className="secondary" onClick={checkSolution}>
-                      {busy === "checking" ? "Checking..." : "Check solution"}
-                    </button>
+                  <div className="mt-8">
+                    <Label htmlFor="f-reference" hint="hidden from students">
+                      Reference solution
+                    </Label>
+                    <Textarea
+                      id="f-reference"
+                      mono
+                      className="min-h-32"
+                      placeholder="print(sum(int(x) for x in input().split()))"
+                      value={referenceSolution}
+                      onChange={(e) => setReferenceSolution(e.target.value)}
+                    />
                   </div>
+                  <Button variant="secondary" className="mt-3" onClick={checkSolution}>
+                    {busy === "checking" ? "Checking..." : "Check solution"}
+                  </Button>
                   {validationResult && (
-                    <div className={validationResult.pass ? "check-result pass" : "check-result fail"} role="status">
+                    <div
+                      className={cx(
+                        "mt-4 animate-fade-in rounded-lg border px-4 py-3 text-[13px] leading-relaxed",
+                        validationResult.pass
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                          : "border-red-200 bg-red-50 text-red-900",
+                      )}
+                      role="status"
+                    >
                       {validationResult.pass ? (
-                        <>
-                          <strong>All {validationResult.total} tests pass.</strong>
-                        </>
+                        <strong className="font-semibold">All {validationResult.total} tests pass.</strong>
                       ) : (
                         <>
-                          <strong>
+                          <strong className="font-semibold">
                             {validationResult.failing.length} of {validationResult.total} tests fail
                           </strong>
-                          <ul>
+                          <ul className="mt-2 grid list-disc gap-1 pl-5">
                             {validationResult.failing.map((r, i) => (
                               <li key={i}>
-                                input <code>{r.stdin.trim() || "(empty)"}</code>: expected{" "}
-                                <code>{r.expected_stdout}</code>, got <code>{(r.stdout || "").trim() || "(nothing)"}</code>
+                                input <Code>{r.stdin.trim() || "(empty)"}</Code>: expected{" "}
+                                <Code>{r.expected_stdout}</Code>, got <Code>{(r.stdout || "").trim() || "(nothing)"}</Code>
                               </li>
                             ))}
                           </ul>
@@ -992,13 +1167,14 @@ export default function App() {
               )}
 
               {step === 2 && (
-                <>
-                  <div className="row2">
+                <div className="grid gap-5">
+                  <div className="grid gap-5 sm:grid-cols-2">
                     <div>
-                      <label htmlFor="f-duration">Time limit (min)</label>
-                      <input
+                      <Label htmlFor="f-duration">Time limit (min)</Label>
+                      <Input
                         type="number"
                         id="f-duration"
+                        mono
                         min={1}
                         step={1}
                         value={durationMinutes}
@@ -1006,12 +1182,13 @@ export default function App() {
                       />
                     </div>
                     <div>
-                      <label htmlFor="f-expected">
-                        Class size <span className="hint">optional</span>
-                      </label>
-                      <input
+                      <Label htmlFor="f-expected" hint="optional">
+                        Class size
+                      </Label>
+                      <Input
                         type="number"
                         id="f-expected"
+                        mono
                         min={1}
                         step={1}
                         placeholder="e.g. 22"
@@ -1020,35 +1197,46 @@ export default function App() {
                       />
                     </div>
                   </div>
-                  <label htmlFor="f-idle-nudge">
-                    Idle nudge after (min) <span className="hint">0 = off</span>
-                  </label>
-                  <input
-                    type="number"
-                    id="f-idle-nudge"
-                    className="narrow"
-                    min={0}
-                    step={0.5}
-                    value={idleNudgeMinutes}
-                    onChange={(e) => setIdleNudgeMinutes(e.target.value)}
-                  />
+                  <div className="max-w-40">
+                    <Label htmlFor="f-idle-nudge" hint="0 = off">
+                      Idle nudge after (min)
+                    </Label>
+                    <Input
+                      type="number"
+                      id="f-idle-nudge"
+                      mono
+                      min={0}
+                      step={0.5}
+                      value={idleNudgeMinutes}
+                      onChange={(e) => setIdleNudgeMinutes(e.target.value)}
+                    />
+                  </div>
 
-                  <button
-                    type="button"
-                    className="disclosure"
-                    aria-expanded={showAdvanced}
-                    onClick={() => setShowAdvanced((v) => !v)}
-                  >
-                    <span className="chevron" aria-hidden="true" /> Advanced
-                  </button>
-                  {showAdvanced && (
-                    <div className="advanced">
-                      <div className="row2">
+                  <div>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md py-1 text-[13px] font-semibold text-zinc-900 transition-colors hover:text-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                      aria-expanded={showAdvanced}
+                      onClick={() => setShowAdvanced((v) => !v)}
+                    >
+                      <svg
+                        className={cx("size-3 transition-transform", showAdvanced && "rotate-90")}
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        aria-hidden="true"
+                      >
+                        <path d="M4.5 3l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      Advanced
+                    </button>
+                    {showAdvanced && (
+                      <div className="mt-3 grid animate-fade-in gap-5 rounded-lg border border-zinc-200 bg-zinc-50 p-5 sm:grid-cols-2">
                         <div>
-                          <label htmlFor="f-time">CPU time per test (s)</label>
-                          <input
+                          <Label htmlFor="f-time">CPU time per test (s)</Label>
+                          <Input
                             type="number"
                             id="f-time"
+                            mono
                             min={0.5}
                             step={0.5}
                             value={timeLimit}
@@ -1056,23 +1244,23 @@ export default function App() {
                           />
                         </div>
                         <div>
-                          <label htmlFor="f-memory">Memory (MB)</label>
-                          <input
+                          <Label htmlFor="f-memory">Memory (MB)</Label>
+                          <Input
                             type="number"
                             id="f-memory"
+                            mono
                             min={16}
                             step={1}
                             value={memoryLimit}
                             onChange={(e) => setMemoryLimit(e.target.value)}
                           />
                         </div>
-                      </div>
-                      <div className="row2">
                         <div>
-                          <label htmlFor="f-lines">Max lines</label>
-                          <input
+                          <Label htmlFor="f-lines">Max lines</Label>
+                          <Input
                             type="number"
                             id="f-lines"
+                            mono
                             min={10}
                             step={10}
                             value={lineLimit}
@@ -1080,10 +1268,10 @@ export default function App() {
                           />
                         </div>
                         <div>
-                          <label htmlFor="f-packages">
-                            Extra packages <span className="hint">comma-separated</span>
-                          </label>
-                          <input
+                          <Label htmlFor="f-packages" hint="comma-separated">
+                            Extra packages
+                          </Label>
+                          <Input
                             type="text"
                             id="f-packages"
                             placeholder="e.g. numpy, requests"
@@ -1092,48 +1280,55 @@ export default function App() {
                           />
                         </div>
                       </div>
-                    </div>
-                  )}
-                </>
+                    )}
+                  </div>
+                </div>
               )}
             </fieldset>
 
-            <div className={`form-status ${formStatusKind}`} role="status">
+            <div
+              className={cx(
+                "min-h-5 px-6 text-[13px] sm:px-8",
+                formStatusKind === "ok" ? "text-emerald-700" : formStatusKind === "bad" ? "font-medium text-red-600" : "text-zinc-500",
+              )}
+              role="status"
+            >
               {formStatusText}
             </div>
 
-            <div className="editor-footer">
-              <button type="button" className="secondary" disabled={step === 0} onClick={() => setStep((s) => s - 1)}>
+            <div className="mt-4 flex items-center justify-between gap-3 border-t border-zinc-200 px-6 py-4 sm:px-8">
+              <Button variant="secondary" disabled={step === 0} onClick={() => setStep((s) => s - 1)}>
                 Back
-              </button>
+              </Button>
               {!locked && (
-                <span className={`save-indicator save-${saveState}`} role="status">
+                <span
+                  className={cx("flex-1 text-[13px]", saveState === "error" ? "font-medium text-red-600" : "text-zinc-500")}
+                  role="status"
+                >
                   {saveState === "saving"
                     ? "Saving…"
                     : saveState === "error"
-                    ? "Not saved"
-                    : dirty && !canAutosave
-                    ? "Add a title to save"
-                    : currentId && !dirty
-                    ? "Saved"
-                    : ""}
+                      ? "Not saved"
+                      : dirty && !canAutosave
+                        ? "Add a title to save"
+                        : currentId && !dirty
+                          ? "Saved"
+                          : ""}
                 </span>
               )}
-              <div className="editor-footer-right">
+              <div className="flex gap-2">
                 {step < STEPS.length - 1 ? (
-                  <button type="button" onClick={() => setStep((s) => s + 1)}>
-                    Next: {STEPS[step + 1]}
-                  </button>
+                  <Button onClick={() => setStep((s) => s + 1)}>Next: {STEPS[step + 1]}</Button>
                 ) : canStartNow ? (
-                  <button type="button" onClick={startQuestion} disabled={busy !== null}>
+                  <Button onClick={startQuestion} disabled={busy !== null}>
                     {busy === "starting" ? "Starting..." : "Start now"}
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             </div>
-          </section>
+          </Card>
         </div>
-      </main>
+      </Page>
       <ConfirmDialog
         open={confirmDeleteLectureOpen}
         title="Delete lecture?"

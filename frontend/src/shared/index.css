@@ -1,0 +1,56 @@
+/* The one stylesheet every page loads (via shared/bootstrap.tsx). Everything
+   visual lives in Tailwind utilities on the components themselves -- see
+   .claude/skills/ui-design.md for the rules (zinc palette, thin borders,
+   rounded-lg/xl, tight bold headers, monospace only for code and numbers).
+   This file only holds what utilities can't: the font token, page-level
+   base styles, and the few keyframe animations. */
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --animate-fade-in: fade-in 0.15s ease-out both;
+  --animate-fade-in-up: fade-in-up 0.4s ease-out both;
+  --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-zinc-50 font-sans text-zinc-900 antialiased;
+  }
+  /* Tailwind's preflight resets buttons to cursor: default. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Monaco decorations for the projector's "Highlight" tool (present/App.tsx).
+   Global on purpose: Monaco renders them outside React, so they can't take
+   utility classes. */
+.projector-highlight { background: rgb(250 204 21 / 0.55); border-radius: 3px; }
+.projector-highlight-line { background: rgb(250 204 21 / 0.28); }

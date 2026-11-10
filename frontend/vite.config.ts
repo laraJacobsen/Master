@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "path";
 
 // Six pages, mirroring the old static setup.html/student.html/lecturer.html
@@ -9,7 +10,7 @@ import { resolve } from "path";
 // dashboard, and the new site root now that one exists. `present` is the
 // projector view the lecturer puts on the big screen.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: {
       input: {

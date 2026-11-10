@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type {
   LectureStatus,
   SharedExample,
@@ -19,6 +20,9 @@ import {
 } from "../shared/api";
 import { isUntouched, starterCode } from "./starterCode";
 import { TestFiles } from "./TestFiles";
+import { Badge, BrandMark, Button, Callout, Card, Code, Eyebrow, Input, Label, ProgressBar, SectionTitle, Spinner } from "../shared/ui";
+import { cx } from "../shared/cx";
+import type { Tone } from "../shared/ui";
 // Monaco is most of this page's weight -- loaded only once a task is live,
 // so the join and waiting screens stay instant.
 const CodeEditor = lazy(() => import("./CodeEditor").then((m) => ({ default: m.CodeEditor })));
@@ -29,6 +33,79 @@ const VERDICT_LABELS: Record<string, string> = {
   incorrect: "Incorrect",
   error: "Error",
 };
+
+const VERDICT_TONES: Record<string, Tone> = {
+  correct: "success",
+  partially_correct: "warning",
+  incorrect: "danger",
+  error: "danger",
+};
+
+export interface VerdictBadgeProps {
+  verdict: Verdict;
+}
+
+function VerdictBadge({ verdict }: VerdictBadgeProps) {
+  return (
+    <Badge tone={VERDICT_TONES[verdict] ?? "neutral"} dot>
+      {VERDICT_LABELS[verdict] || verdict}
+    </Badge>
+  );
+}
+
+export interface TestsPassedProps {
+  passed: number;
+  total: number;
+}
+
+function TestsPassed({ passed, total }: TestsPassedProps) {
+  return (
+    <span className="text-[13px] text-zinc-500">
+      <span className="font-mono text-zinc-900 tabular-nums">
+        {passed}/{total}
+      </span>{" "}
+      tests passed
+    </span>
+  );
+}
+
+export interface IoListProps {
+  rows: Array<[label: string, value: string]>;
+  className?: string;
+}
+
+// Label / monospace value pairs (example input, expected, got, ...).
+function IoList({ rows, className }: IoListProps) {
+  return (
+    <dl className={cx("grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-[13px]", className)}>
+      {rows.map(([label, value]) => (
+        <div key={label} className="contents">
+          <dt className="text-zinc-500">{label}</dt>
+          <dd className="font-mono break-words whitespace-pre-wrap text-zinc-900">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function failingRows(t: NonNullable<SharedExample["failing_test"]>): Array<[string, string]> {
+  const rows: Array<[string, string]> = [
+    ["Input", t.stdin.trimEnd()],
+    ["Expected", t.expected_stdout.trimEnd()],
+    ["Got", t.stdout.trim() || "(nothing)"],
+  ];
+  if (t.stderr) rows.push(["Error", t.stderr.trim().split("\n").pop() ?? ""]);
+  return rows;
+}
+
+export interface NarrowMainProps {
+  children: ReactNode;
+}
+
+// Single-column screens: join, waiting, finished.
+function NarrowMain({ children }: NarrowMainProps) {
+  return <main className="mx-auto grid w-full max-w-xl gap-5 px-5 pt-12 pb-20 sm:pt-20">{children}</main>;
+}
 
 // How often the student page checks in with the backend for the live
 // question/timer/finished state -- see /api/lecture/status in backend/
@@ -496,50 +573,66 @@ export default function App() {
     await performSubmit(questionId, trimmedName, trimmedCode);
   }
 
-  const verdictClass = (v: Verdict) => "verdict-badge verdict-" + v;
-  const verdictLabel = (v: Verdict) => VERDICT_LABELS[v] || v;
   const joinedName = joined ? name.trim() : "";
 
   if (phase === "join") {
     return (
       <>
         <StudentBar />
-        <main className="narrow-main">
-          <div className="card join-card fade-in-up">
-            <h1>Join a lecture</h1>
-            <p className="join-sub">Enter your name and the code your lecturer shared.</p>
-            {joinNotice && <p className="join-notice">{joinNotice}</p>}
-            <label htmlFor="join-name">Your name</label>
-            <input
-              type="text"
-              id="join-name"
-              placeholder="e.g. Lara Pinheiro"
-              autoFocus
-              value={joinNameInput}
-              onChange={(e) => setJoinNameInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleJoin();
-              }}
-            />
-            <label htmlFor="join-code">Join code</label>
-            <input
-              type="text"
-              id="join-code"
-              placeholder="482913"
-              inputMode="numeric"
-              autoComplete="off"
-              value={joinCodeInput}
-              onChange={(e) => setJoinCodeInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleJoin();
-              }}
-            />
-            <button className="block" onClick={handleJoin} disabled={joining}>
-              {joining ? "Joining..." : "Join"}
-            </button>
-            {joinError && <div className="error-box">{joinError}</div>}
+        <NarrowMain>
+          <div className="animate-fade-in-up">
+            <Eyebrow>Student</Eyebrow>
+            <h1 className="mt-3 text-4xl font-bold tracking-tight text-zinc-950">Join a lecture</h1>
+            <p className="mt-3 text-[15px] text-zinc-500">Enter your name and the code your lecturer shared.</p>
           </div>
-        </main>
+          <Card className="animate-fade-in-up p-6 sm:p-7">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleJoin();
+              }}
+            >
+              {joinNotice && (
+                <Callout tone="info" className="mb-5">
+                  {joinNotice}
+                </Callout>
+              )}
+              <Label htmlFor="join-name">Your name</Label>
+              <Input
+                type="text"
+                id="join-name"
+                placeholder="e.g. Lara Pinheiro"
+                autoFocus
+                className="h-11 text-[15px]"
+                value={joinNameInput}
+                onChange={(e) => setJoinNameInput(e.target.value)}
+              />
+              <Label htmlFor="join-code" className="mt-5">
+                Join code
+              </Label>
+              <Input
+                type="text"
+                id="join-code"
+                placeholder="482913"
+                inputMode="numeric"
+                autoComplete="off"
+                mono
+                className="h-14 text-2xl font-semibold tracking-[0.2em] tabular-nums"
+                value={joinCodeInput}
+                onChange={(e) => setJoinCodeInput(e.target.value)}
+              />
+              <Button type="submit" size="lg" className="mt-6 w-full" disabled={joining}>
+                {joining && <Spinner />}
+                {joining ? "Joining..." : "Join"}
+              </Button>
+              {joinError && (
+                <Callout tone="danger" role="alert" className="mt-4">
+                  {joinError}
+                </Callout>
+              )}
+            </form>
+          </Card>
+        </NarrowMain>
       </>
     );
   }
@@ -548,9 +641,11 @@ export default function App() {
     return (
       <>
         <StudentBar name={joinedName} />
-        <main className="narrow-main">
-          <div className="card muted">Loading...</div>
-        </main>
+        <NarrowMain>
+          <p className="flex items-center gap-2 text-sm text-zinc-500">
+            <Spinner /> Loading...
+          </p>
+        </NarrowMain>
       </>
     );
   }
@@ -560,38 +655,50 @@ export default function App() {
     return (
       <>
         <StudentBar name={joinedName} />
-        <main className="narrow-main">
-          <div className="card waiting-card fade-in-up">
-            <h2>That's the lecture. Thanks for working through it.</h2>
-            <p className="waiting-message">Nothing else needed from you here. It's safe to close this tab.</p>
+        <NarrowMain>
+          <div className="animate-fade-in-up">
+            <h1 className="text-3xl font-bold tracking-tight text-balance text-zinc-950">
+              That's the lecture. Thanks for working through it.
+            </h1>
+            <p className="mt-3 text-[15px] text-zinc-500">Nothing else needed from you here. It's safe to close this tab.</p>
             {/* The join screen is the student's "home" -- this tab's join was
                 already forgotten when the lecture ended (see applyStatus), so a
                 fresh load lands there, ready for the next lecture's code. */}
-            <button className="secondary" onClick={() => (window.location.href = "student.html")}>
+            <Button variant="secondary" className="mt-6" onClick={() => (window.location.href = "student.html")}>
               Back to home
-            </button>
+            </Button>
           </div>
           {recap && (
-            <div className="card" id="recap-card">
-              <h2>Your recap</h2>
-              <div id="recap-summary-line">
-                {recap.attempted} of {recap.total} tasks attempted, {correctCount} correct
-              </div>
-              <ul id="recap-list">
+            <Card className="animate-fade-in-up">
+              <SectionTitle
+                meta={
+                  <>
+                    <span className="font-mono tabular-nums">{recap.attempted}</span> of{" "}
+                    <span className="font-mono tabular-nums">{recap.total}</span> tasks attempted,{" "}
+                    <span className="font-mono tabular-nums">{correctCount}</span> correct
+                  </>
+                }
+              >
+                Your recap
+              </SectionTitle>
+              <ul className="mt-3">
                 {recap.results.map((r) => (
-                  <li key={r.question_id}>
-                    <span>{r.title}</span>
+                  <li
+                    key={r.question_id}
+                    className="flex items-center justify-between gap-4 border-t border-zinc-200 py-3 text-sm first:border-t-0 last:pb-0"
+                  >
+                    <span className="text-zinc-900">{r.title}</span>
                     {r.attempted && r.verdict ? (
-                      <span className={verdictClass(r.verdict)}>{verdictLabel(r.verdict)}</span>
+                      <VerdictBadge verdict={r.verdict} />
                     ) : (
-                      <span className="recap-not-attempted">Not attempted</span>
+                      <span className="text-[13px] text-zinc-400">Not attempted</span>
                     )}
                   </li>
                 ))}
               </ul>
-            </div>
+            </Card>
           )}
-        </main>
+        </NarrowMain>
       </>
     );
   }
@@ -624,155 +731,151 @@ export default function App() {
     return (
       <>
         <StudentBar name={joinedName} />
-        <main className="narrow-main">
-          <div className="card waiting-card fade-in-up">
-            <h2>{title}</h2>
-            <p className="waiting-message">{message}</p>
-            {result && !submitting && (
-              <div className="waiting-result">
-                <span className={verdictClass(result.verdict)}>{verdictLabel(result.verdict)}</span>
-                <span className="score-text">
-                  {result.tests_passed}/{result.tests_total} tests passed
-                </span>
-              </div>
-            )}
-            {errorMessage && !submitting && <div className="error-box">{errorMessage}</div>}
-            <div className="status-line">
-              {submitting ? <span className="spinner" /> : <span className="pulse-dot" />}
+        <NarrowMain>
+          <div className="animate-fade-in-up">
+            <div className="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[13px] font-medium text-zinc-600">
+              {submitting ? (
+                <Spinner />
+              ) : (
+                <span className="size-1.5 animate-pulse-dot rounded-[2px] bg-emerald-500" aria-hidden="true" />
+              )}
               {submitting ? statusText || "Grading..." : "Waiting for your lecturer"}
             </div>
+            <h1 className="mt-5 text-4xl font-bold tracking-tight text-balance text-zinc-950">{title}</h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-zinc-500">{message}</p>
+            {result && !submitting && (
+              <div className="mt-5 flex items-center gap-3">
+                <VerdictBadge verdict={result.verdict} />
+                <TestsPassed passed={result.tests_passed} total={result.tests_total} />
+              </div>
+            )}
+            {errorMessage && !submitting && (
+              <Callout tone="danger" role="alert" className="mt-5">
+                {errorMessage}
+              </Callout>
+            )}
           </div>
 
           {questionId && files.some((f) => f.test > 0) && (
-            <div className="card fade-in-up" id="test-files-card">
-              <h2>Test files</h2>
-              <p className="shown-examples-note">Time&apos;s up, so every test&apos;s files are open now.</p>
+            <Card className="mt-4 animate-fade-in-up">
+              <SectionTitle>Test files</SectionTitle>
+              <p className="mt-1 mb-4 text-[13px] text-zinc-500">Time&apos;s up, so every test&apos;s files are open now.</p>
               <TestFiles key={questionId} questionId={questionId} files={files} groupByTest />
-            </div>
+            </Card>
           )}
 
           {shownExamples.length > 0 && (
-            <div className="card fade-in-up" id="shown-examples-card">
-              <h2>Let's look at this together</h2>
-              <p className="shown-examples-note">
+            <Card className="animate-fade-in-up">
+              <SectionTitle>Let's look at this together</SectionTitle>
+              <p className="mt-1 mb-5 text-[13px] text-zinc-500">
                 {shownExamples.length > 1
                   ? "Your lecturer picked these attempts from the class to go over."
                   : "Your lecturer picked this attempt from the class to go over."}
               </p>
-              {shownExamples.map((ex, i) => (
-                <div className="shown-example" key={i}>
-                  {shownExamples.length > 1 && <div className="shown-example-label">Example {i + 1}</div>}
-                  <pre className="code-block">{ex.source_code}</pre>
-                  {ex.failing_test && (
-                    <dl className="io-table">
-                      <dt>Input</dt>
-                      <dd>
-                        <code>{ex.failing_test.stdin.trimEnd()}</code>
-                      </dd>
-                      <dt>Expected</dt>
-                      <dd>
-                        <code>{ex.failing_test.expected_stdout.trimEnd()}</code>
-                      </dd>
-                      <dt>Got</dt>
-                      <dd>
-                        <code>{ex.failing_test.stdout.trim() || "(nothing)"}</code>
-                      </dd>
-                      {ex.failing_test.stderr && (
-                        <>
-                          <dt>Error</dt>
-                          <dd>
-                            <code>{ex.failing_test.stderr.trim().split("\n").pop()}</code>
-                          </dd>
-                        </>
-                      )}
-                    </dl>
-                  )}
-                </div>
-              ))}
-            </div>
+              <div className="grid divide-y divide-zinc-200">
+                {shownExamples.map((ex, i) => (
+                  <div className="py-5 first:pt-0 last:pb-0" key={i}>
+                    {shownExamples.length > 1 && (
+                      <div className="mb-2 text-[13px] font-semibold text-zinc-900">Example {i + 1}</div>
+                    )}
+                    <pre className="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap">
+                      {ex.source_code}
+                    </pre>
+                    {ex.failing_test && <IoList className="mt-3" rows={failingRows(ex.failing_test)} />}
+                  </div>
+                ))}
+              </div>
+            </Card>
           )}
-        </main>
+        </NarrowMain>
       </>
     );
   }
 
+  const timeFraction = durationSeconds && secondsRemaining != null ? secondsRemaining / durationSeconds : 0;
+
   return (
     <>
       <StudentBar name={joinedName || name} />
-      <main className="task-main">
-        <div className="col-left">
-          <div className="card">
+      <main className="mx-auto grid w-full max-w-6xl items-start gap-5 px-5 pt-8 pb-20 sm:px-8 md:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="grid gap-5 md:sticky md:top-20">
+          <Card>
             {secondsRemaining != null && (
-              <div id="timer-box">
-                <div className="timer-row">
-                  <span className="timer-label">Time left</span>
-                  <span className={"timer-value" + (secondsRemaining === 0 ? " time-up" : "")}>
+              <div className="mb-6">
+                <div className="flex items-baseline justify-between">
+                  <Eyebrow>Time left</Eyebrow>
+                  <span
+                    className={cx(
+                      "font-mono text-2xl font-semibold tracking-tight tabular-nums",
+                      secondsRemaining === 0 ? "text-red-600" : "text-zinc-950",
+                    )}
+                  >
                     {formatMMSS(secondsRemaining)}
                   </span>
                 </div>
-                <div id="timer-bar-track">
-                  <div
-                    id="timer-bar-fill"
-                    style={{
-                      width: durationSeconds
-                        ? `${Math.min(100, Math.max(0, (secondsRemaining / durationSeconds) * 100))}%`
-                        : "0%",
-                    }}
-                  />
-                </div>
+                <ProgressBar
+                  className="mt-2"
+                  value={timeFraction}
+                  tone={timeFraction <= 0.15 ? "danger" : "neutral"}
+                  label="Time left"
+                />
               </div>
             )}
 
-            <h2>Task</h2>
-            <p id="prompt-text">{promptText}</p>
+            <h2 className="text-lg font-bold tracking-tight text-zinc-950">Task</h2>
+            <p className="mt-2 text-sm leading-relaxed whitespace-pre-wrap text-zinc-700">{promptText}</p>
             {outputFile && (
-              <div className="output-file-note">
-                Write your answer to <code>{outputFile}</code>. That file is checked, not what your program prints.
+              <div className="mt-4 border-l-2 border-zinc-900 bg-zinc-50 py-2.5 pr-3 pl-3.5 text-[13px] leading-relaxed text-zinc-700">
+                Write your answer to <Code>{outputFile}</Code>. That file is checked, not what your program prints.
               </div>
             )}
             {example && (
-              <div className="example-block">
-                <div className="example-label">Example</div>
-                <dl className="code-block io-table">
-                  <dt>Input</dt>
-                  <dd>
-                    <code>{example.stdin.trimEnd() || "(none)"}</code>
-                  </dd>
-                  <dt>{outputFile ?? "Output"}</dt>
-                  <dd>
-                    <code>{example.expected_stdout.trimEnd()}</code>
-                  </dd>
-                </dl>
+              <div className="mt-5">
+                <Eyebrow className="mb-2">Example</Eyebrow>
+                <IoList
+                  className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3"
+                  rows={[
+                    ["Input", example.stdin.trimEnd() || "(none)"],
+                    [outputFile ?? "Output", example.expected_stdout.trimEnd()],
+                  ]}
+                />
               </div>
             )}
             {questionId && files.some((f) => f.test === 0) && (
-              <div className="example-block">
-                <div className="example-label">Files</div>
-                <p className="files-note">
+              <div className="mt-5">
+                <Eyebrow className="mb-2">Files</Eyebrow>
+                <p className="mb-3 text-[13px] leading-relaxed text-zinc-500">
                   Your program can open these by name, e.g.{" "}
-                  <code>open(&quot;{files.find((f) => f.test === 0)?.name}&quot;)</code>. The graded tests use their
-                  own versions, shown when time is up.
+                  <Code>open(&quot;{files.find((f) => f.test === 0)?.name}&quot;)</Code>. The graded tests use their own
+                  versions, shown when time is up.
                 </p>
                 <TestFiles key={questionId} questionId={questionId} files={files.filter((f) => f.test === 0)} />
               </div>
             )}
-          </div>
+          </Card>
 
           {history && (
-            <div className="card" id="history-card">
-              <h2>Your attempts</h2>
-              <div id="history-trail">
+            <Card>
+              <SectionTitle>Your attempts</SectionTitle>
+              <div className="mt-3 flex flex-wrap gap-1.5">
                 {history.map((row) => (
                   <div
                     key={row.id}
-                    className={"history-dot " + (row.verdict || "incorrect")}
+                    className={cx(
+                      "grid size-7 place-items-center rounded-md font-mono text-[11px] font-semibold text-white tabular-nums",
+                      row.verdict === "correct"
+                        ? "bg-emerald-600"
+                        : row.verdict === "partially_correct"
+                          ? "bg-amber-500"
+                          : "bg-red-600",
+                    )}
                     title={`Attempt ${row.attempt_number}: ${row.verdict || "unknown"}`}
                   >
                     {row.attempt_number}
                   </div>
                 ))}
               </div>
-              <div id="history-summary">
+              <p className="mt-3 text-[13px] text-zinc-500">
                 {(() => {
                   const passed = history.filter((r) => r.verdict === "correct").length;
                   return (
@@ -780,75 +883,95 @@ export default function App() {
                     (passed ? `, ${passed} correct` : "")
                   );
                 })()}
-              </div>
-            </div>
+              </p>
+            </Card>
           )}
         </div>
 
-        <div className="col-right">
+        <div className="grid min-w-0 gap-5">
           {nudge && (
-            <div className="card nudge-card" role="status">
-              <p>{nudge}</p>
-              <button className="secondary" onClick={() => setNudge(null)}>
+            <div
+              className="flex animate-fade-in-up flex-col items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 px-5 py-4 sm:flex-row sm:items-center"
+              role="status"
+            >
+              <p className="flex-1 text-sm leading-relaxed text-sky-950">{nudge}</p>
+              <Button variant="secondary" size="sm" onClick={() => setNudge(null)}>
                 Got it
-              </button>
+              </Button>
             </div>
           )}
-          <div className="card">
-            <div className="card-head">
-              <h2>Your code</h2>
-              <span className="lang-tag">{language.charAt(0).toUpperCase() + language.slice(1)}</span>
+          <Card>
+            <SectionTitle actions={<Badge>{language.charAt(0).toUpperCase() + language.slice(1)}</Badge>}>
+              Your code
+            </SectionTitle>
+            <div className="mt-4">
+              <Suspense
+                fallback={
+                  <div className="h-80 rounded-lg border border-zinc-200 p-3 text-sm text-zinc-500">Loading editor...</div>
+                }
+              >
+                <CodeEditor
+                  key={questionId}
+                  language={language}
+                  initialValue={starterCode(language)}
+                  onChange={handleEditorChange}
+                />
+              </Suspense>
             </div>
-            <Suspense fallback={<div className="code-editor code-editor-loading">Loading editor...</div>}>
-              <CodeEditor
-                key={questionId}
-                language={language}
-                initialValue={starterCode(language)}
-                onChange={handleEditorChange}
-              />
-            </Suspense>
-            <div className="editor-actions">
-              {submitting && statusText && <span id="submit-status">{statusText}</span>}
-              <button id="submit-btn" disabled={submitting} onClick={handleSubmit}>
-                {submitting && <span className="spinner" />}
+            <div className="mt-4 flex items-center justify-end gap-3">
+              {submitting && statusText && <span className="text-[13px] text-zinc-500">{statusText}</span>}
+              <Button size="lg" disabled={submitting} onClick={handleSubmit}>
+                {submitting && <Spinner />}
                 {submitting ? "Running..." : "Submit"}
-              </button>
+              </Button>
             </div>
-            {errorMessage && <div className="error-box">{errorMessage}</div>}
-          </div>
+            {errorMessage && (
+              <Callout tone="danger" role="alert" className="mt-4">
+                {errorMessage}
+              </Callout>
+            )}
+          </Card>
           {result && (
-            <div className="card fade-in-up" id="result">
-              <div className="result-head">
-                <span className={verdictClass(result.verdict)}>{verdictLabel(result.verdict)}</span>
-                <span className="score-text">
-                  {result.tests_passed}/{result.tests_total} tests passed
-                </span>
+            <Card className="animate-fade-in-up">
+              <div className="flex flex-wrap items-center gap-3">
+                <VerdictBadge verdict={result.verdict} />
+                <TestsPassed passed={result.tests_passed} total={result.tests_total} />
               </div>
               {result.hint_tier ? (
-                <div className="tier-note">
-                  <div className="tier-label">{`Hint ${result.hint_tier} of ${result.hint_ceiling}`}</div>
-                  <div className="tier-bar">
+                <div className="mt-5">
+                  <div className="mb-2 text-xs font-medium text-zinc-500">
+                    Hint <span className="font-mono">{result.hint_tier}</span> of{" "}
+                    <span className="font-mono">{result.hint_ceiling}</span>
+                  </div>
+                  <div className="flex gap-1">
                     {Array.from({ length: result.hint_ceiling ?? 0 }, (_, i) => i + 1).map((i) => (
-                      <div key={i} className={"tier-seg" + (i <= (result.hint_tier ?? 0) ? " filled" : "")} />
+                      <div
+                        key={i}
+                        className={cx("h-1 flex-1 rounded-sm", i <= (result.hint_tier ?? 0) ? "bg-zinc-900" : "bg-zinc-200")}
+                      />
                     ))}
                   </div>
                 </div>
               ) : null}
-              <div id="feedback-text">{result.feedback}</div>
+              <div className="mt-5 text-[15px] leading-relaxed text-zinc-800">{result.feedback}</div>
               {result.traceback && (
-                <details id="traceback-box">
-                  <summary>Your program's error output</summary>
-                  <pre>{result.traceback}</pre>
+                <details className="group mt-5 border-t border-zinc-200 pt-4">
+                  <summary className="cursor-pointer rounded-sm text-[13px] font-medium text-zinc-500 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900">
+                    Your program's error output
+                  </summary>
+                  <pre className="mt-3 overflow-x-auto rounded-lg bg-zinc-950 px-4 py-3 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-zinc-100">
+                    {result.traceback}
+                  </pre>
                 </details>
               )}
               {result.hidden_crash && (
-                <p className="hidden-error-note">
-                  Your program crashed on a hidden test{result.hidden_error ? ` (${result.hidden_error})` : ""}. Its
-                  error output isn&apos;t shown, because it could reveal that test&apos;s data. Try inputs like the
-                  hidden tests might use.
+                <p className="mt-4 text-sm leading-relaxed text-zinc-500">
+                  Your program crashed on a hidden test{result.hidden_error ? ` (${result.hidden_error})` : ""}. Its error
+                  output isn&apos;t shown, because it could reveal that test&apos;s data. Try inputs like the hidden tests
+                  might use.
                 </p>
               )}
-            </div>
+            </Card>
           )}
         </div>
       </main>
@@ -856,21 +979,24 @@ export default function App() {
   );
 }
 
+export interface StudentBarProps {
+  name?: string;
+}
+
 // Same top bar as the lecturer pages (shared/NavBar.tsx's look), minus the
 // links -- a student has nowhere else in the app to go. The right side shows
 // who this tab joined as once that's known.
-function StudentBar({ name }: { name?: string }) {
+function StudentBar({ name }: StudentBarProps) {
   return (
-    <nav className="top-nav top-nav-student">
-      <span className="top-nav-brand">
-        <span className="top-nav-mark" aria-hidden="true">IL</span>
-        <span className="top-nav-name">Interactive Lecture</span>
-      </span>
-      {name && (
-        <span className="top-nav-who">
-          Joined as <strong>{name}</strong>
-        </span>
-      )}
+    <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-zinc-50/85 backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-5 sm:px-8">
+        <BrandMark compact />
+        {name && (
+          <span className="max-w-[60%] truncate text-[13px] text-zinc-500">
+            Joined as <strong className="font-semibold text-zinc-900">{name}</strong>
+          </span>
+        )}
+      </div>
     </nav>
   );
 }

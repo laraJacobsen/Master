@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
+import { Button } from "./ui";
 
-interface ConfirmDialogProps {
+export interface ConfirmDialogProps {
   open: boolean;
   title: string;
   message: string;
@@ -45,24 +46,31 @@ export function ConfirmDialog({
   if (!open) return null;
 
   return (
-    <div className="confirm-backdrop" onClick={onCancel}>
+    <div
+      className="fixed inset-0 z-[100] flex animate-fade-in items-center justify-center bg-zinc-950/40 p-4 backdrop-blur-[2px]"
+      onClick={onCancel}
+    >
       <div
-        className="confirm-dialog"
+        className="w-full max-w-sm animate-fade-in-up rounded-xl border border-zinc-200 bg-white p-6 shadow-2xl shadow-zinc-950/10"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
         aria-describedby="confirm-dialog-message"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id="confirm-dialog-title">{title}</h2>
-        <p id="confirm-dialog-message">{message}</p>
-        <div className="confirm-dialog-actions">
-          <button ref={cancelRef} className="secondary" onClick={onCancel}>
+        <h2 id="confirm-dialog-title" className="text-lg font-bold tracking-tight text-zinc-950">
+          {title}
+        </h2>
+        <p id="confirm-dialog-message" className="mt-2 text-sm text-zinc-500">
+          {message}
+        </p>
+        <div className="mt-6 flex justify-end gap-2">
+          <Button ref={cancelRef} variant="secondary" onClick={onCancel}>
             {cancelLabel}
-          </button>
-          <button ref={confirmRef} className="danger" onClick={onConfirm}>
+          </Button>
+          <Button ref={confirmRef} variant="danger" onClick={onConfirm}>
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

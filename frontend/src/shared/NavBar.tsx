@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import type { ActiveLectureResponse } from "./types";
 import { fetchActiveLecture } from "./api";
 import { activeLectureAction } from "./lectureNav";
+import { LinkButton } from "./ui";
+import { cx } from "./cx";
 
 // A bare "/" (the site root) and "/index.html" are the same page as far as
 // FastAPI's StaticFiles(html=True) is concerned -- normalize so comparing
@@ -50,34 +53,59 @@ export function NavBar() {
   const showCta = !isCurrentPage(action.href) && action.label !== "Resume lobby";
 
   return (
-    <nav className="top-nav">
-      <a href="index.html" className="top-nav-brand">
-        <span className="top-nav-mark" aria-hidden="true">IL</span>
-        <span className="top-nav-name">Interactive Lecture</span>
-      </a>
-      <div className="top-nav-actions">
-        {/* Always shown, marked when current -- a nav link that vanishes on its
-            own page makes the bar jump around between pages. */}
+    <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-zinc-50/85 backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-5 sm:px-8">
         <a
           href="index.html"
-          className={onHome ? "top-nav-home is-current" : "top-nav-home"}
-          aria-current={onHome ? "page" : undefined}
+          className="group flex items-center gap-2.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-900"
         >
-          Home
+          <span
+            className="grid size-7 place-items-center rounded-md bg-zinc-950 font-mono text-[11px] font-bold text-white transition-colors group-hover:bg-zinc-700"
+            aria-hidden="true"
+          >
+            IL
+          </span>
+          <span className="hidden text-sm font-bold tracking-tight text-zinc-950 sm:inline">Interactive Lecture</span>
         </a>
-        <a
-          href="history.html"
-          className={onHistory ? "top-nav-home is-current" : "top-nav-home"}
-          aria-current={onHistory ? "page" : undefined}
-        >
-          History
-        </a>
+        {/* Always shown, marked when current -- a nav link that vanishes on its
+            own page makes the bar jump around between pages. */}
+        <div className="flex items-center gap-1">
+          <NavLink href="index.html" current={onHome}>
+            Home
+          </NavLink>
+          <NavLink href="history.html" current={onHistory}>
+            History
+          </NavLink>
+        </div>
         {showCta && (
-          <a href={action.href} className="top-nav-cta">
+          <LinkButton href={action.href} size="sm" className="ml-auto">
             {action.label}
-          </a>
+          </LinkButton>
         )}
       </div>
     </nav>
+  );
+}
+
+export interface NavLinkProps {
+  href: string;
+  current: boolean;
+  children: ReactNode;
+}
+
+function NavLink({ href, current, children }: NavLinkProps) {
+  return (
+    <a
+      href={href}
+      aria-current={current ? "page" : undefined}
+      className={cx(
+        "relative rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900",
+        current ? "text-zinc-950" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900",
+      )}
+    >
+      {children}
+      {current && <span className="absolute inset-x-2.5 -bottom-[13px] h-px bg-zinc-950" aria-hidden="true" />}
+    </a>
   );
 }

@@ -1,19 +1,24 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
+import { cx } from "./cx";
 
-// Replaces the hand-duplicated inline-styled <a> ("<- Home", "Question
-// setup ->") that setup.html and lecturer.html each wrote separately --
-// same color/size (.header-nav-link, in shared/base.css) both places had.
-export function HeaderNavLink({
-  href,
-  style,
-  children,
-}: {
+export interface HeaderNavLinkProps {
   href: string;
-  style?: CSSProperties;
   children: ReactNode;
-}) {
+  className?: string;
+}
+
+// Small "back to ..." link that sits in a page header (e.g. lecturer
+// dashboard -> question setup).
+export function HeaderNavLink({ href, children, className }: HeaderNavLinkProps) {
   return (
-    <a href={href} className="header-nav-link" style={style}>
+    <a
+      href={href}
+      className={cx(
+        "inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-zinc-500 transition-colors " +
+          "hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900",
+        className,
+      )}
+    >
       {children}
     </a>
   );
