@@ -86,6 +86,9 @@ export default function App() {
   const [durationMinutes, setDurationMinutes] = useState("10");
   const [idleNudgeMinutes, setIdleNudgeMinutes] = useState("3");
   const [referenceSolution, setReferenceSolution] = useState("");
+  // Graded on a file the program writes (outputFile) instead of what it prints.
+  const [gradeFile, setGradeFile] = useState(false);
+  const [outputFile, setOutputFile] = useState("result.txt");
   const [showAdvanced, setShowAdvanced] = useState(false);
   // Autosave bookkeeping. editVersion counts edits; savedVersion is the edit
   // count the last successful save contained -- so a save that was in flight
@@ -334,6 +337,8 @@ export default function App() {
     setDurationMinutes("10");
     setIdleNudgeMinutes("3");
     setReferenceSolution("");
+    setGradeFile(false);
+    setOutputFile("result.txt");
     setTestCases([emptyTestCase()]);
     setShowAdvanced(false);
     generationRef.current += 1;
@@ -363,6 +368,8 @@ export default function App() {
     setDurationMinutes(String(q.duration_seconds / 60));
     setIdleNudgeMinutes(String(q.idle_nudge_seconds / 60));
     setReferenceSolution(q.reference_solution || "");
+    setGradeFile(Boolean(q.output_file));
+    setOutputFile(q.output_file || "result.txt");
     setTestCases(
       q.test_cases.length
         ? q.test_cases.map((tc) => ({
@@ -423,6 +430,24 @@ export default function App() {
     markEdited();
   }
 
+  // The expected output, read from a file instead of typed -- handy for big outputs.
+  async function loadExpectedFromFile(index: number, list: FileList | null) {
+    const file = list?.[0];
+    if (!file) return;
+    setFileError("");
+    if (file.size > MAX_TEST_FILE_BYTES) {
+      setFileError(`"${file.name}" is ${formatBytes(file.size)}. An expected output can be at most 1 MB.`);
+      return;
+    }
+    const content = await file.text();
+    if (content.includes("\u0000")) {
+      setFileError(`"${file.name}" isn't a text file.`);
+      return;
+    }
+    updateTestCase(index, "expected", content);
+    markEdited();
+  }
+
   function removeFile(index: number, name: string) {
     setTestCases((prev) => prev.map((tc, i) => (i === index ? { ...tc, files: tc.files.filter((f) => f.name !== name) } : tc)));
     markEdited();
@@ -442,6 +467,7 @@ export default function App() {
         .filter((tc) => tc.stdin.trim() || tc.expected.trim() || tc.files.length)
         .map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected, files: tc.files })),
       reference_solution: referenceSolution || null,
+      output_file: gradeFile ? outputFile.trim() || "result.txt" : null,
       cpu_time_limit_s: parseFloat(timeLimit),
       memory_limit_kb: Math.round(parseFloat(memoryLimit) * 1024),
       extra_packages: packageList,
@@ -804,12 +830,40 @@ export default function App() {
               {step === 1 && (
                 <>
                   <div className="field-head">
+                    <span className="field-label">What&apos;s graded</span>
+                  </div>
+                  <div className="grade-mode" role="radiogroup" aria-label="What's graded">
+                    <label className="grade-option">
+                      <input type="radio" name="grade-mode" checked={!gradeFile} onChange={() => setGradeFile(false)} />
+                      What the program prints
+                    </label>
+                    <label className="grade-option">
+                      <input type="radio" name="grade-mode" checked={gradeFile} onChange={() => setGradeFile(true)} />
+                      A file the program writes:
+                    </label>
+                    <input
+                      type="text"
+                      className="output-file-name"
+                      aria-label="Output file name"
+                      value={outputFile}
+                      disabled={!gradeFile}
+                      onChange={(e) => setOutputFile(e.target.value)}
+                    />
+                  </div>
+                  {gradeFile && (
+                    <p className="hint grade-mode-note">
+                      Students write their answer to <code>{outputFile.trim() || "result.txt"}</code>. That file is
+                      compared with the expected output; what the program prints isn&apos;t graded.
+                    </p>
+                  )}
+
+                  <div className="field-head">
                     <span className="field-label">Test cases</span>
                   </div>
                   <div className="tc-table">
                     <div className="tc-header" aria-hidden="true">
                       <span>Input</span>
-                      <span>Expected output</span>
+                      <span>{gradeFile ? `Expected ${outputFile.trim() || "result.txt"}` : "Expected output"}</span>
                       <span />
                     </div>
                     {testCases.map((tc, i) => (
@@ -852,6 +906,17 @@ export default function App() {
                             </button>
                           </span>
                         ))}
+                        <label className="attach-file">
+                          Expected from file
+                          <input
+                            type="file"
+                            aria-label={`Load test ${i + 1}'s expected output from a file`}
+                            onChange={(e) => {
+                              void loadExpectedFromFile(i, e.target.files);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
                         <label className="attach-file">
                           + File
                           <input

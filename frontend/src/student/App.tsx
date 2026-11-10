@@ -168,6 +168,8 @@ export default function App() {
   // Data files the student may open (status.question.files): the example's
   // during the task, every test's once time is up.
   const [files, setFiles] = useState<VisibleTestFile[]>([]);
+  // The task is graded on this file (e.g. "result.txt") instead of printed output.
+  const [outputFile, setOutputFile] = useState<string | null>(null);
   // What the lecturer is going over with the class right now -- see the
   // "On your lecturer's screen" card below.
   const [shownExamples, setShownExamples] = useState<SharedExample[]>([]);
@@ -338,6 +340,7 @@ export default function App() {
     const q = status.question;
     setSecondsRemaining(q.seconds_remaining);
     setFiles(q.files ?? []);
+    setOutputFile(q.output_file ?? null);
 
     if (q.id !== questionIdRef.current) {
       // A new task (or the first one) -- reset the editor for it. A student
@@ -722,6 +725,11 @@ export default function App() {
 
             <h2>Task</h2>
             <p id="prompt-text">{promptText}</p>
+            {outputFile && (
+              <div className="output-file-note">
+                Write your answer to <code>{outputFile}</code>. That file is checked, not what your program prints.
+              </div>
+            )}
             {example && (
               <div className="example-block">
                 <div className="example-label">Example</div>
@@ -730,7 +738,7 @@ export default function App() {
                   <dd>
                     <code>{example.stdin.trimEnd() || "(none)"}</code>
                   </dd>
-                  <dt>Output</dt>
+                  <dt>{outputFile ?? "Output"}</dt>
                   <dd>
                     <code>{example.expected_stdout.trimEnd()}</code>
                   </dd>

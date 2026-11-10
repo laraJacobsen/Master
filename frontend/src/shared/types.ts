@@ -42,6 +42,9 @@ export interface PublicQuestion {
   prompt: string;
   language: string;
   example: TestCase | null;
+  // Graded on what the program writes to this file (e.g. "result.txt") instead
+  // of what it prints; null = printed output.
+  output_file?: string | null;
 }
 
 // GET /api/lecture/status's `question` -- same shape as PublicQuestion plus
@@ -112,6 +115,7 @@ export interface QuestionRow {
   // Seconds without typing before the student gets an automatic nudge; 0 = off.
   idle_nudge_seconds: number;
   started_at: string | null;
+  output_file: string | null;
 }
 
 export interface QuestionPayload {
@@ -127,6 +131,7 @@ export interface QuestionPayload {
   expected_students: number | null;
   duration_seconds: number;
   idle_nudge_seconds: number;
+  output_file?: string | null;
 }
 
 // POST /api/lecturer/lecture/next

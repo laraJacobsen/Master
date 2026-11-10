@@ -37,6 +37,26 @@ _NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_][A-Za-z0-9_.-]
 RESERVED_NAMES = {"script.py", "main.c", "Main.java", "Main.class", "a.out", "run", "compile"}
 
 
+def check_output_file(name: str | None, test_cases: list) -> str | None:
+    """A question's graded output file (e.g. "result.txt"): same naming rules as
+    test files, and no test may attach a file of that name -- it would already
+    exist before the program runs, so a program that writes nothing would be
+    graded on the lecturer's file."""
+    if name is None:
+        return None
+    if len(name) > MAX_NAME_LENGTH or not _NAME_RE.match(name) or ".." in name.split("/"):
+        return (
+            f'"{name}" can\'t be used as the output file name. Use letters, digits, ".", "-" and "_", '
+            f'with "/" between folder names.'
+        )
+    if name.split("/")[-1] in RESERVED_NAMES:
+        return f'"{name}" is a name the grader uses itself. Pick another output file name.'
+    for number, case in enumerate(test_cases, 1):
+        if any(f["name"] == name for f in files_of(case)):
+            return f'Test {number} attaches a file called "{name}", the same name as the output file.'
+    return None
+
+
 def files_of(case: dict) -> list:
     """A test case's files; [] for test cases stored before files existed."""
     return case.get("files") or []

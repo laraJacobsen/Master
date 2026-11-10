@@ -91,6 +91,9 @@ class QuestionCreateRequest(BaseModel):
     expected_students: int | None = None
     duration_seconds: int = 600
     idle_nudge_seconds: int = 180
+    # Grade what the program writes to this file (e.g. "result.txt") instead of
+    # what it prints; None = printed output, as before.
+    output_file: str | None = None
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -108,6 +111,7 @@ class QuestionUpdateRequest(BaseModel):
     expected_students: int | None = None
     duration_seconds: int | None = None
     idle_nudge_seconds: int | None = None
+    output_file: str | None = None
 
 
 class LectureAdvanceRequest(BaseModel):
@@ -161,7 +165,8 @@ def api_lecturer_list_questions():
 def api_lecturer_create_question(req: QuestionCreateRequest):
     fields = req.model_dump()
     fields["test_cases"] = [tc.model_dump() for tc in req.test_cases]
-    _check_test_files_or_400(fields["test_cases"])
+    fields["output_file"] = (fields.get("output_file") or "").strip() or None
+    _check_test_files_or_400(fields["test_cases"], fields["output_file"])
     question_id = store.create_question(fields)
     return store.get_question_row(question_id)
 
@@ -179,8 +184,8 @@ def api_lecturer_question_detail(question_id: str, include_files: bool = False):
     return row
 
 
-def _check_test_files_or_400(test_cases: list) -> None:
-    problem = test_files.check_test_files(test_cases)
+def _check_test_files_or_400(test_cases: list, output_file: str | None) -> None:
+    problem = test_files.check_test_files(test_cases) or test_files.check_output_file(output_file, test_cases)
     if problem:
         raise HTTPException(status_code=400, detail=problem)
 
@@ -189,7 +194,7 @@ def _check_test_files_or_400(test_cases: list) -> None:
 # api_lecturer_update_question.
 _VALIDATION_FIELDS = (
     "test_cases", "reference_solution", "language",
-    "cpu_time_limit_s", "memory_limit_kb", "extra_packages", "line_limit",
+    "cpu_time_limit_s", "memory_limit_kb", "extra_packages", "line_limit", "output_file",
 )
 
 
@@ -208,7 +213,12 @@ def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
     fields = req.model_dump(exclude_unset=True)
     if "test_cases" in fields:
         fields["test_cases"] = [tc if isinstance(tc, dict) else tc.model_dump() for tc in req.test_cases]
-        _check_test_files_or_400(fields["test_cases"])
+    if "output_file" in fields:
+        fields["output_file"] = (fields["output_file"] or "").strip() or None
+    if "test_cases" in fields or "output_file" in fields:
+        _check_test_files_or_400(
+            fields.get("test_cases", row["test_cases"]), fields.get("output_file", row.get("output_file"))
+        )
     # NOT NULL column -- "off" is 0, not null.
     if "idle_nudge_seconds" in fields and fields["idle_nudge_seconds"] is None:
         del fields["idle_nudge_seconds"]
@@ -268,6 +278,7 @@ def api_lecturer_validate_question(question_id: str):
             language=question["language"],
             cpu_time_limit=question["cpu_time_limit_s"],
             memory_limit_kb=question["memory_limit_kb"],
+            output_file=question.get("output_file"),
         )
     except Judge0Error as e:
         raise HTTPException(status_code=502, detail=str(e))
@@ -564,6 +575,8 @@ def api_lecture_status():
             "prompt": question["prompt"],
             "language": question["language"],
             "example": tests[0] if tests else None,
+            # Grade what the program writes to this file instead of what it prints.
+            "output_file": question.get("output_file"),
             # Data files the student may open in the viewer (name and size; the
             # content comes from api_lecture_test_file): the example's while the
             # task runs, every test's once time is up.
@@ -717,6 +730,12 @@ def api_lecture_activity(req: ActivityRequest):
     return {"nudge": None}
 
 
+# Shown to a student whose program ran but never created the task's output file.
+MISSING_OUTPUT_FILE_FEEDBACK = (
+    "Your program ran, but it didn't create {name}. This task checks what your program "
+    'writes to {name}, not what it prints. Write your answer to it, e.g. with open("{name}", "w").'
+)
+
 # Shown to a student whose program never reads its input (see api_submit).
 IGNORES_INPUT_FEEDBACK = (
     "Your program never reads the input, so it prints the same thing every time. "
@@ -800,6 +819,7 @@ def _submit(req: SubmitRequest):
             language=question["language"],
             cpu_time_limit=question["cpu_time_limit_s"],
             memory_limit_kb=question["memory_limit_kb"],
+            output_file=question.get("output_file"),
         )
     except Judge0Error as e:
         # Judge0 itself is unreachable/broken -- distinct from the student's
@@ -816,6 +836,27 @@ def _submit(req: SubmitRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI feedback failed: {e}")
+
+    # Graded output file never created: the program ran fine but didn't write
+    # the file the task asks for -- its own issue type, with feedback that says
+    # so instead of a wrong-answer hint about output it never wrote.
+    output_file = question.get("output_file")
+    failing = next((r for r in _graded(test_results) if not r["passed"]), None)
+    if (
+        output_file
+        and failing is not None
+        and failing.get("output_file_missing")
+        and failing["status_description"] == "Accepted"
+    ):
+        feedback.update(
+            verdict="incorrect",
+            exec_verdict="missing_output_file",
+            error_type=None,
+            feedback=MISSING_OUTPUT_FILE_FEEDBACK.format(name=output_file),
+            hint_tier=None,
+            hint_ceiling=None,
+            traceback=None,
+        )
 
     # Hard-coded output: a program that ran fine but never reads its input can
     # only pass by printing an expected answer it was given or guessed. Its own

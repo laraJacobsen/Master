@@ -17,6 +17,7 @@ something a question's setup page exposes.
 import base64
 import io
 import os
+import secrets
 import zipfile
 
 import requests
@@ -40,6 +41,42 @@ LANGUAGE_IDS = {
     "c": 50,
     "java": 62,
 }
+
+# Graded output file (a question's output_file, e.g. result.txt): Judge0 never
+# returns files a program creates, so such runs use Judge0's "Multi-file program"
+# language with our own run script -- it runs the program exactly as Judge0's
+# own language would (source name, compile and run commands below are copied
+# from this Judge0 version's /languages/71, /50 and /62), then prints a random
+# per-run marker and the output file. Statuses (runtime error, time limit,
+# compilation error), exit codes and tracebacks ("script.py", line N) come out
+# the same as a normal run -- checked against the local instance.
+MULTI_FILE_LANGUAGE_ID = 89
+_MULTI_FILE_COMMANDS = {  # language -> (source file, compile command or None, run command)
+    "python": ("script.py", None, "/usr/local/python-3.8.1/bin/python3 script.py"),
+    "c": ("main.c", "/usr/local/gcc-9.2.0/bin/gcc main.c", "./a.out"),
+    "java": ("Main.java", "/usr/local/openjdk13/bin/javac Main.java", "/usr/local/openjdk13/bin/java Main"),
+}
+
+
+def _multi_file_zip_b64(source_code: str, language: str, files: list, output_file: str, marker: str) -> str:
+    source_name, compile_cmd, run_cmd = _MULTI_FILE_COMMANDS[language]
+    run_script = (
+        "#!/bin/bash\n"
+        f"{run_cmd}\n"
+        "status=$?\n"
+        f"printf '\\n%s\\n' '{marker}'\n"
+        f"if [ -f '{output_file}' ]; then cat '{output_file}'; else printf '%s' '{marker}MISSING'; fi\n"
+        "exit $status\n"
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in files or []:
+            z.writestr(f["name"], f["content"])
+        z.writestr(source_name, source_code)
+        z.writestr("run", run_script)
+        if compile_cmd:
+            z.writestr("compile", f"#!/bin/bash\n{compile_cmd}\n")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def _b64(s: str) -> str:
@@ -79,6 +116,7 @@ def run_submission(
     cpu_time_limit: float = None,
     memory_limit_kb: int = None,
     files: list = None,
+    output_file: str = None,
 ) -> dict:
     """Submit one piece of code + stdin to Judge0 synchronously.
 
@@ -87,6 +125,11 @@ def run_submission(
 
     files ([{"name", "content"}], see backend/test_files.py) are placed next to
     the program before it runs, so it can open them by name.
+
+    output_file (e.g. "result.txt"): grade what the program writes to that file
+    instead of what it prints. Then `stdout` in the result is the file's content
+    (None if the program didn't create it, with output_file_missing=True), and
+    what the program printed is in `printed_stdout`.
 
     Returns a normalized result dict:
       status_id, status_description, stdout, stderr, compile_output, message,
@@ -113,7 +156,13 @@ def run_submission(
         "cpu_time_limit": cpu_time_limit,
         "memory_limit": memory_limit_kb,
     }
-    if files:
+    marker = None
+    if output_file:
+        marker = "@@OUTPUT-" + secrets.token_hex(12) + "@@"
+        payload["language_id"] = MULTI_FILE_LANGUAGE_ID
+        del payload["source_code"]
+        payload["additional_files"] = _multi_file_zip_b64(source_code, language, files, output_file, marker)
+    elif files:
         payload["additional_files"] = _files_zip_b64(files)
 
     try:
@@ -130,10 +179,22 @@ def run_submission(
     data = resp.json()
     status = data.get("status") or {}
 
+    stdout = _un_b64(data.get("stdout"))
+    extra = {}
+    if marker:
+        # Before the marker: what the program printed. After it: the output
+        # file, or the MISSING sentinel. No marker at all: the run was killed
+        # (time limit) before the run script got there.
+        printed, found, file_part = (stdout or "").partition("\n" + marker + "\n")
+        missing = not found or file_part == marker + "MISSING"
+        stdout = None if missing else file_part
+        extra = {"printed_stdout": printed, "output_file_missing": missing}
+
     return {
+        **extra,
         "status_id": status.get("id"),
         "status_description": status.get("description"),
-        "stdout": _un_b64(data.get("stdout")),
+        "stdout": stdout,
         "stderr": _un_b64(data.get("stderr")),
         "compile_output": _un_b64(data.get("compile_output")),
         "message": _un_b64(data.get("message")),
@@ -149,6 +210,7 @@ def run_test_cases(
     language: str = "python",
     cpu_time_limit: float = None,
     memory_limit_kb: int = None,
+    output_file: str = None,
 ) -> list:
     """Run one submission's code against a list of test cases.
 
@@ -171,12 +233,14 @@ def run_test_cases(
             cpu_time_limit=cpu_time_limit,
             memory_limit_kb=memory_limit_kb,
             files=case.get("files"),
+            output_file=output_file,
         )
         result["case_index"] = i
         result["stdin"] = case["stdin"]
         result["expected_stdout"] = case["expected_stdout"]
         result["passed"] = (
             result["status_description"] == "Accepted"
+            and not result.get("output_file_missing")
             and outputs_match(result["stdout"], case["expected_stdout"])
         )
         results.append(result)

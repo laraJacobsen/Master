@@ -32,6 +32,7 @@ def list_questions():
             "prompt": q["prompt"],
             "language": q["language"],
             "example": without_contents(q["test_cases"][:1])[0] if q["test_cases"] else None,
+            "output_file": q.get("output_file"),
         }
         for q in store.list_question_rows(status="live")
     ]

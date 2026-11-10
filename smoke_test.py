@@ -39,6 +39,7 @@ import base64
 import io
 import json as json_lib  # `fake_post` below has its own `json` parameter (the request body)
 import os
+import re
 import sys
 import zipfile
 from unittest.mock import MagicMock, patch
@@ -66,6 +67,7 @@ NAME_ERROR_MARKER = "num = inpt().split()"
 FILE_SUM_CODE = "print(sum(int(x) for x in open('numbers.txt').read().split()))"
 FILE_LEAK_CODE = "# LEAK\n" + FILE_SUM_CODE
 file_runs = []  # attached file names per Judge0 call, in order
+output_runs = []  # zip contents of graded-output-file (multi-file) Judge0 calls
 DOUBLE_MARKER = "int(input()) * 2"  # substring fake_post dispatches on
 DOUBLE_MARKER_CODE = f"print({DOUBLE_MARKER})"  # reference solution for the question-setup flow test below
 
@@ -115,6 +117,24 @@ def fake_post(url, params=None, json=None, headers=None, timeout=None):
                     }
                 }
             ]
+        }
+        return resp
+
+    if json.get("language_id") == 89:
+        # Graded output file (Judge0 "Multi-file program"): the fake program sums
+        # numbers.txt, prints a debug line, and writes the sum to result.txt
+        # only if its source opens result.txt for writing.
+        z = zipfile.ZipFile(io.BytesIO(base64.b64decode(json["additional_files"])))
+        names = z.namelist()
+        marker = re.search(r"'(@@OUTPUT-[0-9a-f]+@@)'", z.read("run").decode()).group(1)
+        src = z.read("script.py").decode()
+        output_runs.append({"names": sorted(names), "stdin": base64.b64decode(json.get("stdin") or "").decode()})
+        nums = [int(x) for x in z.read("numbers.txt").decode().split()] if "numbers.txt" in names else []
+        file_part = f"{sum(nums)}\n" if "open('result.txt', 'w')" in src else marker + "MISSING"
+        resp.json.return_value = {
+            "status": {"id": 3, "description": "Accepted"},
+            "stdout": base64.b64encode(f"debug\n\n{marker}\n{file_part}".encode()).decode(),
+            "stderr": None, "compile_output": None, "message": None, "time": "0.01", "memory": 1234, "exit_code": 0,
         }
         return resp
 
@@ -425,6 +445,7 @@ def main():
         with TestClient(app) as client:
             _run_checks(client)
             _run_test_file_checks(client)
+            _run_output_file_checks(client)
 
     print("\nALL SMOKE TESTS PASSED")
 
@@ -1277,6 +1298,60 @@ def _run_test_file_checks(client):
     client.post(f"/api/lecturer/questions/{plain['id']}/validate")
     assert file_runs == [[], []], file_runs
     print("Questions without files: nothing attached   OK")
+
+
+
+def _run_output_file_checks(client):
+    """A question graded on a file the program writes (output_file) instead of
+    what it prints: runs go through Judge0's multi-file mode with the program,
+    the test's files and a run script; the file's content is what's graded."""
+    writes = "s = sum(int(x) for x in open('numbers.txt').read().split())\nprint('debug')\nopen('result.txt', 'w').write(str(s))"
+    prints = "print(sum(int(x) for x in open('numbers.txt').read().split()))"
+    tests = [
+        {"stdin": "", "expected_stdout": "6", "files": [{"name": "numbers.txt", "content": "1 2 3\n"}]},
+        {"stdin": "", "expected_stdout": "100", "files": [{"name": "numbers.txt", "content": "10 20 30 40\n"}]},
+    ]
+    base = {"title": "Write the sum", "prompt": "Write the sum of numbers.txt to result.txt.", "language": "python",
+            "reference_solution": writes, "duration_seconds": 600, "test_cases": tests}
+
+    for bad in ["run", "../out.txt", "numbers.txt"]:
+        r = client.post("/api/lecturer/questions", json={**base, "output_file": bad})
+        assert r.status_code == 400, (bad, r.status_code, r.text)
+    print("Output file: name rules (reserved, path, clash with a test file)   OK")
+
+    q = client.post("/api/lecturer/questions", json={**base, "output_file": " result.txt "})
+    assert q.status_code == 200 and q.json()["output_file"] == "result.txt", q.text
+    qid = q.json()["id"]
+    output_runs.clear()
+    v = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert v["validated"], v
+    assert [r["stdout"] for r in v["results"]] == ["6\n", "100\n"], v["results"]
+    assert all(r["printed_stdout"] == "debug\n" and not r["output_file_missing"] for r in v["results"]), v["results"]
+    assert output_runs[0]["names"] == ["numbers.txt", "run", "script.py"], output_runs
+    print("Output file: graded on result.txt, printed output kept apart   OK")
+
+    assert client.post(f"/api/lecturer/questions/{qid}/start").status_code == 200
+    status = client.get("/api/lecture/status").json()
+    assert status["question"]["id"] == qid and status["question"]["output_file"] == "result.txt", status["question"]
+
+    ok = client.post("/api/submit", json={"student_name": "Hal", "question_id": qid, "source_code": writes}).json()
+    assert ok["verdict"] == "correct", ok
+    missing = client.post("/api/submit", json={"student_name": "Ivy", "question_id": qid, "source_code": prints}).json()
+    assert missing["verdict"] == "incorrect" and "didn't create result.txt" in missing["feedback"], missing
+    rows = client.get("/api/lecturer/submissions", params={"question_id": qid}).json()
+    assert {r["student_name"]: r["exec_verdict"] for r in rows} == {"Hal": "pass", "Ivy": "missing_output_file"}, rows
+    clusters = client.get("/api/lecturer/clusters", params={"question_id": qid}).json()
+    assert any(c["exec_verdict"] == "missing_output_file" for c in clusters), clusters
+    print("Output file: program that only prints gets 'didn't create result.txt'   OK")
+
+    # Plain questions are unchanged: no multi-file runs.
+    output_runs.clear()
+    plain = client.post("/api/lecturer/questions", json={**base, "title": "Plain", "reference_solution": prints,
+                                                         "test_cases": tests}).json()
+    assert plain["output_file"] is None
+    client.post(f"/api/lecturer/questions/{plain['id']}/validate")
+    assert output_runs == [], output_runs
+    print("Questions without an output file: normal runs   OK")
 
 
 if __name__ == "__main__":

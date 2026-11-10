@@ -883,6 +883,9 @@ def _wrong_answer_subclusters(members: list) -> list:
 
 
 def _generate_discussion_point(exec_verdict: str, error_type: str, student_count: int):
+    if exec_verdict == "missing_output_file":
+        # Set in main.api_submit when the task's output file was never written.
+        return "Ran without errors but never wrote the output file. Worth showing how to open a file for writing."
     if exec_verdict == "ignores_input":
         # Set in main.api_submit, not by the classifier, so it has no curated
         # line in feedback-research/feedback.py.
