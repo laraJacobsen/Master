@@ -2,21 +2,23 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type {
   LectureStatus,
   SharedExample,
+  StudentAttempt,
   StudentRecap,
-  SubmissionRow,
   SubmitResponse,
   TestCase,
   Verdict,
+  VisibleTestFile,
 } from "../shared/types";
 import {
   fetchLectureStatus,
+  fetchMyAttempts,
   fetchStudentRecap,
-  fetchSubmissions,
   joinLecture as joinLectureApi,
   sendActivity,
   submitCode as submitCodeApi,
 } from "../shared/api";
 import { isUntouched, starterCode } from "./starterCode";
+import { TestFiles } from "./TestFiles";
 // Monaco is most of this page's weight -- loaded only once a task is live,
 // so the join and waiting screens stay instant.
 const CodeEditor = lazy(() => import("./CodeEditor").then((m) => ({ default: m.CodeEditor })));
@@ -162,7 +164,12 @@ export default function App() {
   // once a result comes back, both cases render the same verdict badge.
   const [wasAutoSubmitted, setWasAutoSubmitted] = useState(false);
 
-  const [history, setHistory] = useState<SubmissionRow[] | null>(null);
+  const [history, setHistory] = useState<StudentAttempt[] | null>(null);
+  // Data files the student may open (status.question.files): the example's
+  // during the task, every test's once time is up.
+  const [files, setFiles] = useState<VisibleTestFile[]>([]);
+  // The task is graded on this file (e.g. "result.txt") instead of printed output.
+  const [outputFile, setOutputFile] = useState<string | null>(null);
   // What the lecturer is going over with the class right now -- see the
   // "On your lecturer's screen" card below.
   const [shownExamples, setShownExamples] = useState<SharedExample[]>([]);
@@ -211,10 +218,8 @@ export default function App() {
       return;
     }
     try {
-      const rows = await fetchSubmissions(qId);
-      const mine = rows
-        .filter((r) => r.student_name === studentName)
-        .sort((a, b) => a.attempt_number - b.attempt_number);
+      const rows = await fetchMyAttempts(qId, studentName);
+      const mine = [...rows].sort((a, b) => a.attempt_number - b.attempt_number);
       setHistory(mine.length === 0 ? null : mine);
     } catch {
       setHistory(null);
@@ -303,6 +308,7 @@ export default function App() {
       forgetJoin();
       questionIdRef.current = null;
       setQuestionId(null);
+      setFiles([]);
       setSecondsRemaining(null);
       setPhase("finished");
       if (!recapFetchedRef.current) {
@@ -324,6 +330,7 @@ export default function App() {
       // lecturer has closed one but not started the next yet.
       questionIdRef.current = null;
       setQuestionId(null);
+      setFiles([]);
       setSecondsRemaining(null);
       setDurationSeconds(null);
       if (phaseRef.current !== "waiting") setPhase("waiting");
@@ -332,6 +339,8 @@ export default function App() {
 
     const q = status.question;
     setSecondsRemaining(q.seconds_remaining);
+    setFiles(q.files ?? []);
+    setOutputFile(q.output_file ?? null);
 
     if (q.id !== questionIdRef.current) {
       // A new task (or the first one) -- reset the editor for it. A student
@@ -634,6 +643,14 @@ export default function App() {
             </div>
           </div>
 
+          {questionId && files.some((f) => f.test > 0) && (
+            <div className="card fade-in-up" id="test-files-card">
+              <h2>Test files</h2>
+              <p className="shown-examples-note">Time&apos;s up, so every test&apos;s files are open now.</p>
+              <TestFiles key={questionId} questionId={questionId} files={files} groupByTest />
+            </div>
+          )}
+
           {shownExamples.length > 0 && (
             <div className="card fade-in-up" id="shown-examples-card">
               <h2>Let's look at this together</h2>
@@ -708,19 +725,35 @@ export default function App() {
 
             <h2>Task</h2>
             <p id="prompt-text">{promptText}</p>
+            {outputFile && (
+              <div className="output-file-note">
+                Write your answer to <code>{outputFile}</code>. That file is checked, not what your program prints.
+              </div>
+            )}
             {example && (
               <div className="example-block">
                 <div className="example-label">Example</div>
                 <dl className="code-block io-table">
                   <dt>Input</dt>
                   <dd>
-                    <code>{example.stdin.trimEnd()}</code>
+                    <code>{example.stdin.trimEnd() || "(none)"}</code>
                   </dd>
-                  <dt>Output</dt>
+                  <dt>{outputFile ?? "Output"}</dt>
                   <dd>
                     <code>{example.expected_stdout.trimEnd()}</code>
                   </dd>
                 </dl>
+              </div>
+            )}
+            {questionId && files.some((f) => f.test === 0) && (
+              <div className="example-block">
+                <div className="example-label">Files</div>
+                <p className="files-note">
+                  Your program can open these by name, e.g.{" "}
+                  <code>open(&quot;{files.find((f) => f.test === 0)?.name}&quot;)</code>. The graded tests use their
+                  own versions, shown when time is up.
+                </p>
+                <TestFiles key={questionId} questionId={questionId} files={files.filter((f) => f.test === 0)} />
               </div>
             )}
           </div>
@@ -807,6 +840,13 @@ export default function App() {
                   <summary>Your program's error output</summary>
                   <pre>{result.traceback}</pre>
                 </details>
+              )}
+              {result.hidden_crash && (
+                <p className="hidden-error-note">
+                  Your program crashed on a hidden test{result.hidden_error ? ` (${result.hidden_error})` : ""}. Its
+                  error output isn&apos;t shown, because it could reveal that test&apos;s data. Try inputs like the
+                  hidden tests might use.
+                </p>
               )}
             </div>
           )}

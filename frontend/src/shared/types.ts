@@ -2,9 +2,37 @@
 // backend/aggregation.py. Kept as one shared file since all three pages talk
 // to the same API.
 
+// A data file a test case attaches for the student's program to open by name
+// (backend/test_files.py). `content` comes back only from the setup page's
+// endpoints; polled endpoints send name and size instead.
+export interface TestFile {
+  name: string;
+  content?: string;
+  size?: number;
+}
+
 export interface TestCase {
   stdin: string;
   expected_stdout: string;
+  files?: TestFile[];
+}
+
+// A test file a student may open: the example's while the task runs, every
+// test's once time is up (GET /api/lecture/status's question.files).
+export interface VisibleTestFile {
+  test: number; // 0 = the example
+  name: string;
+  size: number;
+}
+
+// GET /api/lecture/attempts -- one student's own attempts, nothing else.
+export interface StudentAttempt {
+  id: number;
+  attempt_number: number;
+  verdict: Verdict | null;
+  tests_passed: number;
+  tests_total: number;
+  created_at: string;
 }
 
 // GET /api/questions -- student-facing, live questions only.
@@ -14,11 +42,15 @@ export interface PublicQuestion {
   prompt: string;
   language: string;
   example: TestCase | null;
+  // Graded on what the program writes to this file (e.g. "result.txt") instead
+  // of what it prints; null = printed output.
+  output_file?: string | null;
 }
 
 // GET /api/lecture/status's `question` -- same shape as PublicQuestion plus
 // the timer fields the student page needs to run its countdown.
 export interface LiveQuestion extends PublicQuestion {
+  files: VisibleTestFile[];
   duration_seconds: number;
   started_at: string | null;
   seconds_remaining: number;
@@ -83,6 +115,7 @@ export interface QuestionRow {
   // Seconds without typing before the student gets an automatic nudge; 0 = off.
   idle_nudge_seconds: number;
   started_at: string | null;
+  output_file: string | null;
 }
 
 export interface QuestionPayload {
@@ -98,6 +131,7 @@ export interface QuestionPayload {
   expected_students: number | null;
   duration_seconds: number;
   idle_nudge_seconds: number;
+  output_file?: string | null;
 }
 
 // POST /api/lecturer/lecture/next
@@ -278,6 +312,11 @@ export interface SubmitResponse {
   hint_tier?: number | null;
   hint_ceiling?: number | null;
   traceback?: string | null;
+  // Only a hidden test crashed: no traceback (it could carry that test's data),
+  // just the error type when known, e.g. "ValueError" -- see
+  // main._student_error_output.
+  hidden_crash?: boolean;
+  hidden_error?: string | null;
 }
 
 export interface ApiErrorBody {

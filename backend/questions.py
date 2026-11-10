@@ -13,6 +13,7 @@ the fields a student should see (no reference_solution, no resource limits).
 """
 
 from backend import store
+from backend.test_files import without_contents
 
 
 def get_question(question_id: str):
@@ -30,7 +31,8 @@ def list_questions():
             "title": q["title"],
             "prompt": q["prompt"],
             "language": q["language"],
-            "example": dict(q["test_cases"][0]) if q["test_cases"] else None,
+            "example": without_contents(q["test_cases"][:1])[0] if q["test_cases"] else None,
+            "output_file": q.get("output_file"),
         }
         for q in store.list_question_rows(status="live")
     ]

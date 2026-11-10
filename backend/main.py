@@ -23,6 +23,7 @@ from datetime import datetime
 
 import anyio
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -38,7 +39,8 @@ from backend.aggregation import (
     session_summary,
     student_recap,
 )
-from backend.ai_feedback import judge_and_feedback
+from backend import test_files
+from backend.ai_feedback import _traceback_for, judge_and_feedback
 from backend.judge0_client import Judge0Error, run_test_cases
 from backend.questions import get_question, list_questions
 from backend.validation import pre_execution_check, reads_input, DEFAULT_LINE_LIMIT
@@ -64,9 +66,16 @@ class SubmitRequest(BaseModel):
     source_code: str
 
 
+class TestFile(BaseModel):
+    # A data file the student's program opens by name -- see backend/test_files.py.
+    name: str
+    content: str
+
+
 class TestCase(BaseModel):
     stdin: str
     expected_stdout: str
+    files: list[TestFile] = []
 
 
 class QuestionCreateRequest(BaseModel):
@@ -82,6 +91,9 @@ class QuestionCreateRequest(BaseModel):
     expected_students: int | None = None
     duration_seconds: int = 600
     idle_nudge_seconds: int = 180
+    # Grade what the program writes to this file (e.g. "result.txt") instead of
+    # what it prints; None = printed output, as before.
+    output_file: str | None = None
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -99,6 +111,7 @@ class QuestionUpdateRequest(BaseModel):
     expected_students: int | None = None
     duration_seconds: int | None = None
     idle_nudge_seconds: int | None = None
+    output_file: str | None = None
 
 
 class LectureAdvanceRequest(BaseModel):
@@ -152,23 +165,36 @@ def api_lecturer_list_questions():
 def api_lecturer_create_question(req: QuestionCreateRequest):
     fields = req.model_dump()
     fields["test_cases"] = [tc.model_dump() for tc in req.test_cases]
+    fields["output_file"] = (fields.get("output_file") or "").strip() or None
+    _check_test_files_or_400(fields["test_cases"], fields["output_file"])
     question_id = store.create_question(fields)
     return store.get_question_row(question_id)
 
 
 @app.get("/api/lecturer/questions/{question_id}")
-def api_lecturer_question_detail(question_id: str):
+def api_lecturer_question_detail(question_id: str, include_files: bool = False):
+    """The live dashboard polls this every 3 s, so test files come back as name
+    and size only unless include_files=true (up to 1 MB each -- see
+    backend/test_files.py)."""
     row = store.get_question_row(question_id)
     if not row:
         raise HTTPException(status_code=404, detail="Not found")
+    if not include_files:
+        row["test_cases"] = test_files.without_contents(row["test_cases"])
     return row
+
+
+def _check_test_files_or_400(test_cases: list, output_file: str | None) -> None:
+    problem = test_files.check_test_files(test_cases) or test_files.check_output_file(output_file, test_cases)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
 
 
 # Question fields the validation preview depends on -- see
 # api_lecturer_update_question.
 _VALIDATION_FIELDS = (
     "test_cases", "reference_solution", "language",
-    "cpu_time_limit_s", "memory_limit_kb", "extra_packages", "line_limit",
+    "cpu_time_limit_s", "memory_limit_kb", "extra_packages", "line_limit", "output_file",
 )
 
 
@@ -187,6 +213,12 @@ def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
     fields = req.model_dump(exclude_unset=True)
     if "test_cases" in fields:
         fields["test_cases"] = [tc if isinstance(tc, dict) else tc.model_dump() for tc in req.test_cases]
+    if "output_file" in fields:
+        fields["output_file"] = (fields["output_file"] or "").strip() or None
+    if "test_cases" in fields or "output_file" in fields:
+        _check_test_files_or_400(
+            fields.get("test_cases", row["test_cases"]), fields.get("output_file", row.get("output_file"))
+        )
     # NOT NULL column -- "off" is 0, not null.
     if "idle_nudge_seconds" in fields and fields["idle_nudge_seconds"] is None:
         del fields["idle_nudge_seconds"]
@@ -246,6 +278,7 @@ def api_lecturer_validate_question(question_id: str):
             language=question["language"],
             cpu_time_limit=question["cpu_time_limit_s"],
             memory_limit_kb=question["memory_limit_kb"],
+            output_file=question.get("output_file"),
         )
     except Judge0Error as e:
         raise HTTPException(status_code=502, detail=str(e))
@@ -532,6 +565,7 @@ def api_lecture_status():
     if not question:
         return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": []}
 
+    tests = test_files.without_contents(question["test_cases"])
     return {
         "finished": finished,
         "lecture_id": lecture_id,
@@ -540,7 +574,18 @@ def api_lecture_status():
             "title": question["title"],
             "prompt": question["prompt"],
             "language": question["language"],
-            "example": dict(question["test_cases"][0]) if question["test_cases"] else None,
+            "example": tests[0] if tests else None,
+            # Grade what the program writes to this file instead of what it prints.
+            "output_file": question.get("output_file"),
+            # Data files the student may open in the viewer (name and size; the
+            # content comes from api_lecture_test_file): the example's while the
+            # task runs, every test's once time is up.
+            "files": [
+                {"test": i, **meta}
+                for i, case in enumerate(tests)
+                if _test_files_visible(question, i)
+                for meta in case["files"]
+            ],
             "duration_seconds": question["duration_seconds"],
             "started_at": question["started_at"],
             "seconds_remaining": _seconds_remaining(question),
@@ -550,6 +595,55 @@ def api_lecture_status():
         # they're still answering.
         "shown_examples": shown_examples(question["id"]) if _seconds_remaining(question) <= 0 else [],
     }
+
+
+def _test_files_visible(question: dict, test_index: int) -> bool:
+    """The example's files always; a graded test's only once students can no
+    longer submit (time's up, or the task was closed) -- see backend/test_files.py."""
+    if test_index == 0:
+        return True
+    return question["status"] != "live" or _seconds_remaining(question) <= 0
+
+
+@app.get("/api/lecture/questions/{question_id}/tests/{test_index}/files/{name:path}")
+def api_lecture_test_file(question_id: str, test_index: int, name: str):
+    """One test file's content, for the student page's file viewer. Same
+    visibility rule as the status endpoint's `files` list."""
+    question = store.get_question_row(question_id)
+    if (
+        not question
+        or question["status"] not in ("live", "closed")  # never-run drafts/skipped tasks stay private
+        or not 0 <= test_index < len(question["test_cases"])
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
+    match = next((f for f in test_files.files_of(question["test_cases"][test_index]) if f["name"] == name), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not _test_files_visible(question, test_index):
+        raise HTTPException(status_code=403, detail="This test's files are shown once the task is over.")
+    return PlainTextResponse(match["content"])
+
+
+@app.get("/api/lecture/attempts")
+def api_lecture_attempts(question_id: str, student_name: str):
+    """One student's own attempts at a question, for the student page's
+    "Your attempts" trail. Only what that trail shows: the student page used to
+    read the lecturer's submissions feed for this, which handed every student
+    every classmate's code and every hidden test's input, expected output and
+    program output."""
+    name = student_name.strip()
+    return [
+        {
+            "id": row["id"],
+            "attempt_number": row["attempt_number"],
+            "verdict": row["verdict"],
+            "tests_passed": row["tests_passed"],
+            "tests_total": row["tests_total"],
+            "created_at": row["created_at"],
+        }
+        for row in store.all_submissions(question_id)
+        if row["student_name"] == name
+    ]
 
 
 @app.post("/api/lecture/join")
@@ -636,6 +730,12 @@ def api_lecture_activity(req: ActivityRequest):
     return {"nudge": None}
 
 
+# Shown to a student whose program ran but never created the task's output file.
+MISSING_OUTPUT_FILE_FEEDBACK = (
+    "Your program ran, but it didn't create {name}. This task checks what your program "
+    'writes to {name}, not what it prints. Write your answer to it, e.g. with open("{name}", "w").'
+)
+
 # Shown to a student whose program never reads its input (see api_submit).
 IGNORES_INPUT_FEEDBACK = (
     "Your program never reads the input, so it prints the same thing every time. "
@@ -719,6 +819,7 @@ def _submit(req: SubmitRequest):
             language=question["language"],
             cpu_time_limit=question["cpu_time_limit_s"],
             memory_limit_kb=question["memory_limit_kb"],
+            output_file=question.get("output_file"),
         )
     except Judge0Error as e:
         # Judge0 itself is unreachable/broken -- distinct from the student's
@@ -736,11 +837,32 @@ def _submit(req: SubmitRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI feedback failed: {e}")
 
+    # Graded output file never created: the program ran fine but didn't write
+    # the file the task asks for -- its own issue type, with feedback that says
+    # so instead of a wrong-answer hint about output it never wrote.
+    output_file = question.get("output_file")
+    failing = next((r for r in _graded(test_results) if not r["passed"]), None)
+    if (
+        output_file
+        and failing is not None
+        and failing.get("output_file_missing")
+        and failing["status_description"] == "Accepted"
+    ):
+        feedback.update(
+            verdict="incorrect",
+            exec_verdict="missing_output_file",
+            error_type=None,
+            feedback=MISSING_OUTPUT_FILE_FEEDBACK.format(name=output_file),
+            hint_tier=None,
+            hint_ceiling=None,
+            traceback=None,
+        )
+
     # Hard-coded output: a program that ran fine but never reads its input can
     # only pass by printing an expected answer it was given or guessed. Its own
     # issue type (not wrong_answer), so the lecturer sees it as one clear group.
     # Raw test results are stored unchanged.
-    takes_input = any(tc["stdin"].strip() for tc in question["test_cases"])
+    takes_input = any(tc["stdin"].strip() or test_files.files_of(tc) for tc in question["test_cases"])
     if (
         takes_input
         and feedback["exec_verdict"] in ("pass", "wrong_answer")
@@ -787,8 +909,30 @@ def _submit(req: SubmitRequest):
         "attempt_number": attempt_number,
         "hint_tier": feedback.get("hint_tier"),
         "hint_ceiling": feedback.get("hint_ceiling"),
-        "traceback": feedback.get("traceback"),
+        **_student_error_output(test_results, feedback),
     }
+
+
+def _student_error_output(test_results: list, feedback: dict) -> dict:
+    """What a student sees of their program's error output. The full traceback
+    only when it comes from the example test (test 1), whose input and files the
+    student can see anyway. When only hidden tests crashed, just the error type:
+    a traceback from a hidden test could carry that test's input or file
+    contents (a program can print them to stderr and crash). Single-test
+    questions have no separate example; that test is shown to students, so its
+    traceback is too."""
+    none = {"traceback": None, "hidden_crash": False, "hidden_error": None}
+    if len(test_results) <= 1:
+        return {**none, "traceback": feedback.get("traceback")}
+    example_traceback = _traceback_for(test_results[:1])
+    if example_traceback:
+        return {**none, "traceback": example_traceback}
+    if feedback.get("traceback"):
+        # The classifier reads the error type off the traceback's last line; a
+        # multi-line exception message hides it ("Unknown") -- then no type.
+        error_type = feedback.get("error_type")
+        return {**none, "hidden_crash": True, "hidden_error": error_type if error_type not in (None, "Unknown") else None}
+    return none
 
 
 @app.get("/api/lecturer/submissions")

@@ -30,6 +30,10 @@ backend/
                         disallowed-package) run before code ever reaches Judge0 --
                         line limit and package allow-list are per-question knobs
   questions.py        Question lookup, backed by store.py's `questions` table
+  test_files.py        Data files a test case attaches (e.g. numbers.txt) for the
+                        student's program to open by name: limits (text, 1 MB,
+                        10 per test, safe names) and who may read them -- the
+                        example's during the task, every test's once time is up
   ai_feedback.py       Grading, fully deterministic (no model): verdict from the
                         test pass/fail counts, exec_verdict/error_type + the
                         student-facing hint text from hints.py. (Name is historical
@@ -269,6 +273,39 @@ CPUs, so grading under a burst will be slower there.
 **Not yet verified**: the IDUN-generated wrong-answer discussion points haven't
 been through the human spot-check pass yet (see `backend/aggregation.py`'s
 module docstring).
+
+## Test cases with data files
+
+A test case can attach text files (up to 1 MB each, 10 per test) next to its stdin and
+expected output. On the setup page, use **+ File** under a test. Before that test runs,
+Judge0 places its files next to the student's program, so the program opens them by
+name: `open("numbers.txt")` in Python, `fopen` in C, `Files.readAllLines` in Java.
+Different tests can attach different versions of the same file name, for example a
+small `numbers.txt` for the example and a 700 KB one for a graded test. Tasks without
+files work exactly as before (stdin and `input()`).
+
+What students can see:
+
+- **During the task:** only the example test's files. They're listed under the task with a
+  viewer (the first 500 lines, plus Download). Graded tests' files stay hidden, so they
+  can't be printed or hard-coded.
+- **Once time is up:** every test's files, on the waiting screen, for the discussion
+  afterwards.
+- **Error output:** shown in full only when the example test crashes. When only a hidden
+  test crashes, the student sees "crashed on a hidden test", plus the error type when it
+  can be read. A traceback can carry that test's input or file contents, because a program
+  can print them to stderr and then crash.
+- **Their own attempts:** "Your attempts" comes from `GET /api/lecture/attempts`, which
+  returns only that student's attempt numbers and verdicts. It used to read the
+  lecturer's submissions feed, which gave every student their classmates' code and every
+  hidden test's data.
+
+Polled endpoints send file names and sizes, not contents:
+
+- the student status poll every 2 s;
+- the lecturer's question detail every 3 s (`?include_files=true` returns the contents).
+
+Students fetch a file's content only when they open it.
 
 ## Known simplifications (MVP, not final)
 
