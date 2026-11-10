@@ -36,9 +36,11 @@ Run: python3 smoke_test.py   (from /root/prototype)
 """
 
 import base64
+import io
 import json as json_lib  # `fake_post` below has its own `json` parameter (the request body)
 import os
 import sys
+import zipfile
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -58,6 +60,12 @@ os.environ.setdefault("IDUN_API_KEY", "smoke-test-fake-key")
 os.environ["LLM_PROVIDER"] = "idun"
 
 NAME_ERROR_MARKER = "num = inpt().split()"
+# Test-file programs (backend/test_files.py): fake_post sums numbers.txt from the
+# attached files; the LEAK variant instead crashes with the file's content in its
+# error output whenever the file is bigger than the example's (i.e. on hidden tests).
+FILE_SUM_CODE = "print(sum(int(x) for x in open('numbers.txt').read().split()))"
+FILE_LEAK_CODE = "# LEAK\n" + FILE_SUM_CODE
+file_runs = []  # attached file names per Judge0 call, in order
 DOUBLE_MARKER = "int(input()) * 2"  # substring fake_post dispatches on
 DOUBLE_MARKER_CODE = f"print({DOUBLE_MARKER})"  # reference solution for the question-setup flow test below
 
@@ -111,6 +119,31 @@ def fake_post(url, params=None, json=None, headers=None, timeout=None):
         return resp
 
     source = base64.b64decode(json["source_code"]).decode()
+    if "open('numbers.txt')" in source:
+        files = {}
+        if json.get("additional_files"):
+            z = zipfile.ZipFile(io.BytesIO(base64.b64decode(json["additional_files"])))
+            files = {n: z.read(n).decode() for n in z.namelist()}
+        file_runs.append(sorted(files))
+        content = files.get("numbers.txt", "")
+        nums = [int(x) for x in content.split()]
+        if "# LEAK" in source and len(nums) > 3:
+            resp.json.return_value = {
+                "status": {"id": 11, "description": "Runtime Error (NZEC)"},
+                "stdout": base64.b64encode(b"").decode(),
+                "stderr": base64.b64encode(
+                    ("Traceback (most recent call last):\n  File \"script.py\", line 1\nValueError: " + content).encode()
+                ).decode(),
+                "compile_output": None, "message": None, "time": "0.01", "memory": 1234, "exit_code": 1,
+            }
+            return resp
+        resp.json.return_value = {
+            "status": {"id": 3, "description": "Accepted"},
+            "stdout": base64.b64encode(f"{sum(nums)}\n".encode()).decode(),
+            "stderr": None, "compile_output": None, "message": None, "time": "0.01", "memory": 1234, "exit_code": 0,
+        }
+        return resp
+
     if NAME_ERROR_MARKER in source:
         resp.json.return_value = {
             "status": {"id": 11, "description": "Runtime Error (NZEC)"},
@@ -391,6 +424,7 @@ def main():
         # (store.init_db()) to actually fire.
         with TestClient(app) as client:
             _run_checks(client)
+            _run_test_file_checks(client)
 
     print("\nALL SMOKE TESTS PASSED")
 
@@ -1136,6 +1170,113 @@ def _run_activity_checks(client, qid):
     )
     assert r.status_code == 200 and r.json() == {"nudge": None}, r.text
     print("Heartbeat for a non-live question ignored   OK")
+
+
+
+def _run_test_file_checks(client):
+    """Test cases with attached data files (backend/test_files.py): sent to Judge0
+    per test, size/name limits, and what students may see while the task runs
+    versus once time is up. Also the student-only attempts endpoint and the
+    traceback rule that keeps hidden tests' data out of the student's feedback."""
+    active = client.get("/api/lecturer/lectures/active").json()["lecture"]
+    if active:
+        client.post("/api/lecturer/lecture/finish", json={})
+    lecture = client.post("/api/lecturer/lectures", json={"label": "Files"}).json()
+    lecture = client.post(f"/api/lecturer/lectures/{lecture['id']}/open_lobby").json()
+
+    hidden_content = "10 20 30 40 SECRET-HIDDEN-DATA"
+    hidden_numbers = "10 20 30 40\n"
+    base = {
+        "title": "Sum the file",
+        "prompt": "Print the sum of the numbers in numbers.txt.",
+        "language": "python",
+        "reference_solution": FILE_SUM_CODE,
+        "duration_seconds": 600,
+    }
+
+    def create(test_cases):
+        return client.post("/api/lecturer/questions", json={**base, "test_cases": test_cases})
+
+    def case(content, expected, name="numbers.txt"):
+        return {"stdin": "", "expected_stdout": expected, "files": [{"name": name, "content": content}]}
+
+    # Limits: bad names, the grader's own names, duplicates, > 1 MB.
+    for bad_name in ["../etc/passwd", "/abs.txt", ".hidden", "a b.txt", "script.py", "data/run"]:
+        r = create([case("1 2 3", "6", bad_name), case(hidden_numbers, "100")])
+        assert r.status_code == 400, (bad_name, r.status_code, r.text)
+    dup = {"stdin": "", "expected_stdout": "6", "files": [{"name": "a.txt", "content": "1"}, {"name": "a.txt", "content": "2"}]}
+    assert create([dup, case(hidden_numbers, "100")]).status_code == 400
+    assert create([case("1" * 1_000_001, "1"), case(hidden_numbers, "100")]).status_code == 400
+    print("Test files: name and 1 MB limits enforced   OK")
+
+    q = create([case("1 2 3\n", "6"), case(hidden_numbers, "100"), {"stdin": "", "expected_stdout": "15",
+               "files": [{"name": "numbers.txt", "content": "5 5 5\n"}, {"name": "data/notes.txt", "content": "x"}]}])
+    assert q.status_code == 200, q.text
+    qid = q.json()["id"]
+    file_runs.clear()
+    v = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert v["validated"], v
+    assert file_runs == [["numbers.txt"], ["numbers.txt"], ["data/notes.txt", "numbers.txt"]], file_runs
+    assert all("files" not in r for r in v["results"]), "file contents must not be copied into test results"
+    print("Test files: each test's own files sent to Judge0   OK")
+
+    detail = client.get(f"/api/lecturer/questions/{qid}").json()
+    assert detail["test_cases"][1]["files"] == [{"name": "numbers.txt", "size": len(hidden_numbers)}], detail
+    full = client.get(f"/api/lecturer/questions/{qid}", params={"include_files": True}).json()
+    assert full["test_cases"][1]["files"][0]["content"] == hidden_numbers
+    print("Test files: polled question detail sends names/sizes, include_files sends content   OK")
+
+    assert client.post(f"/api/lecturer/questions/{qid}/start").status_code == 200
+    client.post("/api/lecture/join", json={"code": lecture["join_code"], "student_name": "Fia"})
+    client.post("/api/lecture/join", json={"code": lecture["join_code"], "student_name": "Gus"})
+
+    status = client.get("/api/lecture/status").json()
+    assert status["question"]["id"] == qid
+    assert status["question"]["example"]["files"] == [{"name": "numbers.txt", "size": 6}], status
+    assert status["question"]["files"] == [{"test": 0, "name": "numbers.txt", "size": 6}], status
+    assert "SECRET" not in json_lib.dumps(status) and "10 20 30 40" not in json_lib.dumps(status)
+    url = f"/api/lecture/questions/{qid}/tests/{{}}/files/{{}}"
+    r = client.get(url.format(0, "numbers.txt"))
+    assert r.status_code == 200 and r.text == "1 2 3\n", (r.status_code, r.text)
+    assert client.get(url.format(1, "numbers.txt")).status_code == 403
+    assert client.get(url.format(2, "data/notes.txt")).status_code == 403
+    assert client.get(url.format(0, "nope.txt")).status_code == 404
+    print("Test files: students see only the example's files while the task runs   OK")
+
+    ok = client.post("/api/submit", json={"student_name": "Fia", "question_id": qid, "source_code": FILE_SUM_CODE}).json()
+    assert ok["verdict"] == "correct", ok
+    leak = client.post("/api/submit", json={"student_name": "Gus", "question_id": qid, "source_code": FILE_LEAK_CODE}).json()
+    assert leak["verdict"] == "partially_correct", leak  # crashes on test 2 only; test 3 has 3 numbers
+    assert leak["traceback"] is None and leak["hidden_crash"] and leak["hidden_error"] == "ValueError", leak
+    assert "10 20 30 40" not in json_lib.dumps(leak), "hidden file content leaked into the student's feedback"
+    print("Hidden-test crash: error type only, no traceback   OK ->", leak["hidden_error"])
+
+    crash = client.post("/api/submit", json={"student_name": "Gus", "question_id": qid,
+                                             "source_code": NAME_ERROR_MARKER + "\nprint(open('x'))"}).json()
+    assert crash["traceback"] and "NameError" in crash["traceback"] and not crash["hidden_crash"], crash
+    print("Example-test crash: full traceback still shown   OK")
+
+    mine = client.get("/api/lecture/attempts", params={"question_id": qid, "student_name": "Gus"}).json()
+    assert [a["attempt_number"] for a in mine] == [2, 1], mine
+    assert set(mine[0]) == {"id", "attempt_number", "verdict", "tests_passed", "tests_total", "created_at"}, mine[0]
+    assert "SECRET" not in json_lib.dumps(mine)
+    print("Student attempts endpoint: own attempts only, no test data   OK")
+
+    assert client.post(f"/api/lecturer/questions/{qid}/end_now").status_code == 200
+    status = client.get("/api/lecture/status").json()
+    assert [(f["test"], f["name"]) for f in status["question"]["files"]] == [
+        (0, "numbers.txt"), (1, "numbers.txt"), (2, "numbers.txt"), (2, "data/notes.txt")], status["question"]["files"]
+    r = client.get(url.format(1, "numbers.txt"))
+    assert r.status_code == 200 and r.text == hidden_numbers
+    print("Test files: every test's files open once time is up   OK")
+
+    # A plain stdin question (no files) is unchanged: no additional_files sent.
+    file_runs.clear()
+    plain = client.post("/api/lecturer/questions", json={**base, "reference_solution": FILE_SUM_CODE, "test_cases": [
+        {"stdin": "", "expected_stdout": "0"}, {"stdin": "", "expected_stdout": "0"}]}).json()
+    client.post(f"/api/lecturer/questions/{plain['id']}/validate")
+    assert file_runs == [[], []], file_runs
+    print("Questions without files: nothing attached   OK")
 
 
 if __name__ == "__main__":

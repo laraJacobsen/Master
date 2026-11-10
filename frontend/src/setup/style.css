@@ -189,6 +189,30 @@ code {
 .tc-row { display: grid; grid-template-columns: 1fr 1fr 28px; gap: 0.5rem; align-items: start; position: relative; }
 .tc-row textarea { min-height: 42px; margin-bottom: 0; }
 .tc-row .icon-button { margin-top: 0.4rem; }
+/* Data files attached to one test (backend/test_files.py). */
+.tc-case { display: grid; gap: 0.3rem; }
+.tc-files { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; padding-right: 36px; }
+.file-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%;
+  padding: 0.15rem 0.2rem 0.15rem 0.55rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--tint); font-size: 0.78rem;
+}
+.file-chip-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-chip-size { color: var(--muted); }
+.file-chip-remove {
+  border: none; background: none; color: var(--muted); cursor: pointer;
+  padding: 0 0.3rem; font-size: 0.95rem; line-height: 1; border-radius: 4px;
+}
+.file-chip-remove:hover:not(:disabled) { background: #fdecea; color: var(--bad); }
+.file-chip-remove:focus-visible { outline: 2px solid var(--navy); outline-offset: 1px; }
+.attach-file {
+  display: inline-flex; align-items: center; padding: 0.15rem 0.55rem; border: 1px dashed var(--border);
+  border-radius: 6px; font-size: 0.78rem; color: var(--muted); cursor: pointer; margin: 0;
+}
+.attach-file:hover { color: var(--ink); border-color: var(--muted); }
+.attach-file:focus-within { outline: 2px solid var(--navy); outline-offset: 1px; }
+.attach-file input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.tc-files-note { margin: 0 0 0.75rem; }
 
 .check-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 .check-result { margin-top: 0.9rem; padding: 0.75rem 0.9rem; border-radius: 10px; font-size: 0.86rem; line-height: 1.5; }

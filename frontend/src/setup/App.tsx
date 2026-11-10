@@ -22,9 +22,26 @@ import { ConfirmDialog } from "../shared/ConfirmDialog";
 // and a known-correct solution (checked in one click), then timing. Rarely
 // changed grading limits sit under "Advanced" in step 3.
 
+interface TestFileDraft {
+  name: string;
+  content: string;
+}
+
 interface TestCaseDraft {
   stdin: string;
   expected: string;
+  // Data files the student's program opens by name (backend/test_files.py).
+  files: TestFileDraft[];
+}
+
+// Same limit as the backend (backend/test_files.py): Judge0 caps what a
+// program may print at 1 MB, so bigger test data couldn't be checked anyway.
+const MAX_TEST_FILE_BYTES = 1_000_000;
+
+function formatBytes(n: number): string {
+  if (n < 1000) return `${n} B`;
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)} KB`;
+  return `${(n / 1_000_000).toFixed(2)} MB`;
 }
 
 interface ValidationResultState {
@@ -33,7 +50,7 @@ interface ValidationResultState {
   failing: ValidationTestResult[];
 }
 
-const emptyTestCase = (): TestCaseDraft => ({ stdin: "", expected: "" });
+const emptyTestCase = (): TestCaseDraft => ({ stdin: "", expected: "", files: [] });
 
 const STEPS = ["Task", "Tests & solution", "Timing & class"] as const;
 
@@ -348,7 +365,11 @@ export default function App() {
     setReferenceSolution(q.reference_solution || "");
     setTestCases(
       q.test_cases.length
-        ? q.test_cases.map((tc) => ({ stdin: tc.stdin, expected: tc.expected_stdout }))
+        ? q.test_cases.map((tc) => ({
+            stdin: tc.stdin,
+            expected: tc.expected_stdout,
+            files: (tc.files ?? []).map((f) => ({ name: f.name, content: f.content ?? "" })),
+          }))
         : [emptyTestCase()]
     );
     if (!keepStep) {
@@ -372,6 +393,41 @@ export default function App() {
     setTestCases((prev) => prev.map((tc, i) => (i === index ? { ...tc, [field]: value } : tc)));
   }
 
+  const [fileError, setFileError] = useState("");
+
+  // Reads the chosen files as text and attaches them to one test; a file with
+  // the same name as one already attached replaces it.
+  async function attachFiles(index: number, list: FileList | null) {
+    if (!list || list.length === 0) return;
+    setFileError("");
+    const added: TestFileDraft[] = [];
+    for (const file of Array.from(list)) {
+      if (file.size > MAX_TEST_FILE_BYTES) {
+        setFileError(`"${file.name}" is ${formatBytes(file.size)}. Test files can be at most 1 MB.`);
+        return;
+      }
+      const content = await file.text();
+      if (content.includes("\u0000")) {
+        setFileError(`"${file.name}" isn't a text file. Only text files can be attached.`);
+        return;
+      }
+      added.push({ name: file.name, content });
+    }
+    setTestCases((prev) =>
+      prev.map((tc, i) => {
+        if (i !== index) return tc;
+        const names = new Set(added.map((f) => f.name));
+        return { ...tc, files: [...tc.files.filter((f) => !names.has(f.name)), ...added] };
+      }),
+    );
+    markEdited();
+  }
+
+  function removeFile(index: number, name: string) {
+    setTestCases((prev) => prev.map((tc, i) => (i === index ? { ...tc, files: tc.files.filter((f) => f.name !== name) } : tc)));
+    markEdited();
+  }
+
   function formPayload() {
     const packageList = packages
       .split(",")
@@ -383,8 +439,8 @@ export default function App() {
       language,
       // An untouched blank row isn't a test case.
       test_cases: testCases
-        .filter((tc) => tc.stdin.trim() || tc.expected.trim())
-        .map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected })),
+        .filter((tc) => tc.stdin.trim() || tc.expected.trim() || tc.files.length)
+        .map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected, files: tc.files })),
       reference_solution: referenceSolution || null,
       cpu_time_limit_s: parseFloat(timeLimit),
       memory_limit_kb: Math.round(parseFloat(memoryLimit) * 1024),
@@ -757,7 +813,8 @@ export default function App() {
                       <span />
                     </div>
                     {testCases.map((tc, i) => (
-                      <div className="tc-row" key={i}>
+                      <div className="tc-case" key={i}>
+                      <div className="tc-row">
                         <textarea
                           aria-label={`Test ${i + 1} input`}
                           placeholder="1 2 3"
@@ -780,8 +837,50 @@ export default function App() {
                           &times;
                         </button>
                       </div>
+                      <div className="tc-files">
+                        {tc.files.map((f) => (
+                          <span className="file-chip" key={f.name} title={f.name}>
+                            <span className="file-chip-name">{f.name}</span>
+                            <span className="file-chip-size">{formatBytes(new Blob([f.content]).size)}</span>
+                            <button
+                              type="button"
+                              className="file-chip-remove"
+                              aria-label={`Remove ${f.name} from test ${i + 1}`}
+                              onClick={() => removeFile(i, f.name)}
+                            >
+                              &times;
+                            </button>
+                          </span>
+                        ))}
+                        <label className="attach-file">
+                          + File
+                          <input
+                            type="file"
+                            multiple
+                            aria-label={`Attach files to test ${i + 1}`}
+                            onChange={(e) => {
+                              void attachFiles(i, e.target.files);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                        {i === 0 && tc.files.length > 0 && (
+                          <span className="hint">Test 1 is the example: students can open its files.</span>
+                        )}
+                      </div>
+                      </div>
                     ))}
                   </div>
+                  <p className="hint tc-files-note">
+                    Files are put next to the student&apos;s program, which opens them by name, e.g.{" "}
+                    <code>open(&quot;numbers.txt&quot;)</code>. Text files, up to 1 MB each. Students see the
+                    example&apos;s files during the task and every test&apos;s files once time is up.
+                  </p>
+                  {fileError && (
+                    <div className="check-result fail" role="alert">
+                      {fileError}
+                    </div>
+                  )}
                   <button type="button" className="secondary small" onClick={addTestCaseRow}>
                     + Add test case
                   </button>

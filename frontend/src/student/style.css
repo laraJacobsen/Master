@@ -284,3 +284,35 @@ code, pre { font-family: var(--mono); }
 .io-table dt { color: var(--muted); font-family: inherit; }
 .io-table dd { margin: 0; }
 .io-table code { white-space: pre-wrap; word-break: break-word; }
+
+/* Test data files (backend/test_files.py): list + inline viewer. */
+.files-note { margin: 0 0 0.5rem; font-size: 0.84rem; color: var(--muted); line-height: 1.45; }
+.test-files { display: grid; gap: 0.6rem; }
+.test-files-group { display: grid; gap: 0.3rem; }
+.test-files-group-label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.test-files-list { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.test-file {
+  display: inline-flex; align-items: baseline; gap: 0.45rem; max-width: 100%;
+  padding: 0.3rem 0.65rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); color: var(--navy); font-size: 0.85rem; cursor: pointer;
+}
+/* :not(:disabled) to outrank lecturer-theme.css's button:hover:not(:disabled) (navy fill). */
+.test-file:hover:not(:disabled) { background: var(--tint); border-color: var(--navy); }
+.test-file:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+.test-file.open { background: #eef1fb; border-color: var(--navy); }
+.test-file-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.test-file-size { color: var(--muted); font-size: 0.78rem; }
+.file-viewer { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.file-viewer-head {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.45rem 0.6rem; background: #f4f5f9; border-bottom: 1px solid var(--border); font-size: 0.85rem;
+}
+.file-viewer-meta { color: var(--muted); font-size: 0.8rem; }
+.file-viewer-actions { margin-left: auto; display: flex; gap: 0.4rem; }
+.file-viewer-actions button { padding: 0.25rem 0.7rem; font-size: 0.8rem; }
+.file-viewer-body {
+  margin: 0; padding: 0.6rem 0.75rem; max-height: 320px; overflow: auto;
+  font-size: 0.82rem; line-height: 1.45; white-space: pre; background: var(--card);
+}
+.file-viewer-note { padding: 0.4rem 0.75rem; font-size: 0.8rem; color: var(--muted); border-top: 1px solid var(--border); }
+.hidden-error-note { margin: 0.75rem 0 0; font-size: 0.88rem; color: var(--muted); line-height: 1.5; }

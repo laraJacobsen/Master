@@ -20,6 +20,7 @@ import type {
   StudentActivity,
   StudentRecap,
   SubmissionRow,
+  StudentAttempt,
   SubmitResponse,
   ValidationResponse,
 } from "./types";
@@ -110,6 +111,23 @@ export function submitCode(payload: {
 export function fetchSubmissions(questionId?: string | null): Promise<SubmissionRow[]> {
   const qs = questionId ? `?question_id=${encodeURIComponent(questionId)}` : "";
   return apiFetch(`${API_BASE}/api/lecturer/submissions${qs}`).then((res) => asJson(res));
+}
+
+// The student page's own attempts trail -- never the lecturer's submissions feed.
+export function fetchMyAttempts(questionId: string, studentName: string): Promise<StudentAttempt[]> {
+  const qs = `?question_id=${encodeURIComponent(questionId)}&student_name=${encodeURIComponent(studentName)}`;
+  return apiFetch(`${API_BASE}/api/lecture/attempts${qs}`).then((res) => asJson(res));
+}
+
+// One test file's content for the student's file viewer (plain text).
+export function fetchTestFile(questionId: string, test: number, name: string): Promise<string> {
+  const path = name.split("/").map(encodeURIComponent).join("/");
+  return apiFetch(`${API_BASE}/api/lecture/questions/${encodeURIComponent(questionId)}/tests/${test}/files/${path}`).then(
+    async (res) => {
+      if (!res.ok) throw new Error(res.status === 403 ? "This file is shown once the task is over." : "Couldn't load the file.");
+      return res.text();
+    },
+  );
 }
 
 export function fetchSubmissionDetail(subId: number): Promise<SubmissionRow> {

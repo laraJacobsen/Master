@@ -15,7 +15,9 @@ something a question's setup page exposes.
 """
 
 import base64
+import io
 import os
+import zipfile
 
 import requests
 
@@ -44,6 +46,17 @@ def _b64(s: str) -> str:
     return base64.b64encode(s.encode("utf-8")).decode("ascii")
 
 
+def _files_zip_b64(files: list) -> str:
+    """Judge0's additional_files: a base64-encoded zip, unpacked into the folder the
+    program runs in (checked against the local instance for Python, C and Java,
+    including subfolders like data/b.csv). `files` is [{"name", "content"}]."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in files:
+            z.writestr(f["name"], f["content"])
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 def _un_b64(s):
     if s is None:
         return None
@@ -65,11 +78,15 @@ def run_submission(
     timeout: int = 15,
     cpu_time_limit: float = None,
     memory_limit_kb: int = None,
+    files: list = None,
 ) -> dict:
     """Submit one piece of code + stdin to Judge0 synchronously.
 
     cpu_time_limit (seconds) and memory_limit_kb are clamped to
     MAX_CPU_TIME_LIMIT/MAX_MEMORY_LIMIT_KB regardless of what's passed in.
+
+    files ([{"name", "content"}], see backend/test_files.py) are placed next to
+    the program before it runs, so it can open them by name.
 
     Returns a normalized result dict:
       status_id, status_description, stdout, stderr, compile_output, message,
@@ -96,6 +113,8 @@ def run_submission(
         "cpu_time_limit": cpu_time_limit,
         "memory_limit": memory_limit_kb,
     }
+    if files:
+        payload["additional_files"] = _files_zip_b64(files)
 
     try:
         resp = requests.post(
@@ -133,7 +152,10 @@ def run_test_cases(
 ) -> list:
     """Run one submission's code against a list of test cases.
 
-    Each test case is {"stdin": "...", "expected_stdout": "..."}.
+    Each test case is {"stdin": "...", "expected_stdout": "...", "files": [...]},
+    files optional (see backend/test_files.py). A test's files are sent with that
+    test's run only, and are not copied into the result dicts (those get stored
+    with every submission).
     Returns a list of per-case result dicts (the run_submission dict, plus
     case_index / stdin / expected_stdout / passed). A single failing test case
     does not stop the rest from running -- only a genuine Judge0 connectivity
@@ -148,6 +170,7 @@ def run_test_cases(
             language=language,
             cpu_time_limit=cpu_time_limit,
             memory_limit_kb=memory_limit_kb,
+            files=case.get("files"),
         )
         result["case_index"] = i
         result["stdin"] = case["stdin"]
