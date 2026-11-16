@@ -690,7 +690,7 @@ def _run_checks(client):
         assert len(idun_chat_calls) == 2, "IDUN should not have recorded a call while unreachable"
         print("wrong_answer sub-cluster falls back when IDUN down  OK ->", fallback_point)
 
-        # "Show to students": a one-student issue gets no discussion point by default
+        # "Show on full screen": a one-student issue gets no discussion point by default
         # (MIN_STUDENTS_FOR_DISCUSSION), but once the lecturer raises it, it gets one
         # -- labeled from its single snippet -- sorts above bigger issues, and its
         # example (code without comments, no name) is queued for the students'
@@ -734,7 +734,7 @@ def _run_checks(client):
 
         r = client.post("/api/lecturer/clusters/raise", json={**raise_body, "submission_ids": [999999]})
         assert r.status_code == 404, r.text
-        print("Show to students: singleton raised, example queued  OK")
+        print("Show on full screen: singleton raised, example queued  OK")
 
         # Hard-coded output: printing the visible example's answer used to pass
         # that test ("partially correct"). The example isn't graded any more, and
@@ -985,7 +985,7 @@ def _run_question_setup_checks(client):
 
     # "End task now": time's up immediately, but the task stays live -- so it
     # still accepts the students' auto-submits and still serves the
-    # "Show to students" examples -- rather than closing or advancing.
+    # "Show on full screen" examples -- rather than closing or advancing.
     r = client.post(f"/api/lecturer/questions/{qid}/end_now")
     assert r.status_code == 200 and r.json()["status"] == "live", r.text
     status = client.get("/api/lecture/status").json()

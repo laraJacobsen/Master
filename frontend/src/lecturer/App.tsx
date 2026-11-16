@@ -438,7 +438,7 @@ export default function App() {
     }
   }
 
-  // "Show to students" -- the lecturer's call that an issue is worth going
+  // "Show on full screen" -- the lecturer's call that an issue is worth going
   // over with the class, even if only one student hit it: its example goes to
   // every student's waiting screen once time is up (see
   // aggregation.raise_issue()). Raising a wrong_answer issue waits on a live

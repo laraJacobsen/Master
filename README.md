@@ -44,7 +44,7 @@ backend/
                         most categories, an LLM call (IDUN, or local Ollama via
                         LLM_PROVIDER) for wrong_answer sub-clusters
                         (code-similarity grouping). Also holds the
-                        lecturer's "Show to students" flags (in-memory only)
+                        lecturer's "Show on full screen" flags (in-memory only)
   code_shape.py        "Same code, different names" key for the lecturer's "View
                         code": renames only names the student binds (not max/min/
                         print), ignores comments/whitespace/quote style, so an
@@ -187,7 +187,7 @@ Then open in a browser:
   A wrong answer does *not* go to the waiting screen while time remains: the
   student stays on the editor with their hint and can resubmit, since
   resubmitting is what escalates the hint tier. Issues the lecturer flags
-  with "Show to students" (anonymous code + failing test) appear on this
+  with "Show on full screen" (anonymous code + failing test) appear on this
   waiting screen once the task's time is up.
 - Lecturer page: `http://localhost:8000/lecturer.html?question_id=sum-ints`
   (the setup page's "Start"/"Live dashboard" links go here directly; with no
@@ -197,7 +197,7 @@ Then open in a browser:
     everyone has answered. It doesn't move on: the task goes straight to
     "Time's up", exactly as if the timer had run out (students' unsubmitted
     code is auto-submitted and they land on the waiting screen), so you can
-    go over the results and use "Show to students" first. Under the hood it
+    go over the results and use "Show on full screen" first. Under the hood it
     shortens the task's stored `duration_seconds` to the time already used.
   - **Next task** -- closes the current task and starts the next unstarted
     one, in creation order.
@@ -214,7 +214,7 @@ Then open in a browser:
   "Open projector view" on the live dashboard's Task control card) -- the
   page to put on the big screen. Follows the lecture on its own: the join
   code while students are joining, then the live task's title/prompt and a
-  large countdown. Once time is up, issues flagged with "Show to students"
+  large countdown. Once time is up, issues flagged with "Show on full screen"
   appear here too, in editable editors: the lecturer can highlight a
   selection or the cursor's line ("Highlight" or Ctrl+B) and rewrite the
   code while going over it. Those edits stay on the projector only
@@ -243,7 +243,7 @@ passes as of this build.
 
 The student page's join -> task -> waiting-screen flow (correct answer,
 wrong answer + retry, time's up with and without a submission, and a
-"Show to students" example) has been driven end to end in a real browser
+"Show on full screen" example) has been driven end to end in a real browser
 against live Judge0.
 
 Earlier versions graded with a local Ollama model (`llama3.2:3b`). That was
@@ -351,7 +351,7 @@ Students fetch a file's content only when they open it.
   counting existing rows -- fine for a single student's sequential
   submissions, not race-safe against truly concurrent double-submits from
   the same student.
-- Discussion points (and "Show to students" flags) are cached in memory,
+- Discussion points (and "Show on full screen" flags) are cached in memory,
   so restarting the backend regenerates them and forgets the flags.
 - At most `MAX_CONCURRENT_SUBMITS` (default 16) submissions are graded at
   once; the rest wait in line. This keeps a burst of submissions from taking

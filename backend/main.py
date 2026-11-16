@@ -1183,7 +1183,7 @@ def api_lecturer_clusters(question_id: str = None):
     return cluster_submissions(question_id)
 
 
-# "Show to students" on the live dashboard -- see aggregation.raise_issue().
+# "Show on full screen" on the live dashboard -- see aggregation.raise_issue().
 # Returns the question's clusters re-ranked, so the dashboard doesn't wait
 # for its next poll to show the flagged issue (and its discussion point).
 @app.post("/api/lecturer/clusters/raise")

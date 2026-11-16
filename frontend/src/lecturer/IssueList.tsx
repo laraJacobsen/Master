@@ -194,7 +194,11 @@ function IssueRow({
             aria-pressed={c.raised}
             disabled={raiseBusy}
             onClick={onToggleRaised}
-            title={c.raised ? "Stop showing this on students' screens" : "Put this on students' screens when time is up"}
+            title={
+              c.raised
+                ? "Stop showing this on the full-screen projector view"
+                : "Put this on the full-screen projector view (and students' screens) when time is up"
+            }
             className={cx(
               "ml-20 inline-flex h-8 flex-none items-center gap-1.5 self-start rounded-lg border px-3 sm:ml-0 text-[13px] font-medium whitespace-nowrap transition-colors",
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed",
@@ -214,7 +218,7 @@ function IssueRow({
                 Showing
               </>
             ) : (
-              "Show to students"
+              "Show on full screen"
             )}
           </button>
         )}
