@@ -24,12 +24,12 @@ import {
   raiseIssue,
 } from "../shared/api";
 import { ClassProgress } from "./ClassProgress";
-import { ClassBar } from "./ClassBar";
 import { IssueList } from "./IssueList";
 import { clusterIds, issueKey } from "./issues";
-import { TaskHeader } from "./TaskHeader";
+import { LiveHero } from "./TaskHeader";
+import { VerdictBreakdown } from "./VerdictBreakdown";
 import { buildTracks } from "./studentTracks";
-import { StudentGrid } from "./StudentGrid";
+import { buildMock } from "./mockData";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
@@ -59,6 +59,10 @@ const LECTURE_ID = new URLSearchParams(window.location.search).get("lecture_id")
 // separate page -- the audience and the underlying page never change,
 // only which controls/data are showing.
 const LOBBY_ID = new URLSearchParams(window.location.search).get("lobby");
+
+// ?mock fills the live task view with fake data (see mockData.ts) instead of
+// polling the backend -- for previewing the layout. Use with ?question_id=mock.
+const MOCK = new URLSearchParams(window.location.search).has("mock");
 
 const VERDICT_TONE: Record<string, Tone> = {
   correct: "success",
@@ -109,6 +113,10 @@ export default function App() {
   // on setup mid-lecture brings it back. null = not known yet, so the button
   // shows as usual until the first answer arrives.
   const [hasNextTask, setHasNextTask] = useState<boolean | null>(null);
+  // "Introduction to Programming · Task 3 of 4" above the task name.
+  const [lectureLabel, setLectureLabel] = useState<string | null>(null);
+  const [taskNumber, setTaskNumber] = useState<number | null>(null);
+  const [taskCount, setTaskCount] = useState<number | null>(null);
 
   // Powers the "Time remaining" banner and gates the Next task/Finish
   // lecture controls -- see api_lecture_next/finish in backend/main.py.
@@ -209,6 +217,22 @@ export default function App() {
   useEffect(() => {
     if (LECTURE_ID || LOBBY_ID) return; // historical/lobby mode -- no live task polling, see effects above.
 
+    if (MOCK) {
+      const m = buildMock(new URLSearchParams(window.location.search).get("mock") === "ended");
+      setPageTitle(m.question.title);
+      setQuestion(m.question);
+      setSubRows(m.subs);
+      setClusters(m.clusters);
+      setProgress(m.progress);
+      setActivity(m.activity);
+      setJoinCode(m.joinCode);
+      setHasNextTask(true);
+      setLectureLabel(m.lectureLabel);
+      setTaskNumber(m.taskNumber);
+      setTaskCount(m.taskCount);
+      return;
+    }
+
     if (QUESTION_ID) {
       fetchQuestionDetail(QUESTION_ID)
         .then((q) => {
@@ -225,6 +249,9 @@ export default function App() {
         .then((a) => {
           setJoinCode(a.lecture?.join_code ?? null);
           setHasNextTask(a.has_next_task ?? null);
+          setLectureLabel(a.lecture?.display_label ?? null);
+          setTaskNumber(a.task_number ?? null);
+          setTaskCount(a.task_count ?? null);
         })
         .catch(() => {
           // Not critical -- the card omits the code and keeps "Next task".
@@ -319,6 +346,10 @@ export default function App() {
   }, [question]);
 
   async function handleNextTask() {
+    if (MOCK) {
+      setAdvanceMessage("Mock mode: Next task doesn't do anything here.");
+      return;
+    }
     setAdvancing(true);
     setAdvanceMessage(null);
     try {
@@ -342,6 +373,11 @@ export default function App() {
   // can show them examples before clicking "Next task".
   async function handleEndTaskNow() {
     if (!QUESTION_ID) return;
+    if (MOCK) {
+      // Pretend the timer ran out, so the "time's up" state can be previewed.
+      setQuestion((q) => q && { ...q, started_at: new Date(Date.now() - q.duration_seconds * 1000).toISOString().slice(0, 19).replace("T", " ") });
+      return;
+    }
     setAdvancing(true);
     setAdvanceMessage(null);
     try {
@@ -446,6 +482,10 @@ export default function App() {
   async function toggleRaised(c: ClusterRow) {
     if (!QUESTION_ID) return;
     const key = issueKey(c);
+    if (MOCK) {
+      setClusters((prev) => prev.map((x) => (issueKey(x) === key ? { ...x, raised: !x.raised } : x)));
+      return;
+    }
     setRaisingKey(key);
     setRaiseError(null);
     try {
@@ -471,8 +511,6 @@ export default function App() {
 
   const lastTask = hasNextTask === false;
   const taskRunning = secondsRemaining != null && secondsRemaining > 0;
-  // What an issue's bar is a share of: everyone who's submitted so far.
-  const classSize = Math.max(progress?.submitted ?? 0, ...clusters.map((c) => c.count), 1);
   const tracks = buildTracks(subRows, taskRunning ? activity : null);
 
   return (
@@ -492,6 +530,28 @@ export default function App() {
         onConfirm={handleFinishLecture}
         onCancel={() => setConfirmFinishOpen(false)}
       />
+      {QUESTION_ID && !LECTURE_ID && !lectureFinished && (
+        <LiveHero
+          title={pageTitle}
+          lectureLabel={lectureLabel}
+          taskNumber={taskNumber}
+          taskCount={taskCount}
+          question={question}
+          secondsRemaining={secondsRemaining}
+          joinCode={joinCode}
+          lastTask={lastTask}
+          advancing={advancing}
+          advanceMessage={advanceMessage}
+          onNextTask={handleNextTask}
+          onEndTaskNow={handleEndTaskNow}
+          onEndLecture={() => setConfirmFinishOpen(true)}
+          submitted={progress?.submitted ?? tracks.filter((t) => t.best).length}
+          expected={progress?.expected ?? null}
+          tracks={tracks}
+          showActivity={taskRunning}
+          contentId="live-content"
+        />
+      )}
       <Page width={QUESTION_ID && !LECTURE_ID ? "full" : "wide"}>
         {!(QUESTION_ID && !LECTURE_ID) && (
           <PageHeader
@@ -558,43 +618,21 @@ export default function App() {
               <h2 className="font-bold">Lecture finished</h2>
               <p className="mt-1">Students now see an end-of-lecture screen. The session summary is below.</p>
             </Callout>
-          ) : (
-            <>
-              <TaskHeader
-                title={pageTitle}
-                question={question}
-                secondsRemaining={secondsRemaining}
-                joinCode={joinCode}
-                lastTask={lastTask}
-                advancing={advancing}
-                advanceMessage={advanceMessage}
-                onNextTask={handleNextTask}
-                onEndTaskNow={handleEndTaskNow}
-                onEndLecture={() => setConfirmFinishOpen(true)}
-              />
-              <section className="pt-10 pb-12" aria-label="Class progress">
-                <ClassBar
-                  tracks={tracks}
-                  submitted={progress?.submitted ?? tracks.filter((t) => t.best).length}
-                  expected={progress?.expected ?? null}
-                  showActivity={taskRunning}
-                />
-              </section>
-            </>
-          )
+          ) : null
         )}
 
-        {!lectureFinished && !LECTURE_ID && !LOBBY_ID && (
-          <div className="grid items-start gap-x-14 gap-y-12 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] 2xl:grid-cols-[minmax(0,1fr)_minmax(18rem,30rem)]">
-            <section aria-label="Common issues" className="min-w-0">
-              <div className="mb-4 flex items-baseline gap-3">
-                <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Issues</h2>
-                <span className="text-[13px] text-zinc-400">biggest first · click one to see the code</span>
-              </div>
+        {QUESTION_ID && !lectureFinished && !LECTURE_ID && (
+          <>
+          <div
+            id="live-content"
+            className="mt-8 grid scroll-mt-32 items-start gap-5 lg:grid-cols-2"
+          >
+            <VerdictBreakdown tracks={tracks} subs={subRows} activity={taskRunning ? activity : null} />
+            <section aria-label="Discussion points" className="min-w-0">
               {raiseError && <ErrorText className="mb-3">{raiseError}</ErrorText>}
               <IssueList
                 issues={clusters}
-                classSize={classSize}
+                taskRunning={taskRunning}
                 openKeys={openIssues}
                 onToggleOpen={toggleIssue}
                 subsFor={(c) =>
@@ -604,14 +642,40 @@ export default function App() {
                 }
                 loadError={issueLoadError}
                 raisingKey={raisingKey}
-                onToggleRaised={QUESTION_ID ? toggleRaised : null}
+                onToggleRaised={toggleRaised}
               />
             </section>
-            {QUESTION_ID ? (
-              <div className="lg:sticky lg:top-20">
-                <StudentGrid subs={subRows} activity={taskRunning ? activity : null} />
+          </div>
+          <p className="mt-6 pb-12 text-center text-[12px] text-zinc-400">
+            Student names and individual code stay hidden until you open a discussion point or show the students.
+          </p>
+          </>
+        )}
+
+        {!QUESTION_ID && !lectureFinished && !LECTURE_ID && !LOBBY_ID && (
+          <div className="grid items-start gap-x-14 gap-y-12 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] 2xl:grid-cols-[minmax(0,1fr)_minmax(18rem,30rem)]">
+            <section aria-label="Common issues" className="min-w-0">
+              <div className="mb-4 flex items-baseline gap-3">
+                <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Issues</h2>
+                <span className="text-[13px] text-zinc-400">biggest first · click one to see the code</span>
               </div>
-            ) : (
+              {raiseError && <ErrorText className="mb-3">{raiseError}</ErrorText>}
+              <IssueList
+                issues={clusters}
+                taskRunning={false}
+                openKeys={openIssues}
+                onToggleOpen={toggleIssue}
+                subsFor={(c) =>
+                  clusterIds(c)
+                    .map(knownSub)
+                    .filter((sub): sub is SubmissionRow => !!sub)
+                }
+                loadError={issueLoadError}
+                raisingKey={raisingKey}
+                onToggleRaised={null}
+              />
+            </section>
+            {
               // No ?question_id= (the old everything-at-once view): students span
               // several questions there, so it keeps the plain attempt log.
               <Card>
@@ -671,7 +735,7 @@ export default function App() {
                   </table>
                 )}
               </Card>
-            )}
+            }
           </div>
         )}
 

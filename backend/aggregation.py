@@ -775,6 +775,98 @@ def _subcluster_discussion_point(group: list, reference_solution: str, student_c
     return result
 
 
+HEADLINE_PROMPT = (
+    "You are helping a lecturer run a live programming class. You are given one issue a "
+    "group of students ran into: its error category and a short factual note about it. "
+    "Rewrite it for the lecturer's dashboard as:\n"
+    "  \"title\": a 3-8 word headline naming the mistake, in sentence case (no ending "
+    "period, don't just repeat the category name)\n"
+    "  \"action\": ONE short sentence telling the lecturer what to do with the class about "
+    "it right now, e.g. what to show, trace or ask on the board\n"
+    "Use only what the note says -- never add a cause, code detail or example it doesn't "
+    "contain. Address the lecturer in the imperative (\"Show...\", \"Trace...\"); never "
+    "speak to the students.\n"
+    "Respond with ONLY a JSON object with exactly the keys \"title\" and \"action\". No "
+    "markdown fences, no explanation outside the JSON object."
+)
+
+_headline_cache = {}  # (category, discussion_point) -> {"title", "action"} or None
+
+
+def _category_label(exec_verdict: str, error_type) -> str:
+    label = (exec_verdict or "unknown").replace("_", " ").capitalize()
+    return f"{label} ({error_type})" if error_type and error_type != "none" else label
+
+
+def _call_llm_headline(category: str, discussion_point: str) -> dict:
+    """One JSON-mode call: the cluster's category + its existing discussion_point
+    (the AI Label note for wrong_answer, the curated line otherwise) -> a short
+    title and one lecturer action. Deliberately a separate call that only ever sees
+    that text, never code: the note itself stays exactly the rated Label output
+    (see the module docstring), and with nothing but the note to go on the model has
+    nothing to invent a cause from. Raises on any failure; caller falls back to None."""
+    headers = {"Authorization": f"Bearer {LLM['api_key']}"} if LLM["api_key"] else {}
+    resp = requests.post(
+        f"{LLM['base_url']}/chat/completions",
+        headers=headers,
+        json={
+            "model": LLM["model"],
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": HEADLINE_PROMPT},
+                {"role": "user", "content": f"Category: {category}\nNote: {discussion_point}"},
+            ],
+        },
+        timeout=LLM["timeout"],
+    )
+    resp.raise_for_status()
+    parsed = json.loads(resp.json()["choices"][0]["message"]["content"])
+    title, action = parsed.get("title"), parsed.get("action")
+    if not (isinstance(title, str) and title.strip() and isinstance(action, str) and action.strip()):
+        raise ValueError(f"missing title/action in LLM response: {parsed!r}")
+    return {"title": title.strip().rstrip("."), "action": action.strip()}
+
+
+def _headline(category: str, discussion_point: str):
+    key = (category, discussion_point)
+    if key in _headline_cache:
+        return _headline_cache[key]
+    result = None
+    if _llm_available():
+        t0 = time.monotonic()
+        for _attempt in (1, 2):
+            try:
+                result = _call_llm_headline(category, discussion_point)
+                break
+            except Exception:
+                continue
+        logger.info("headline LLM call (%s): %.3fs, ok=%s", LLM["provider"], time.monotonic() - t0, result is not None)
+    _headline_cache[key] = result
+    return result
+
+
+def _attach_headlines(clusters: list) -> None:
+    """Adds "title" and "action" (None when there's no discussion point or the call
+    failed -- the dashboard then shows the note itself as the headline) to every
+    cluster in place. Calls run in parallel, same reasoning as
+    _generate_subcluster_labels()."""
+    for c in clusters:
+        c["title"] = None
+        c["action"] = None
+    pending = [c for c in clusters if c.get("discussion_point") and c["exec_verdict"] != "pass"]
+    if not pending:
+        return
+    with ThreadPoolExecutor(max_workers=min(len(pending), _MAX_PARALLEL_LABEL_CALLS)) as pool:
+        futures = {
+            pool.submit(_headline, _category_label(c["exec_verdict"], c["error_type"]), c["discussion_point"]): c
+            for c in pending
+        }
+        for future in as_completed(futures):
+            h = future.result()
+            if h:
+                futures[future].update(h)
+
+
 def _distinct_student_submission_ids(rows: list) -> list:
     """One submission id per distinct student -- their most recent attempt in this
     group, since rows is already newest-first (from store.all_submissions()). Lets
@@ -1042,6 +1134,7 @@ def cluster_submissions(question_id: str = None) -> list:
             }
         )
 
+    _attach_headlines(result)
     result.sort(key=lambda c: (c["raised"], c["count"]), reverse=True)
     return result
 

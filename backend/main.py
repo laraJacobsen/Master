@@ -461,10 +461,16 @@ def api_lecturer_active_lecture():
     if not lecture:
         return {"lecture": None, "live_question_id": None}
     live_question = store.live_question_row()
+    # "Task N of M" on the live dashboard: tasks run so far (incl. the live
+    # one) plus the drafts still to come.
+    ran = [q["id"] for q in store.questions_for_lecture(lecture["id"])]
+    task_number = ran.index(live_question["id"]) + 1 if live_question and live_question["id"] in ran else None
     return {
         "lecture": lecture,
         "live_question_id": live_question["id"] if live_question else None,
         "has_next_task": store.next_draft_question() is not None,
+        "task_number": task_number,
+        "task_count": len(ran) + store.count_ready_drafts(),
     }
 
 
