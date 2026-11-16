@@ -29,6 +29,7 @@ import { clusterIds, issueKey } from "./issues";
 import { TaskHeader, TaskStatusCard } from "./TaskHeader";
 import { VerdictBreakdown } from "./VerdictBreakdown";
 import { buildTracks } from "./studentTracks";
+import { buildMock } from "./mockData";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
@@ -58,6 +59,10 @@ const LECTURE_ID = new URLSearchParams(window.location.search).get("lecture_id")
 // separate page -- the audience and the underlying page never change,
 // only which controls/data are showing.
 const LOBBY_ID = new URLSearchParams(window.location.search).get("lobby");
+
+// ?mock fills the live task view with fake data (see mockData.ts) instead of
+// polling the backend -- for previewing the layout. Use with ?question_id=mock.
+const MOCK = new URLSearchParams(window.location.search).has("mock");
 
 const VERDICT_TONE: Record<string, Tone> = {
   correct: "success",
@@ -208,6 +213,19 @@ export default function App() {
   useEffect(() => {
     if (LECTURE_ID || LOBBY_ID) return; // historical/lobby mode -- no live task polling, see effects above.
 
+    if (MOCK) {
+      const m = buildMock();
+      setPageTitle(m.question.title);
+      setQuestion(m.question);
+      setSubRows(m.subs);
+      setClusters(m.clusters);
+      setProgress(m.progress);
+      setActivity(m.activity);
+      setJoinCode(m.joinCode);
+      setHasNextTask(true);
+      return;
+    }
+
     if (QUESTION_ID) {
       fetchQuestionDetail(QUESTION_ID)
         .then((q) => {
@@ -318,6 +336,10 @@ export default function App() {
   }, [question]);
 
   async function handleNextTask() {
+    if (MOCK) {
+      setAdvanceMessage("Mock mode: Next task doesn't do anything here.");
+      return;
+    }
     setAdvancing(true);
     setAdvanceMessage(null);
     try {
@@ -341,6 +363,11 @@ export default function App() {
   // can show them examples before clicking "Next task".
   async function handleEndTaskNow() {
     if (!QUESTION_ID) return;
+    if (MOCK) {
+      // Pretend the timer ran out, so the "time's up" state can be previewed.
+      setQuestion((q) => q && { ...q, started_at: new Date(Date.now() - q.duration_seconds * 1000).toISOString().slice(0, 19).replace("T", " ") });
+      return;
+    }
     setAdvancing(true);
     setAdvanceMessage(null);
     try {
@@ -445,6 +472,10 @@ export default function App() {
   async function toggleRaised(c: ClusterRow) {
     if (!QUESTION_ID) return;
     const key = issueKey(c);
+    if (MOCK) {
+      setClusters((prev) => prev.map((x) => (issueKey(x) === key ? { ...x, raised: !x.raised } : x)));
+      return;
+    }
     setRaisingKey(key);
     setRaiseError(null);
     try {
