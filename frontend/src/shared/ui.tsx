@@ -108,7 +108,7 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
 export function Card({ flush = false, className, ...rest }: CardProps) {
   return (
     <div
-      className={cx("rounded-xl border border-zinc-200 bg-white", !flush && "p-5 sm:p-6", className)}
+      className={cx("rounded-xl bg-white shadow-card", !flush && "p-5 sm:p-6", className)}
       {...rest}
     />
   );

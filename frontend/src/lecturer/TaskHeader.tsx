@@ -122,7 +122,7 @@ export function TaskHeader({
       </div>
 
       {showTask && question && (
-        <div className="mt-6 grid animate-fade-in gap-8 rounded-xl border border-zinc-200 bg-white p-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <div className="mt-6 grid animate-fade-in gap-8 rounded-xl bg-white p-6 shadow-card lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
           <div className="min-w-0">
             <Eyebrow>Task</Eyebrow>
             <p className="mt-2 max-h-72 overflow-y-auto pr-2 text-[15px] leading-relaxed whitespace-pre-wrap text-zinc-800">

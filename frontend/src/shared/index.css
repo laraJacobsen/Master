@@ -43,6 +43,9 @@
   --color-brand-900: #2f3179;
   --color-brand-950: #1c1d47;
 
+  /* Borderless white boxes on the #F9FAFA base: a soft lift instead of a line. */
+  --shadow-card: 0 1px 2px rgb(41 45 50 / 0.04), 0 4px 18px rgb(41 45 50 / 0.05);
+
   --animate-fade-in: fade-in 0.15s ease-out both;
   --animate-fade-in-up: fade-in-up 0.4s ease-out both;
   --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;

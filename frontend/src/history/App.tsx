@@ -358,7 +358,7 @@ export default function App() {
           {ranked.length > 0 && (
             <>
               <section
-                className="grid grid-cols-1 divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white sm:grid-cols-[1fr_1.4fr_1fr] sm:divide-x sm:divide-y-0"
+                className="grid grid-cols-1 divide-y divide-zinc-200 rounded-xl bg-white shadow-card sm:grid-cols-[1fr_1.4fr_1fr] sm:divide-x sm:divide-y-0"
                 aria-label="Overview"
               >
                 <div className="min-w-0 p-5 sm:p-6">

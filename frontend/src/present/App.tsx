@@ -148,8 +148,8 @@ export default function App() {
             </div>
             <div
               className={cx(
-                "flex-none rounded-xl border bg-white text-center",
-                timeUp ? "border-red-200" : "border-zinc-200",
+                "flex-none rounded-xl bg-white text-center shadow-card",
+                timeUp && "ring-1 ring-red-200",
                 compact ? "min-w-44 px-6 py-3" : "min-w-64 px-8 py-5",
               )}
             >
@@ -303,7 +303,7 @@ function ExampleCard({ example, label, language }: ExampleCardProps) {
   const failing = example.failing_test;
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5">
+    <div className="rounded-xl bg-white p-5 shadow-card">
       <div className="mb-4 flex items-center justify-between gap-4">
         {label && <span className="text-xl font-bold tracking-tight text-zinc-950">{label}</span>}
         <div className="ml-auto flex gap-2">
