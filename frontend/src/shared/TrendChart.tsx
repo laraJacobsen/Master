@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
-import { cx } from "../shared/cx";
+import { cx } from "./cx";
 
 // "Solved per lecture" on the history page: a smooth brand-coloured line over
 // a light blue -> violet wash. Hover (or keyboard focus) shows a lecture's
@@ -21,10 +21,15 @@ export interface TrendChartProps {
   points: TrendPoint[];
   selectedId: number | null;
   onSelect: (id: number) => void;
+  /** Plot height in px (default 220; the home page uses a compact one). */
+  height?: number;
+  /** Keep the selected point's tooltip open without hovering (default true).
+   *  Off in small charts, where it would cover the numbers around it. */
+  tooltipOnSelect?: boolean;
   className?: string;
 }
 
-const HEIGHT = 220;
+const DEFAULT_HEIGHT = 220;
 const PAD = { top: 20, right: 44, bottom: 8, left: 14 };
 const GRID = [0.25, 0.5, 0.75, 1];
 const MIN_LABEL_GAP = 52; // px between x-axis dates before we start skipping some
@@ -72,7 +77,7 @@ function pct(rate: number): string {
   return `${Math.round(rate * 100)}%`;
 }
 
-export function TrendChart({ points, selectedId, onSelect, className }: TrendChartProps) {
+export function TrendChart({ points, selectedId, onSelect, height: HEIGHT = DEFAULT_HEIGHT, tooltipOnSelect = true, className }: TrendChartProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [hoverId, setHoverId] = useState<number | null>(null);
@@ -103,6 +108,7 @@ export function TrendChart({ points, selectedId, onSelect, className }: TrendCha
   const activeId = hoverId ?? selectedId;
   const activeIdx = points.findIndex((p) => p.id === activeId);
   const active = activeIdx >= 0 ? points[activeIdx] : null;
+  const showTooltip = active !== null && (hoverId !== null || tooltipOnSelect);
   const labelEvery = step > 0 ? Math.max(1, Math.ceil(MIN_LABEL_GAP / step)) : 1;
 
   return (
@@ -214,7 +220,7 @@ export function TrendChart({ points, selectedId, onSelect, className }: TrendCha
             );
           })}
 
-        {active && (
+        {active && showTooltip && (
           <div
             className="pointer-events-none absolute z-10 w-48 animate-fade-in rounded-lg bg-white px-3 py-2.5 shadow-card ring-1 ring-zinc-950/5"
             style={{
@@ -240,7 +246,11 @@ export function TrendChart({ points, selectedId, onSelect, className }: TrendCha
         {width > 0 &&
           points.map((p, i) => {
             const isActive = p.id === activeId;
-            if (!isActive && i % labelEvery !== 0) return null;
+            // Every labelEvery-th date, plus the active one -- minus any
+            // neighbour that would collide with the active one.
+            if (!isActive && (i % labelEvery !== 0 || (activeIdx >= 0 && Math.abs(i - activeIdx) < labelEvery))) {
+              return null;
+            }
             return (
               <span
                 key={p.id}

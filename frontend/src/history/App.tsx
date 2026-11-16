@@ -7,7 +7,6 @@ import {
   Button,
   Card,
   Checkbox,
-  Code,
   EmptyState,
   Eyebrow,
   PageHeader,
@@ -18,8 +17,19 @@ import {
   TextLink,
 } from "../shared/ui";
 import { cx } from "../shared/cx";
-import { TrendChart } from "./TrendChart";
-import type { TrendPoint } from "./TrendChart";
+import { Delta, IssueLine, Meter } from "../shared/reviewUi";
+import {
+  formatDate,
+  mean,
+  monthDelta,
+  parseDate,
+  percent,
+  plural,
+  shortDate,
+  topicsFrom,
+} from "../shared/review";
+import { TrendChart } from "../shared/TrendChart";
+import type { TrendPoint } from "../shared/TrendChart";
 
 // Lecture history, reachable from the nav bar on every lecturer page. Built
 // around one decision: what should a review lecture go back over? Top to
@@ -63,23 +73,6 @@ function periodAt(range: TrendRange, at: Date): Period {
     : { start: new Date(y, 0, 1), end: new Date(y, AUTUMN_START_MONTH, 1), label: `Spring ${y}` };
 }
 
-function parseDate(isoLike: string): Date {
-  // Server timestamps are "YYYY-MM-DD HH:MM:SS" UTC with no offset marker.
-  return new Date(isoLike.replace(" ", "T") + "Z");
-}
-function formatDate(isoLike: string): string {
-  return parseDate(isoLike).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
-function shortDate(isoLike: string): string {
-  return parseDate(isoLike).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-function percent(rate: number): string {
-  return `${Math.round(rate * 100)}%`;
-}
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-
 // A short, aggregate-only snapshot -- total distinct-student submissions and
 // a correct-count, never a per-student breakdown (see the product decision
 // against any per-student identification on this dashboard).
@@ -90,67 +83,6 @@ function statsSnapshot(row: LectureHistoryRow): string {
 }
 
 // Same naming as the live dashboard's issue tags.
-function issueName(execVerdict: string | null, errorType: string | null): string {
-  if (execVerdict === "rejected") return "Rejected before running";
-  const verdict = (execVerdict || "unknown").replace(/_/g, " ");
-  const label = verdict.charAt(0).toUpperCase() + verdict.slice(1);
-  return errorType && errorType !== "none" ? `${label} (${errorType})` : label;
-}
-
-export interface MeterProps {
-  rate: number;
-  size?: "sm" | "md";
-  className?: string;
-}
-
-// One neutral hue on every bar -- a low share says "go back over this", not
-// "failed", so no red/amber/green here.
-function Meter({ rate, size = "md", className }: MeterProps) {
-  return (
-    <span
-      className={cx(
-        "inline-block overflow-hidden rounded-sm bg-zinc-200 align-middle",
-        size === "md" ? "h-1.5 w-28" : "h-1 w-full",
-        className,
-      )}
-      role="img"
-      aria-label={`${percent(rate)} solved`}
-    >
-      <span className="block h-full rounded-sm bg-brand-500" style={{ width: percent(rate) }} />
-    </span>
-  );
-}
-
-// What went wrong, as concretely as the data allows: for a wrong answer, the
-// actual output most of them printed; otherwise the error kind and its line.
-export interface IssueLineProps {
-  task: LectureReviewTask;
-}
-
-function IssueLine({ task }: IssueLineProps) {
-  const issue = task.top_issue;
-  if (!issue) {
-    return task.submitted === 0 ? <p className="mt-2 text-[13px] text-zinc-500">No submissions</p> : null;
-  }
-  const ex = issue.example;
-  if (ex) {
-    return (
-      <p className="mt-2 text-[13px] leading-relaxed text-zinc-700">
-        <strong className="font-semibold text-zinc-900">{plural(ex.students, "student")}</strong> printed{" "}
-        <Code>{ex.stdout || "(nothing)"}</Code> for input <Code>{ex.stdin.trim() || "(empty)"}</Code>, expected{" "}
-        <Code>{ex.expected_stdout.trim()}</Code>
-      </p>
-    );
-  }
-  return (
-    <p className="mt-2 text-[13px] leading-relaxed text-zinc-700">
-      <strong className="font-semibold text-zinc-900">{plural(issue.students, "student")}</strong>:{" "}
-      {issueName(issue.exec_verdict, issue.error_type)}
-      {issue.discussion_point && <span className="text-zinc-500"> {issue.discussion_point}</span>}
-    </p>
-  );
-}
-
 export interface TaskRowProps {
   task: LectureReviewTask;
 }
@@ -251,33 +183,6 @@ function LectureItem({ review, rank, open, onToggle }: LectureItemProps) {
       )}
     </li>
   );
-}
-
-interface Topic {
-  title: string;
-  rate: number;
-  lectures: number;
-  worst: LectureReviewTask; // its weakest run, for the concrete issue
-}
-
-// Same task title across lectures = same topic (the demo and real lectures
-// reuse exercises), averaged so a topic that's hard every time stands out.
-function topicsFrom(ranked: LectureReview[]): Topic[] {
-  const byTitle = new Map<string, LectureReviewTask[]>();
-  for (const r of ranked) {
-    for (const t of r.tasks) {
-      if (t.solve_rate === null) continue;
-      byTitle.set(t.title, [...(byTitle.get(t.title) ?? []), t]);
-    }
-  }
-  return [...byTitle.entries()]
-    .map(([title, runs]) => ({
-      title,
-      rate: runs.reduce((sum, t) => sum + (t.solve_rate ?? 0), 0) / runs.length,
-      lectures: runs.length,
-      worst: runs.reduce((a, b) => ((a.solve_rate ?? 1) <= (b.solve_rate ?? 1) ? a : b)),
-    }))
-    .sort((a, b) => a.rate - b.rate);
 }
 
 export interface PeriodArrowProps {
@@ -454,46 +359,10 @@ function ListSkeleton() {
 
 // ------------------------------------------------------------ Overview cards
 
-function mean(xs: number[]): number {
-  return xs.reduce((a, b) => a + b, 0) / xs.length;
-}
-
 /** Share of the lecture's students who submitted anything, averaged over its tasks. */
 function participationOf(r: LectureReview): number {
   const shares = r.tasks.filter((t) => t.students > 0).map((t) => t.submitted / t.students);
   return shares.length ? mean(shares) : 0;
-}
-
-function monthIndex(d: Date): number {
-  return d.getFullYear() * 12 + d.getMonth();
-}
-
-/** This calendar month's average of `metric` minus last month's, or null if
- *  either month had no ranked lectures. */
-function monthDelta(ranked: LectureReview[], metric: (r: LectureReview) => number): number | null {
-  const now = monthIndex(new Date());
-  const inMonth = (m: number) => ranked.filter((r) => monthIndex(parseDate(r.started_at)) === m).map(metric);
-  const cur = inMonth(now);
-  const prev = inMonth(now - 1);
-  return cur.length && prev.length ? mean(cur) - mean(prev) : null;
-}
-
-export interface DeltaProps {
-  /** Difference as a share (0.05 = 5 percentage points). */
-  value: number;
-}
-
-/** "+5 pts since last month" -- green up, red down, grey when flat. */
-function Delta({ value }: DeltaProps) {
-  const pts = Math.round(value * 100);
-  const tone = pts > 0 ? "text-emerald-700" : pts < 0 ? "text-red-600" : "text-zinc-500";
-  const sign = pts > 0 ? "+" : pts < 0 ? "\u2212" : "\u00b1";
-  return (
-    <div className={cx("mt-2 text-[11px] font-normal", tone)}>
-      {sign}
-      {Math.abs(pts)} pts since last month
-    </div>
-  );
 }
 
 export interface OverviewCardProps {

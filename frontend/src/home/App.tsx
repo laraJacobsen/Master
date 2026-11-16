@@ -1,10 +1,48 @@
 import { useEffect, useState } from "react";
-import type { ActiveLectureResponse, LectureTotals } from "../shared/types";
-import { createLecture, deleteLecture, fetchActiveLecture, fetchLectureTotals } from "../shared/api";
+import type { ActiveLectureResponse, LectureReview, LectureTotals, ProgressResponse, QuestionRow } from "../shared/types";
+import {
+  createLecture,
+  deleteLecture,
+  fetchActiveLecture,
+  fetchLectureReview,
+  fetchLectureTotals,
+  fetchProgress,
+  fetchQuestionList,
+} from "../shared/api";
 import { activeLectureAction } from "../shared/lectureNav";
 import { NavBar } from "../shared/NavBar";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-import { Badge, Button, Card, ErrorText, Eyebrow, Input, Label, TextLink } from "../shared/ui";
+import { Button, Card, ErrorText, Eyebrow, Input, Label, TextLink } from "../shared/ui";
+import { cx } from "../shared/cx";
+import { ReviewRow } from "./ReviewRow";
+
+const POLL_MS = 5000;
+
+export interface LiveStatProps {
+  label: string;
+  value: number;
+  /** Shown as "/total" and drives the bar; omitted when unknown. */
+  total: number | null;
+}
+
+/** One number on the purple card -- "12/20" with a thin bar under it. */
+function LiveStat({ label, value, total }: LiveStatProps) {
+  const share = total ? Math.min(1, value / total) : null;
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] font-semibold tracking-[0.08em] text-white/70 uppercase">{label}</div>
+      <div className="mt-1 font-mono text-2xl font-semibold tracking-tight text-white tabular-nums">
+        {value}
+        {total !== null && <span className="text-white/60">/{total}</span>}
+      </div>
+      {share !== null && (
+        <div className="mt-2 h-1 w-full overflow-hidden rounded-sm bg-white/20">
+          <div className="h-full rounded-sm bg-white transition-[width] duration-500" style={{ width: `${share * 100}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function App() {
   const [active, setActive] = useState<ActiveLectureResponse | null>(null);
@@ -14,6 +52,9 @@ export default function App() {
   const [startError, setStartError] = useState<string | null>(null);
 
   const [totals, setTotals] = useState<LectureTotals | null>(null);
+  const [reviews, setReviews] = useState<LectureReview[] | null>(null);
+  const [questions, setQuestions] = useState<QuestionRow[] | null>(null);
+  const [progress, setProgress] = useState<ProgressResponse | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -33,7 +74,34 @@ export default function App() {
       .catch(() => {
         // Optional stats line -- fine to just not show it.
       });
+    fetchLectureReview()
+      .then(setReviews)
+      .catch(() => setReviews([])); // the review row just stays hidden
   }, []);
+
+  // Live numbers on the purple card move while students work -- refresh them.
+  const lectureId = active?.lecture?.id ?? null;
+  const liveId = active?.live_question_id ?? null;
+  useEffect(() => {
+    if (lectureId === null) return;
+    let cancelled = false;
+    function refresh() {
+      fetchQuestionList()
+        .then((q) => !cancelled && setQuestions(q))
+        .catch(() => {});
+      if (liveId) {
+        fetchProgress(liveId)
+          .then((p) => !cancelled && setProgress(p))
+          .catch(() => {});
+      }
+    }
+    refresh();
+    const t = window.setInterval(refresh, POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [lectureId, liveId]);
 
   async function handleNewLecture() {
     setStarting(true);
@@ -74,6 +142,7 @@ export default function App() {
   }
 
   const hasActive = !activeLoading && active?.lecture != null;
+  const tasksDone = questions?.filter((q) => q.status === "closed" || q.status === "skipped").length ?? 0;
 
   return (
     <>
@@ -117,43 +186,69 @@ export default function App() {
         </section>
 
         <section className="lg:col-span-7 lg:pt-8">
-          <Card className="animate-fade-in-up p-6 sm:p-8">
+          <Card
+            className={cx(
+              "animate-fade-in-up p-6 sm:p-8",
+              // The lecture that's on right now: brand-purple gradient panel.
+              hasActive &&
+                "relative isolate overflow-hidden bg-linear-to-br from-brand-500 via-brand-500 to-violet-500 text-white shadow-xl shadow-brand-500/25",
+            )}
+          >
             {activeLoading ? (
               <p className="text-sm text-zinc-500">Loading...</p>
             ) : hasActive ? (
               <>
+                {/* Soft light from the top right -- depth without decoration. */}
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(32rem_16rem_at_100%_0%,rgb(255_255_255/0.22),transparent_70%)]"
+                />
                 <div className="flex items-center justify-between gap-4">
-                  <h2 className="text-xl font-bold tracking-tight text-zinc-950">Lecture in progress</h2>
+                  <h2 className="text-xl font-bold tracking-tight text-white">Lecture in progress</h2>
                   {active!.lecture!.lobby_opened_at ? (
-                    <Badge tone="success" pulse>
+                    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-white">
+                      <span className="size-1.5 animate-pulse-dot rounded-[2px] bg-white" aria-hidden="true" />
                       Open
-                    </Badge>
+                    </span>
                   ) : null}
                 </div>
-                <p className="mt-1 text-sm text-zinc-500">{active!.lecture!.display_label}</p>
+                <p className="mt-1 text-sm text-white/80">{active!.lecture!.display_label}</p>
                 {active!.lecture!.lobby_opened_at ? (
                   active!.lecture!.join_code && (
-                    <div className="mt-6 rounded-lg border border-zinc-200 bg-zinc-50 px-5 py-4">
-                      <Eyebrow>Join code</Eyebrow>
-                      <div className="mt-1 font-mono text-4xl font-bold tracking-[0.18em] text-zinc-950">
+                    <div className="mt-6 rounded-lg border border-white/20 bg-white/10 px-5 py-4">
+                      <Eyebrow className="text-white/70">Join code</Eyebrow>
+                      <div className="mt-1 font-mono text-4xl font-bold tracking-[0.18em] text-white">
                         {active!.lecture!.join_code}
                       </div>
-                      <p className="mt-1 text-[13px] text-zinc-500">
+                      <p className="mt-1 text-[13px] text-white/75">
                         Students enter this on the student page to join.
                       </p>
                     </div>
                   )
                 ) : (
-                  <p className="mt-6 text-sm text-zinc-500">Not open to students yet.</p>
+                  <p className="mt-6 text-sm text-white/80">Not open to students yet.</p>
+                )}
+                {questions && questions.length > 0 && (
+                  <div className="mt-6 grid grid-cols-2 gap-6">
+                    <LiveStat label="Tasks completed" value={tasksDone} total={questions.length} />
+                    {liveId && progress && (
+                      <LiveStat label="Submitted, current task" value={progress.submitted} total={progress.expected} />
+                    )}
+                  </div>
                 )}
                 <div className="mt-6 flex flex-wrap items-center gap-2">
-                  <Button size="lg" onClick={handleResume}>
+                  <Button
+                    size="lg"
+                    onClick={handleResume}
+                    className="bg-white text-brand-700 shadow-brand-900/20 hover:bg-brand-50 active:bg-brand-100 focus-visible:outline-white"
+                  >
                     {activeLectureAction(active).label}
                   </Button>
                   {!active!.live_question_id && (
                     <Button
                       size="lg"
                       variant="danger-ghost"
+                      className="text-white/80 hover:bg-white/10 hover:text-white disabled:text-white/50 focus-visible:outline-white"
                       onClick={() => setConfirmDeleteOpen(true)}
                       disabled={deleting}
                     >
@@ -191,6 +286,10 @@ export default function App() {
               </form>
             )}
           </Card>
+        </section>
+
+        <section className="lg:col-span-12" aria-label="Recent lectures">
+          <ReviewRow reviews={reviews} activeLectureId={lectureId} />
         </section>
       </main>
       <ConfirmDialog
