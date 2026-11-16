@@ -95,7 +95,8 @@ def init_db():
                 started_at TEXT,
                 lecture_id INTEGER,
                 idle_nudge_seconds INTEGER NOT NULL DEFAULT 180,
-                output_file TEXT
+                output_file TEXT,
+                starter_code TEXT
             )
             """
         )
@@ -118,6 +119,13 @@ def init_db():
         # to that file (see judge0_client.run_submission's output_file).
         if "output_file" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN output_file TEXT")
+        # What students find in their editor when the task starts, written by
+        # the lecturer (helper functions, a skeleton to complete...). NULL: the
+        # student page's built-in default for the language (see
+        # frontend/src/shared/starterCode.ts). An empty string is a deliberate
+        # "start from nothing".
+        if "starter_code" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN starter_code TEXT")
         # A question that was already `live` before started_at existed (e.g.
         # an existing checkout's seeded sum-ints) would otherwise have no
         # timer zero-point -- backfill it to "now" so its countdown starts
@@ -415,8 +423,8 @@ def create_question(fields: dict) -> str:
             INSERT INTO questions
                 (id, title, prompt, language, test_cases, reference_solution,
                  cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
-                 expected_students, duration_seconds, idle_nudge_seconds, output_file)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 expected_students, duration_seconds, idle_nudge_seconds, output_file, starter_code)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 question_id,
@@ -433,6 +441,7 @@ def create_question(fields: dict) -> str:
                 row.get("duration_seconds", 600),
                 row.get("idle_nudge_seconds", 180),
                 row.get("output_file"),
+                row.get("starter_code"),
             ),
         )
         conn.commit()

@@ -11,13 +11,16 @@ written it on the setup page -- so this needs Judge0 running (JUDGE0_BASE_URL,
 default http://localhost:2358).
 
 The lecture is left in setup: open the lobby from the lecturer pages when you're
-ready to run it. On the student page these tasks start with standard input
-pointed at the task's file (see frontend/src/student/starterCode.ts), so
-input() reads the file like typed input.
+ready to run it. Each task comes with its own starter code (the question's
+starter_code, what a lecturer writes under "Starter code" on the setup page):
+helper functions that read that task's files, so students start from the data
+instead of from file handling.
 
 Usage:
     python3 seed_file_lecture.py                      # backend/prototype.db
     python3 seed_file_lecture.py --finish-active      # end a running lecture first
+    python3 seed_file_lecture.py --update-drafts      # the lecture exists already: update
+                                                      # its tasks that haven't started
     python3 seed_file_lecture.py --db path/to/other.db
 
 Backs the database up next to itself before touching it.
@@ -111,6 +114,12 @@ def maze(rng, rows, cols, wall_p, block=False):
 
 
 # ------------------------------------------------------------------ The tasks
+#
+# Each task's "starter" is what students find in their editor (the question's
+# starter_code): helper functions that do the file handling for that task, and
+# a line or two that call them. "solution" is the rest of a correct program.
+# The reference solution is the two together -- exactly what a student could
+# submit -- so validating it also proves the helpers work.
 
 TASKS = [
     {
@@ -125,22 +134,31 @@ A student can have many scores, in any order, across any subjects.
 
 Print one line per student, sorted by name: the name and their average score with one decimal, e.g. "Emma 81.5". Then a last line "class" followed by the average of every score in the file, also with one decimal.
 
-Skip the header line. Round the usual way with an f-string, e.g. f"{avg:.1f}".""",
-        "reference": """import sys
-sys.stdin = open("grades.csv")
-input()  # header
-scores = {}
-everything = []
-for line in sys.stdin:
-    if not line.strip():
-        continue
-    name, subject, score = line.strip().split(",")
-    scores.setdefault(name, []).append(int(score))
-    everything.append(int(score))
-for name in sorted(scores):
-    print(f"{name} {sum(scores[name]) / len(scores[name]):.1f}")
-print(f"class {sum(everything) / len(everything):.1f}")
-""",
+Your starter code already reads the file: scores is a list of (student, subject, score), with the header skipped and each score as a number. Round the usual way with an f-string, e.g. f"{avg:.1f}".""",
+        "starter": r'''def read_scores(name="grades.csv"):
+    """Every score in the file as (student, subject, score).
+    The header line is skipped and score is an int."""
+    rows = []
+    with open(name) as f:
+        next(f)  # the header line
+        for line in f:
+            if line.strip():
+                student, subject, score = line.strip().split(",")
+                rows.append((student, subject, int(score)))
+    return rows
+
+
+scores = read_scores()
+
+''',
+        "solution": r'''by_student = {}
+for student, subject, score in scores:
+    by_student.setdefault(student, []).append(score)
+for student in sorted(by_student):
+    marks = by_student[student]
+    print(f"{student} {sum(marks) / len(marks):.1f}")
+print(f"class {sum(score for _, _, score in scores) / len(scores):.1f}")
+''',
         "tests": lambda rng: [gradebook(rng, 3, 7), gradebook(rng, 6, 30), gradebook(rng, 10, 80), gradebook(rng, 1, 4)],
     },
     {
@@ -158,30 +176,39 @@ Print exactly four lines:
     busiest <the hour with the most requests, as HH:00> <its number of requests>
     slowest <the path of the slowest request> <its milliseconds>
 
-If two hours have the same number of requests, pick the earlier one. If two requests are equally slow, pick the one that comes first in the file.""",
-        "reference": """import sys
-sys.stdin = open("access.log")
-per_hour = {}
-total = errors = 0
-slowest = None
-for line in sys.stdin:
-    parts = line.split()
-    if not parts:
-        continue
-    _, time, _, path, status, ms = parts
-    total += 1
-    if int(status) >= 400:
-        errors += 1
-    hour = time[:2]
+If two hours have the same number of requests, pick the earlier one. If two requests are equally slow, pick the one that comes first in the file.
+
+Your starter code already reads the log: requests is a list with one dictionary per request, e.g. {"time": "09:14:22", "method": "GET", "path": "/login", "status": 200, "ms": 37}.""",
+        "starter": r'''def read_requests(name="access.log"):
+    """Every request in the log, in order, as a dictionary with the keys
+    "time" (like "09:14:22"), "method", "path", "status" (int) and "ms" (int)."""
+    requests = []
+    with open(name) as f:
+        for line in f:
+            if line.strip():
+                date, time, method, path, status, ms = line.split()
+                requests.append({"time": time, "method": method, "path": path,
+                                 "status": int(status), "ms": int(ms)})
+    return requests
+
+
+requests = read_requests()
+
+''',
+        "solution": r'''per_hour = {}
+for r in requests:
+    hour = r["time"][:2]
     per_hour[hour] = per_hour.get(hour, 0) + 1
-    if slowest is None or int(ms) > slowest[1]:
-        slowest = (path, int(ms))
 busiest = min(per_hour, key=lambda h: (-per_hour[h], h))
-print("requests", total)
-print("errors", errors)
+slowest = requests[0]
+for r in requests:
+    if r["ms"] > slowest["ms"]:
+        slowest = r
+print("requests", len(requests))
+print("errors", sum(1 for r in requests if r["status"] >= 400))
 print(f"busiest {busiest}:00 {per_hour[busiest]}")
-print("slowest", slowest[0], slowest[1])
-""",
+print("slowest", slowest["path"], slowest["ms"])
+''',
         "tests": lambda rng: [access_log(rng, 12), access_log(rng, 60), access_log(rng, 150), access_log(rng, 3)],
     },
     {
@@ -201,26 +228,49 @@ Take every order off the stock (an item can be ordered many times). Then every i
 
 If nothing needs restocking, write the single line "nothing to restock".
 
-restock.txt is what's checked, not what your program prints -- print as much as you like while you work.""",
-        "reference": """import sys
-sys.stdin = open("stock.csv")
-input()  # header
-stock = {}
-minimum = {}
-for line in sys.stdin:
-    if line.strip():
-        item, qty, low = line.strip().split(",")
-        stock[item] = int(qty)
-        minimum[item] = int(low)
-for line in open("orders.txt"):
-    if line.strip():
-        item, amount = line.strip().split(";")
-        stock[item] -= int(amount)
-lines = [f"{item} {2 * minimum[item] - stock[item]}" for item in sorted(stock) if stock[item] < minimum[item]]
-with open("restock.txt", "w") as out:
-    out.write("\\n".join(lines) if lines else "nothing to restock")
-    out.write("\\n")
-""",
+restock.txt is what's checked, not what your program prints -- print as much as you like while you work.
+
+Your starter code already reads both files: stock is a dictionary {item: (quantity, minimum)} and orders is a list of (item, amount). It also gives you write_lines("restock.txt", lines) to write a list of strings to the file, one per line.""",
+        "starter": r'''def read_stock(name="stock.csv"):
+    """What's on the shelves, as {item: (quantity, minimum)}. The header line is skipped."""
+    stock = {}
+    with open(name) as f:
+        next(f)  # the header line
+        for line in f:
+            if line.strip():
+                item, quantity, minimum = line.strip().split(",")
+                stock[item] = (int(quantity), int(minimum))
+    return stock
+
+
+def read_orders(name="orders.txt"):
+    """Today's orders as (item, amount), in the order they came in."""
+    orders = []
+    with open(name) as f:
+        for line in f:
+            if line.strip():
+                item, amount = line.strip().split(";")
+                orders.append((item, int(amount)))
+    return orders
+
+
+def write_lines(name, lines):
+    """Writes each string in lines to the file, one per line."""
+    with open(name, "w") as f:
+        for line in lines:
+            f.write(line + "\n")
+
+
+stock = read_stock()
+orders = read_orders()
+
+''',
+        "solution": r'''left = {item: quantity for item, (quantity, minimum) in stock.items()}
+for item, amount in orders:
+    left[item] -= amount
+lines = [f"{item} {2 * stock[item][1] - left[item]}" for item in sorted(stock) if left[item] < stock[item][1]]
+write_lines("restock.txt", lines or ["nothing to restock"])
+''',
         "tests": lambda rng: [
             {  # The example students see: written out so every rule shows up in it.
                 "stock.csv": "item,quantity,minimum\nbolts,40,25\ncable,12,15\nscrews,60,20\ntape,30,10\n",
@@ -238,19 +288,27 @@ with open("restock.txt", "w") as out:
 
 Find the five most used words in the essay that aren't stop words, and print each as "<word> <count>", most used first. If two words are used equally often, put them in alphabetical order.
 
-Words are compared in lowercase, and the punctuation . , ! ? around them doesn't count: "Data," and "data" are the same word. If there are fewer than five different words left, print them all.""",
-        "reference": """import sys
-sys.stdin = open("essay.txt")
-stop = set(open("stopwords.txt").read().split())
-counts = {}
-for line in sys.stdin:
-    for raw in line.split():
-        word = raw.strip(".,!?").lower()
-        if word and word not in stop:
-            counts[word] = counts.get(word, 0) + 1
+Words are compared in lowercase, and the punctuation . , ! ? around them doesn't count: "Data," and "data" are the same word. If there are fewer than five different words left, print them all.
+
+Your starter code already reads both files: essay is the whole text as one string, and stop_words is a list of the words to ignore.""",
+        "starter": r'''def read_text(name):
+    """The whole file as one string."""
+    with open(name) as f:
+        return f.read()
+
+
+essay = read_text("essay.txt")
+stop_words = read_text("stopwords.txt").split()
+
+''',
+        "solution": r'''counts = {}
+for raw in essay.split():
+    word = raw.strip(".,!?").lower()
+    if word and word not in stop_words:
+        counts[word] = counts.get(word, 0) + 1
 for word in sorted(counts, key=lambda w: (-counts[w], w))[:5]:
     print(word, counts[word])
-""",
+''',
         "tests": lambda rng: [essay(rng, 4), essay(rng, 12), essay(rng, 30), essay(rng, 2)],
     },
     {
@@ -266,27 +324,38 @@ S is where you start, E is the exit, # is a wall, and . is open floor. Each step
 
 Print the smallest number of steps from S to E, or "no path" if the exit can't be reached.
 
+Your starter code already reads the file: maze is a list of strings, one per row, so maze[row][col] is the square at that position, and rows and cols are its size.
+
 Hint: a breadth-first search finds the shortest path. Keep a queue of squares to visit and how many steps it took to get to each, and never visit a square twice.""",
-        "reference": """import sys
-from collections import deque
-sys.stdin = open("maze.txt")
-rows, cols = map(int, input().split())
-grid = [input() for _ in range(rows)]
-start = next((r, c) for r in range(rows) for c in range(cols) if grid[r][c] == "S")
+        "starter": r'''def read_maze(name="maze.txt"):
+    """The maze as a list of strings, one per row: maze[row][col] is "S", "E", "#" or ".".
+    The size line at the top of the file is skipped."""
+    with open(name) as f:
+        lines = f.read().splitlines()
+    return [line for line in lines[1:] if line]
+
+
+maze = read_maze()
+rows, cols = len(maze), len(maze[0])
+
+''',
+        "solution": r'''from collections import deque
+
+start = next((r, c) for r in range(rows) for c in range(cols) if maze[r][c] == "S")
 seen = {start}
 queue = deque([(start, 0)])
 answer = "no path"
 while queue:
     (r, c), steps = queue.popleft()
-    if grid[r][c] == "E":
+    if maze[r][c] == "E":
         answer = steps
         break
     for nr, nc in ((r + 1, c), (r - 1, c), (r, c + 1), (r, c - 1)):
-        if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] != "#" and (nr, nc) not in seen:
+        if 0 <= nr < rows and 0 <= nc < cols and maze[nr][nc] != "#" and (nr, nc) not in seen:
             seen.add((nr, nc))
             queue.append(((nr, nc), steps + 1))
 print(answer)
-""",
+''',
         "tests": lambda rng: [
             {"maze.txt": "3 4\nS..#\n.#..\n...E\n"},
             maze(rng, 8, 12, 0.22),
@@ -295,6 +364,10 @@ print(answer)
         ],
     },
 ]
+
+
+def reference(task: dict) -> str:
+    return task["starter"] + task["solution"]
 
 
 # ----------------------------------------------------------------------- Run
@@ -310,10 +383,44 @@ def run_reference(source: str, files: dict, output_file: str | None) -> str:
         return Path(tmp, output_file).read_text() if output_file else proc.stdout
 
 
+def check_or_exit(client, ok, question_id: str, title: str) -> None:
+    """The app's own check: the reference solution against every test on Judge0,
+    plus the starter code (see main._starter_problem)."""
+    v = ok(client.post(f"/api/lecturer/questions/{question_id}/validate"))
+    if not v["validated"] or v.get("starter_problem"):
+        sys.exit(f'"{title}" failed validation: {v}')
+
+
+def update_drafts(client, ok) -> None:
+    """--update-drafts: gives the tasks of an existing copy of this lecture the
+    starter code, task text and reference solution above -- only tasks that
+    haven't started (a task that has run is history and can't be edited). Their
+    tests are left as they are, so passing the check afterwards also shows the
+    new reference solution still gives the old answers."""
+    drafts = {q["title"]: q for q in ok(client.get("/api/lecturer/questions")) if q["status"] == "draft"}
+    updated = 0
+    for task in TASKS:
+        q = drafts.get(task["title"])
+        if not q:
+            print(f'  {task["title"]}: already started or not there, left alone')
+            continue
+        ok(client.put(f"/api/lecturer/questions/{q['id']}", json={
+            "prompt": task["prompt"],
+            "starter_code": task["starter"],
+            "reference_solution": reference(task),
+        }))
+        check_or_exit(client, ok, q["id"], task["title"])
+        updated += 1
+        print(f'  {task["title"]}: starter code added, validated on Judge0')
+    print(f"\nUpdated {updated} task(s).")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--db", default=str(REPO / "backend" / "prototype.db"))
     ap.add_argument("--finish-active", action="store_true", help="finish a running lecture first")
+    ap.add_argument("--update-drafts", action="store_true",
+                    help="update the not-yet-started tasks of an existing copy of this lecture instead of creating it")
     args = ap.parse_args()
 
     db = Path(args.db)
@@ -327,7 +434,7 @@ def main():
     for task in TASKS:
         tests = []
         for files in task["tests"](rng):
-            expected = run_reference(task["reference"], files, task.get("output_file"))
+            expected = run_reference(reference(task), files, task.get("output_file"))
             tests.append({"stdin": "", "expected_stdout": expected,
                           "files": [{"name": n, "content": c} for n, c in files.items()]})
         built.append((task, tests))
@@ -342,10 +449,18 @@ def main():
             assert r.status_code == 200, (r.request.url, r.status_code, r.text)
             return r.json()
 
-        if any(l["label"] == LABEL and not l["archived"] for l in ok(client.get("/api/lecturer/lectures"))):
-            sys.exit(f'"{LABEL}" already exists -- archive or delete it first to make a new one.')
-
         active = ok(client.get("/api/lecturer/lectures/active"))
+
+        if args.update_drafts:
+            if not active["lecture"] or active["lecture"]["label"] != LABEL:
+                sys.exit(f'"{LABEL}" isn\'t the lecture in progress, so there are no tasks of it to update.')
+            update_drafts(client, ok)
+            return
+
+        if any(l["label"] == LABEL and not l["archived"] for l in ok(client.get("/api/lecturer/lectures"))):
+            sys.exit(f'"{LABEL}" already exists -- archive or delete it first to make a new one, '
+                     "or rerun with --update-drafts to update its tasks that haven't started.")
+
         if active["lecture"]:
             if not args.finish_active:
                 sys.exit(f'Lecture "{active["lecture"]["display_label"]}" is running. Finish it first, '
@@ -360,14 +475,13 @@ def main():
                 "prompt": task["prompt"],
                 "language": "python",
                 "test_cases": tests,
-                "reference_solution": task["reference"],
+                "reference_solution": reference(task),
+                "starter_code": task["starter"],
                 "output_file": task.get("output_file"),
                 "expected_students": 24,
                 "duration_seconds": task["duration"],
             }))
-            v = ok(client.post(f"/api/lecturer/questions/{q['id']}/validate"))
-            if not v["validated"]:
-                sys.exit(f'"{task["title"]}" failed validation: {v}')
+            check_or_exit(client, ok, q["id"], task["title"])
             sizes = ", ".join(f'{f["name"]} {len(f["content"])} B' for f in tests[2]["files"])
             print(f'  {task["title"]}: {len(tests)} tests, validated on Judge0 ({sizes} in the largest)')
 

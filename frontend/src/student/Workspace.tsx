@@ -76,7 +76,7 @@ function SaveIndicator({ state }: SaveIndicatorProps) {
         "flex items-center gap-1.5 text-xs",
         state.kind === "failed" ? "text-amber-700" : state.kind === "restored" ? "text-brand-700" : "text-zinc-500",
       )}
-      title="Your code and Run input are saved in this browser as you type, so a reload doesn't lose them."
+      title="Your work is saved in this browser as you type, so a reload doesn't lose it."
       aria-live="polite"
     >
       {state.kind === "saving" ? (
@@ -379,6 +379,10 @@ export function Workspace({
   const [dataError, setDataError] = useState<Record<string, string>>({});
 
   const codeRef = useRef(initialCode);
+  // Tasks whose example gives nothing on standard input (data comes from the
+  // task's files, or there's no input at all) have no use for a Run input:
+  // Run just runs the program next to the example's files.
+  const usesStdin = exampleStdin.trim() !== "";
   // The Run input, restored from this browser's autosave if there is one.
   const [initialInput] = useState(() => loadDraft(draftKey)?.input || exampleStdin);
   const inputRef = useRef(initialInput);
@@ -516,7 +520,7 @@ export function Workspace({
 
   async function run() {
     if (running) return;
-    const stdin = inputRef.current;
+    const stdin = usesStdin ? inputRef.current : "";
     const entryId = nextId.current++;
     setTerminalOpen(true);
     setRunning(true);
@@ -757,8 +761,9 @@ export function Workspace({
           >
             {entries.length === 0 ? (
               <div className="text-zinc-500">
-                Press <span className="text-zinc-300">Run</span> to try your code on the Run input. Runs aren&apos;t graded
-                or seen by your lecturer, only Submit is.
+                Press <span className="text-zinc-300">Run</span> to try your code on{" "}
+                {usesStdin ? "the Run input" : dataFiles.length ? "the example's files" : "its own"}. Runs aren&apos;t
+                graded or seen by your lecturer, only Submit is.
               </div>
             ) : (
               <div className="grid gap-3">
@@ -775,23 +780,25 @@ export function Workspace({
       {/* Actions */}
       <div className="flex flex-none flex-wrap items-center gap-x-3 gap-y-2 border-t border-zinc-200 bg-white px-3 py-2.5">
         <SaveIndicator state={save} />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => openFile("input")}
-          title="What your program reads when you press Run"
-          className={cx(groups.some((g) => g.active === "input") && "bg-brand-50 text-brand-700")}
-        >
-          <FileIcon kind="input" />
-          Run input
-        </Button>
+        {usesStdin && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => openFile("input")}
+            title="What your program reads when you press Run"
+            className={cx(groups.some((g) => g.active === "input") && "bg-brand-50 text-brand-700")}
+          >
+            <FileIcon kind="input" />
+            Run input
+          </Button>
+        )}
         <div className="ml-auto flex items-center gap-2">
           {submitting && statusText && <span className="hidden text-xs text-zinc-500 lg:inline">{statusText}</span>}
           <Button
             variant="secondary"
             onClick={() => void run()}
             disabled={running || submitting}
-            title="Run your code on the Run input (Ctrl/⌘+Enter). Not graded."
+            title={`Run your code on ${usesStdin ? "the Run input" : dataFiles.length ? "the example's files" : "its own"} (Ctrl/⌘+Enter). Not graded.`}
           >
             {running ? (
               <Spinner />

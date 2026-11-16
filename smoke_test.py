@@ -773,6 +773,23 @@ def _run_checks(client):
         assert reads_input("def go():\n    return input()\nprint(go())")
         print("reads_input: stdin redirect and unused helpers don't count   OK")
 
+        # With the lecturer's starter known, its own top-level reading doesn't
+        # count either -- but using what it read does.
+        given = helper + "numbers = read_numbers()\n"
+        assert not reads_input(given + "print(6)", "python", given)
+        assert reads_input(given + "print(sum(map(int, numbers)))", "python", given)
+        assert reads_input(given + "print(6)", "python", None), "unknown starter: never accuse"
+        assert reads_input("print(6)\nx = input()\n", "python", "def unfinished(:\n"), "unparsable starter is ignored"
+        # Opening a file only to write it isn't reading: a write_lines() helper
+        # mustn't make a hard-coded answer look like it read the input.
+        writer = 'def write_lines(name, lines):\n    with open(name, "w") as f:\n        f.write("\\n".join(lines))\n'
+        assert not reads_input(writer + 'write_lines("out.txt", ["6"])')
+        assert not reads_input('open("out.txt", mode="a").write("6")')
+        assert reads_input('print(open("numbers.txt", "r").read())')
+        assert reads_input('f = open("data.txt", "w+")\nprint(f.read())')
+        assert reads_input('m = "w"\nprint(open("numbers.txt", m))'), "unknown mode: never accuse"
+        print("reads_input: lecturer starter's own reading doesn't count, its results do   OK")
+
         # Output-signature grouping (aggregation.py's 2026-10-15 entry): two textually
         # different programs that print the same thing on every test case are one
         # sub-cluster, even though the diff signal alone would keep them apart -- and
@@ -891,6 +908,35 @@ def _run_question_setup_checks(client):
     r = client.post(f"/api/lecturer/questions/{qid}/validate")
     assert r.json()["validated"] is True, r.json()
     print("Only validation-relevant edits reset the check   OK")
+
+    # Starter code: what students find in their editor, written by the lecturer.
+    # None means "the student page's default". It's part of the check: a starter
+    # that already breaks a submission rule blocks the task, one that merely
+    # doesn't run yet (a skeleton to complete) is only a heads-up.
+    assert client.get(f"/api/lecturer/questions/{qid}").json()["starter_code"] is None
+    r = client.put(f"/api/lecturer/questions/{qid}", json={"starter_code": "# a\n# b\n# c\n# d\n"})
+    assert r.json()["validated"] is False, "a changed starter must reset the check"
+    v = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert all(t["passed"] for t in v["results"]), v
+    assert v["validated"] is False and v["starter_problem"]["blocking"], v  # over line_limit=3
+    assert "line limit" in v["starter_problem"]["message"], v
+
+    client.put(f"/api/lecturer/questions/{qid}", json={"starter_code": "import numpy\n"})
+    v = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert v["validated"] is False and v["starter_problem"]["blocking"], v
+    assert "package" in v["starter_problem"]["message"], v
+
+    client.put(f"/api/lecturer/questions/{qid}", json={"starter_code": NAME_ERROR_MARKER + "\n"})
+    v = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert v["validated"] is True and v["starter_problem"]["blocking"] is False, v
+    assert "NameError" in v["starter_problem"]["message"], v
+
+    starter = "def double(n):\n    return n * 2\n"
+    client.put(f"/api/lecturer/questions/{qid}", json={"starter_code": starter})
+    v = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert v["validated"] is True and v["starter_problem"] is None, v
+    assert client.get(f"/api/lecturer/questions/{qid}").json()["starter_code"] == starter
+    print("Starter code: stored, blocks on line limit / package, heads-up when it doesn't run   OK")
 
     r = client.post(f"/api/lecturer/questions/{qid}/start")
     assert r.status_code == 200, r.text

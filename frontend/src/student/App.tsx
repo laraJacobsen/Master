@@ -18,7 +18,7 @@ import {
   sendActivity,
   submitCode as submitCodeApi,
 } from "../shared/api";
-import { isUntouched, starterCode } from "./starterCode";
+import { defaultStarterCode, isUntouched } from "../shared/starterCode";
 import { draftKey, loadDraft, pruneOldDrafts } from "./drafts";
 import { TestFiles } from "./TestFiles";
 import { Badge, BrandMark, Button, Callout, Card, Code, Eyebrow, Input, Label, Spinner, StatusLine, TimeLine } from "../shared/ui";
@@ -442,10 +442,13 @@ export default function App() {
       setExample(q.example);
       setDurationSeconds(q.duration_seconds);
       const restored = loadDraft(draftKey(q.id, nameRef.current))?.code;
-      // Data in a file and nothing on stdin: the starter points stdin at the file.
-      const firstFile = (q.files ?? []).find((f) => f.test === 0)?.name ?? null;
-      const inputFile = firstFile && !(q.example?.stdin ?? "").trim() ? firstFile : null;
-      const starter = starterCode(q.language, { inputFile });
+      // The lecturer's own starter if they wrote one, else the built-in default.
+      const starter =
+        q.starter_code ??
+        defaultStarterCode(q.language, {
+          stdin: q.example?.stdin ?? "",
+          files: (q.files ?? []).filter((f) => f.test === 0).map((f) => f.name),
+        });
       starterRef.current = starter;
       const startWith = restored ?? starter;
       setInitialCode(startWith);

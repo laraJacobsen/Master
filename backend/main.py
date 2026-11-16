@@ -102,6 +102,9 @@ class QuestionCreateRequest(BaseModel):
     # Grade what the program writes to this file (e.g. "result.txt") instead of
     # what it prints; None = printed output, as before.
     output_file: str | None = None
+    # What students start with in their editor; None = the student page's
+    # default for the language. See store.py's starter_code column.
+    starter_code: str | None = None
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -120,6 +123,7 @@ class QuestionUpdateRequest(BaseModel):
     duration_seconds: int | None = None
     idle_nudge_seconds: int | None = None
     output_file: str | None = None
+    starter_code: str | None = None
 
 
 class LectureAdvanceRequest(BaseModel):
@@ -203,6 +207,8 @@ def _check_test_files_or_400(test_cases: list, output_file: str | None) -> None:
 _VALIDATION_FIELDS = (
     "test_cases", "reference_solution", "language",
     "cpu_time_limit_s", "memory_limit_kb", "extra_packages", "line_limit", "output_file",
+    # The check also looks at the starter (see _starter_problem).
+    "starter_code",
 )
 
 
@@ -291,9 +297,91 @@ def api_lecturer_validate_question(question_id: str):
     except Judge0Error as e:
         raise HTTPException(status_code=502, detail=str(e))
 
+    try:
+        starter_problem = _starter_problem(question)
+    except Judge0Error as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
     all_passed = bool(results) and all(r["passed"] for r in results)
-    store.set_validated(question_id, all_passed)
-    return {"validated": all_passed, "results": results}
+    validated = all_passed and not (starter_problem and starter_problem["blocking"])
+    store.set_validated(question_id, validated)
+    return {"validated": validated, "results": results, "starter_problem": starter_problem}
+
+
+def _starter_problem(question: dict) -> dict | None:
+    """What's wrong with the lecturer's starter code, if anything: None, or
+    {"blocking": bool, "message": str} for the setup page to show.
+
+    Blocking (the task can't go live): the starter alone already breaks a
+    submission rule -- longer than the line limit, or importing a package that
+    isn't allowed -- so every student who keeps it would be rejected before
+    their code even runs.
+
+    Not blocking: the starter doesn't run as it is on the example test (a typo
+    in a helper function, say). Only a heads-up, because a skeleton students
+    are meant to complete legitimately doesn't run yet.
+
+    Only the lecturer's own starter is checked; the built-in defaults are known
+    to be fine."""
+    starter = question.get("starter_code")
+    if not starter or not starter.strip():
+        return None
+
+    reason = pre_execution_check(
+        starter, line_limit=question["line_limit"], extra_packages=question["extra_packages"],
+        language=question["language"],
+    )
+    if reason == "too_long":
+        return {
+            "blocking": True,
+            "message": (
+                f"The starter code is {starter.count(chr(10)) + 1} lines, over this task's line limit of "
+                f"{question['line_limit']}, so every submission would be rejected. Shorten it, or raise the line limit."
+            ),
+        }
+    if reason == "disallowed_package":
+        return {
+            "blocking": True,
+            "message": (
+                "The starter code imports a package students aren't allowed to use, so every submission that keeps "
+                "it would be rejected. Add the package to the allowed packages, or remove the import."
+            ),
+        }
+    if reason:
+        return {"blocking": True, "message": f"The starter code can't be submitted as it is ({reason.replace('_', ' ')})."}
+
+    example = question["test_cases"][0]
+    r = run_submission(
+        starter,
+        example["stdin"],
+        language=question["language"],
+        cpu_time_limit=question["cpu_time_limit_s"],
+        memory_limit_kb=question["memory_limit_kb"],
+        files=test_files.files_of(example) or None,
+        output_file=question.get("output_file"),
+    )
+    if r["status_description"] == "Accepted":
+        return None
+    return {
+        "blocking": False,
+        "message": (
+            f"The starter code doesn't run as it is ({_error_summary(r)}). "
+            "That's fine if students are meant to complete it."
+        ),
+    }
+
+
+def _error_summary(result: dict) -> str:
+    """One line saying why a run failed: the compiler's first error line, else
+    the last line of the program's error output, else Judge0's status."""
+    compile_output = (result.get("compile_output") or "").strip()
+    if compile_output:
+        lines = [l.strip() for l in compile_output.splitlines() if l.strip()]
+        line = next((l for l in lines if "error" in l.lower()), lines[-1])
+    else:
+        stderr_lines = [l.strip() for l in (result.get("stderr") or "").splitlines() if l.strip()]
+        line = stderr_lines[-1] if stderr_lines else (result.get("status_description") or "it failed")
+    return line if len(line) <= 200 else line[:197] + "..."
 
 
 @app.post("/api/lecturer/questions/{question_id}/start")
@@ -588,6 +676,8 @@ def api_lecture_status():
             "example": tests[0] if tests else None,
             # Grade what the program writes to this file instead of what it prints.
             "output_file": question.get("output_file"),
+            # The lecturer's own starter code; None = the student page's default.
+            "starter_code": question.get("starter_code"),
             # Data files the student may open in the viewer (name and size; the
             # content comes from api_lecture_test_file): the example's while the
             # task runs, every test's once time is up.
@@ -757,8 +847,8 @@ MISSING_OUTPUT_FILE_FEEDBACK = (
 
 # Shown to a student whose program never reads its input (see api_submit).
 IGNORES_INPUT_FEEDBACK = (
-    "Your program never reads the input, so it prints the same thing every time. "
-    "Read the input with input() and work the answer out from it."
+    "Your program never reads the input, so it gives the same answer every time. "
+    "Work the answer out from the input: read it with input(), or use what the starter code already read for you."
 )
 
 
@@ -885,7 +975,7 @@ def _submit(req: SubmitRequest):
     if (
         takes_input
         and feedback["exec_verdict"] in ("pass", "wrong_answer")
-        and not reads_input(req.source_code, question["language"])
+        and not reads_input(req.source_code, question["language"], question.get("starter_code"))
     ):
         feedback.update(
             verdict="incorrect",

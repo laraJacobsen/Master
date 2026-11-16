@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
-import type { LectureRow, QuestionRow, QuestionStatus, ValidationTestResult } from "../shared/types";
+import type { LectureRow, QuestionRow, QuestionStatus, StarterProblem, ValidationTestResult } from "../shared/types";
 import {
   createQuestion,
   deleteLecture as deleteLectureApi,
@@ -16,6 +16,7 @@ import { NavBar } from "../shared/NavBar";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { Badge, Button, Card, Code, Input, Label, LinkButton, Page, PageHeader, Select, Textarea } from "../shared/ui";
 import { cx } from "../shared/cx";
+import { defaultStarterCode } from "../shared/starterCode";
 import type { Tone } from "../shared/ui";
 
 // Lecture preparation. Top: the lecture itself and its one next action (open
@@ -48,9 +49,10 @@ function formatBytes(n: number): string {
 }
 
 interface ValidationResultState {
-  pass: boolean;
   total: number;
   failing: ValidationTestResult[];
+  // The check's verdict on the lecturer's starter code, if it found anything.
+  starterProblem: StarterProblem | null;
 }
 
 const emptyTestCase = (): TestCaseDraft => ({ stdin: "", expected: "", files: [] });
@@ -60,6 +62,8 @@ const STEPS = ["Task", "Tests & solution", "Timing & class"] as const;
 // Autosave waits this long after the last edit, so typing doesn't send a
 // request per keystroke.
 const AUTOSAVE_MS = 900;
+
+const LANGUAGE_NAMES: Record<string, string> = { python: "Python", c: "C", java: "Java" };
 
 type StatusKind = "live" | "done" | "ready" | "check";
 
@@ -180,6 +184,10 @@ export default function App() {
   const [durationMinutes, setDurationMinutes] = useState("10");
   const [idleNudgeMinutes, setIdleNudgeMinutes] = useState("3");
   const [referenceSolution, setReferenceSolution] = useState("");
+  // What students find in their editor. null = the built-in default, which
+  // follows the language and the example's files (shared/starterCode.ts); a
+  // string is the lecturer's own, kept exactly as typed ("" = start empty).
+  const [starterCode, setStarterCode] = useState<string | null>(null);
   // Graded on a file the program writes (outputFile) instead of what it prints.
   const [gradeFile, setGradeFile] = useState(false);
   const [outputFile, setOutputFile] = useState("result.txt");
@@ -431,6 +439,7 @@ export default function App() {
     setDurationMinutes("10");
     setIdleNudgeMinutes("3");
     setReferenceSolution("");
+    setStarterCode(null);
     setGradeFile(false);
     setOutputFile("result.txt");
     setTestCases([emptyTestCase()]);
@@ -462,6 +471,7 @@ export default function App() {
     setDurationMinutes(String(q.duration_seconds / 60));
     setIdleNudgeMinutes(String(q.idle_nudge_seconds / 60));
     setReferenceSolution(q.reference_solution || "");
+    setStarterCode(q.starter_code ?? null);
     setGradeFile(Boolean(q.output_file));
     setOutputFile(q.output_file || "result.txt");
     setTestCases(
@@ -561,6 +571,7 @@ export default function App() {
         .filter((tc) => tc.stdin.trim() || tc.expected.trim() || tc.files.length)
         .map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected, files: tc.files })),
       reference_solution: referenceSolution || null,
+      starter_code: starterCode,
       output_file: gradeFile ? outputFile.trim() || "result.txt" : null,
       cpu_time_limit_s: parseFloat(timeLimit),
       memory_limit_kb: Math.round(parseFloat(memoryLimit) * 1024),
@@ -575,6 +586,18 @@ export default function App() {
 
   // What each step still needs -- drives the step checkmarks.
   const payloadNow = formPayload();
+
+  // The starter students get if the lecturer doesn't write one: shown in the
+  // starter editor until they do. Test 1 is the example students see.
+  const exampleTest = payloadNow.test_cases[0];
+  const defaultStarter = defaultStarterCode(
+    language,
+    exampleTest ? { stdin: exampleTest.stdin, files: exampleTest.files.map((f) => f.name) } : null,
+  );
+  // The tests' own result. Whether the task is validated can also fail on a
+  // starter-code problem, which gets its own note under this one.
+  const testsPass = validationResult !== null && validationResult.total > 0 && validationResult.failing.length === 0;
+  const redirectedFile = exampleTest && !exampleTest.stdin.trim() ? exampleTest.files[0]?.name : undefined;
   const stepDone = [
     Boolean(payloadNow.title && payloadNow.prompt),
     Boolean(payloadNow.test_cases.length && referenceSolution.trim() && currentValidated),
@@ -682,9 +705,9 @@ export default function App() {
       const data = await validateQuestionApi(saved.id);
       setStatus("");
       setValidationResult({
-        pass: data.validated,
         total: (data.results || []).length,
         failing: (data.results || []).filter((r) => !r.passed),
+        starterProblem: data.starter_problem ?? null,
       });
       setCurrentValidated(data.validated);
       loadQuestionList();
@@ -1119,6 +1142,52 @@ export default function App() {
                   </Button>
 
                   <div className="mt-8">
+                    <Label htmlFor="f-starter" hint="what students find in their editor">
+                      Starter code
+                    </Label>
+                    <Textarea
+                      id="f-starter"
+                      mono
+                      className="min-h-32"
+                      spellCheck={false}
+                      placeholder="Students start with an empty editor."
+                      value={starterCode ?? defaultStarter}
+                      onChange={(e) => setStarterCode(e.target.value === defaultStarter ? null : e.target.value)}
+                    />
+                    <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px] leading-relaxed text-zinc-500">
+                      {starterCode === null ? (
+                        <span>
+                          The default for {LANGUAGE_NAMES[language] ?? language}
+                          {redirectedFile && (
+                            <>
+                              , set up so reading input reads <Code>{redirectedFile}</Code>
+                            </>
+                          )}
+                          . Edit it to give students your own helper functions or a skeleton to complete.
+                        </span>
+                      ) : (
+                        <>
+                          <span>
+                            {starterCode.trim() === ""
+                              ? "Students start with an empty editor."
+                              : "Your own starter code. Students can change or delete any of it."}
+                          </span>
+                          <button
+                            type="button"
+                            className="rounded-sm font-medium text-brand-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+                            onClick={() => {
+                              setStarterCode(null);
+                              markEdited();
+                            }}
+                          >
+                            Reset to default
+                          </button>
+                        </>
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="mt-8">
                     <Label htmlFor="f-reference" hint="hidden from students">
                       Reference solution
                     </Label>
@@ -1138,13 +1207,13 @@ export default function App() {
                     <div
                       className={cx(
                         "mt-4 animate-fade-in rounded-lg border px-4 py-3 text-[13px] leading-relaxed",
-                        validationResult.pass
+                        testsPass
                           ? "border-emerald-200 bg-emerald-50 text-emerald-900"
                           : "border-red-200 bg-red-50 text-red-900",
                       )}
                       role="status"
                     >
-                      {validationResult.pass ? (
+                      {testsPass ? (
                         <strong className="font-semibold">All {validationResult.total} tests pass.</strong>
                       ) : (
                         <>
@@ -1161,6 +1230,22 @@ export default function App() {
                           </ul>
                         </>
                       )}
+                    </div>
+                  )}
+                  {validationResult?.starterProblem && (
+                    <div
+                      className={cx(
+                        "mt-3 animate-fade-in rounded-lg border px-4 py-3 text-[13px] leading-relaxed",
+                        validationResult.starterProblem.blocking
+                          ? "border-red-200 bg-red-50 text-red-900"
+                          : "border-amber-200 bg-amber-50 text-amber-900",
+                      )}
+                      role="status"
+                    >
+                      <strong className="font-semibold">
+                        {validationResult.starterProblem.blocking ? "Starter code needs fixing. " : "Heads-up. "}
+                      </strong>
+                      {validationResult.starterProblem.message}
                     </div>
                   )}
                 </>

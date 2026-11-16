@@ -94,19 +94,25 @@ def _first_disallowed_import(source_code: str, extra_packages: list) -> str | No
 _INPUT_NAMES = {"input", "stdin", "fileinput", "open"}
 
 
-def reads_input(source_code: str, language: str = "python") -> bool:
+def reads_input(source_code: str, language: str = "python", starter_code: str | None = None) -> bool:
     """Whether the program reads its input at all. A program that doesn't can
     only print fixed text, so it can pass a test only by hard-coding that
     test's expected output (see api_submit's ignores_input handling). Python
     only: other languages, and code that doesn't parse, return True so nothing
     is flagged on a guess.
 
-    Two things in the student starter code (frontend student/starterCode.ts)
-    don't count as reading on their own, or every program would pass:
-    - `sys.stdin = open("data.txt")`, which only points input() at the task's
-      file -- the program still has to call input() (or read stdin);
-    - helper functions that read (def read_numbers(): ... open(...)), which
-      count only where they're actually called."""
+    What the student was handed doesn't count as the student reading -- or
+    every program that keeps the starter code would pass:
+    - `sys.stdin = open("data.txt")` (the default starter for file tasks) only
+      points input() at the task's file; the program still has to read it;
+    - helper functions that read (def read_numbers(): ... open(...)) count
+      only where they're actually called;
+    - top-level statements kept unchanged from the lecturer's `starter_code`
+      (`scores = read_scores()`) don't count either, but the names they set
+      do: using `scores` afterwards is reading the input.
+    A starter statement the student edited is the student's own code again,
+    and a starter that doesn't parse (a skeleton to complete) is ignored --
+    both err towards "reads input", so an honest solution is never accused."""
     if language != "python":
         return True
     import ast
@@ -116,27 +122,58 @@ def reads_input(source_code: str, language: str = "python") -> bool:
     except (SyntaxError, ValueError):
         return True
 
-    # Subtrees that don't count by themselves: stdin redirects, and the bodies
-    # of functions (found below) whose only job is reading.
+    # Subtrees that don't count by themselves: stdin redirects, and (found
+    # below) the bodies of reading functions and the starter's own statements.
     skipped: set[int] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(_is_sys_stdin(t) for t in node.targets):
             skipped.update(id(n) for n in ast.walk(node))
+        elif _opens_for_writing(node):
+            skipped.add(id(node.func))  # open(name, "w") writes; it reads nothing
 
     functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    from_starter = _starter_statements(tree, starter_code)
+
+    def uses_reader(node) -> bool:
+        return any(id(n) not in skipped and _names_reader(n, readers) for n in ast.walk(node))
+
     readers = set(_INPUT_NAMES)
     changed = True
-    while changed:  # a function that calls a reader is a reader too
+    while changed:  # a function that calls a reader is a reader too, and so on
         changed = False
         for fn in functions:
-            if fn.name not in readers and any(_names_reader(n, readers) for n in ast.walk(fn)):
+            if fn.name not in readers and uses_reader(fn):
                 readers.add(fn.name)
                 changed = True
-    for fn in functions:
-        if fn.name in readers:
-            skipped.update(id(n) for n in ast.walk(fn))
+        for stmt in from_starter:
+            if uses_reader(stmt):
+                bound = {n.id for n in ast.walk(stmt) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+                if not bound <= readers:
+                    readers |= bound
+                    changed = True
+
+    for node in [fn for fn in functions if fn.name in readers] + [s for s in from_starter if uses_reader(s)]:
+        skipped.update(id(n) for n in ast.walk(node))
 
     return any(id(n) not in skipped and _names_reader(n, readers) for n in ast.walk(tree))
+
+
+def _starter_statements(tree, starter_code: str | None) -> list:
+    """The program's top-level statements that are still exactly as the
+    lecturer's starter code had them (functions aside -- those are handled the
+    same whoever wrote them)."""
+    import ast
+
+    if not starter_code or not starter_code.strip():
+        return []
+    try:
+        given = {ast.dump(s) for s in ast.parse(starter_code).body}
+    except (SyntaxError, ValueError):
+        return []
+    return [
+        s for s in tree.body
+        if not isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and ast.dump(s) in given
+    ]
 
 
 def _is_sys_stdin(node) -> bool:
@@ -148,6 +185,20 @@ def _is_sys_stdin(node) -> bool:
         and isinstance(node.value, ast.Name)
         and node.value.id == "sys"
     )
+
+
+def _opens_for_writing(node) -> bool:
+    """open(name, "w") / "a" / "x" with the mode written out: a file opened
+    only to write. Any other open() -- no mode, "r", "r+", "w+", a mode held
+    in a variable -- may read, so it still counts as reading."""
+    import ast
+
+    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open"):
+        return False
+    mode = node.args[1] if len(node.args) > 1 else next((k.value for k in node.keywords if k.arg == "mode"), None)
+    if not (isinstance(mode, ast.Constant) and isinstance(mode.value, str)):
+        return False
+    return any(c in mode.value for c in "wax") and "+" not in mode.value and "r" not in mode.value
 
 
 def _names_reader(node, readers: set) -> bool:

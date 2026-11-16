@@ -1,4 +1,10 @@
-// What the editor starts with for each question language. Judge0 runs Java as
+// What a student's editor starts with. A lecturer can write their own starter
+// per task on the setup page (questions.starter_code -- helper functions, a
+// skeleton to complete); when they haven't, it's the built-in default below.
+// Both the setup page (to show and pre-fill the default) and the student page
+// use this file, so they can't disagree about what "default" means.
+//
+// The built-in default for each question language: Judge0 runs Java as
 // `java Main`, so a class with any other name can't start at all -- in the
 // CodeNet eval that was the second most common Java crash (MainNotFound) --
 // and a C main() that doesn't end with `return 0;` fails even when its output
@@ -58,14 +64,20 @@ function fileStarter(language: string, file: string): string | null {
   }
 }
 
-export interface StarterOptions {
-  /** The task's main data file, when its input comes from a file. */
-  inputFile?: string | null;
+export interface StarterExample {
+  /** The example test's standard input. */
+  stdin: string;
+  /** Names of the example test's data files, in order. */
+  files: string[];
 }
 
-export function starterCode(language: string, options: StarterOptions = {}): string {
-  if (options.inputFile) {
-    const s = fileStarter(language, options.inputFile);
+/** The built-in starter for a task: the language's skeleton, with standard
+ *  input pointed at the example's first data file when the task gives nothing
+ *  on standard input itself. */
+export function defaultStarterCode(language: string, example: StarterExample | null = null): string {
+  const inputFile = example && !example.stdin.trim() ? (example.files[0] ?? null) : null;
+  if (inputFile) {
+    const s = fileStarter(language, inputFile);
     if (s) return s;
   }
   return STARTERS[language] ?? "";

@@ -50,6 +50,9 @@ export interface PublicQuestion {
 // GET /api/lecture/status's `question` -- same shape as PublicQuestion plus
 // the timer fields the student page needs to run its countdown.
 export interface LiveQuestion extends PublicQuestion {
+  // The lecturer's own starter code; null = the built-in default
+  // (shared/starterCode.ts). "" is a deliberate empty start.
+  starter_code: string | null;
   // Its place in the lecture ("Task 2"); null when not tied to a lecture.
   number: number | null;
   files: VisibleTestFile[];
@@ -118,6 +121,8 @@ export interface QuestionRow {
   idle_nudge_seconds: number;
   started_at: string | null;
   output_file: string | null;
+  // null = the built-in default starter (shared/starterCode.ts).
+  starter_code: string | null;
 }
 
 export interface QuestionPayload {
@@ -134,6 +139,8 @@ export interface QuestionPayload {
   duration_seconds: number;
   idle_nudge_seconds: number;
   output_file?: string | null;
+  // null = the built-in default starter (shared/starterCode.ts).
+  starter_code?: string | null;
 }
 
 // POST /api/lecturer/lecture/next
@@ -235,6 +242,14 @@ export interface ValidationTestResult {
 export interface ValidationResponse {
   validated: boolean;
   results: ValidationTestResult[];
+  // Something about the lecturer's starter code: blocking (every submission
+  // that keeps it would be rejected) or a heads-up (it doesn't run as it is).
+  starter_problem?: StarterProblem | null;
+}
+
+export interface StarterProblem {
+  blocking: boolean;
+  message: string;
 }
 
 export type Verdict = "correct" | "partially_correct" | "incorrect" | "error";
