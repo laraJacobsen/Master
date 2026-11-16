@@ -426,7 +426,44 @@ def _run_code_shape_checks():
     print("code_shape() same-code-different-names grouping   OK")
 
 
+def _run_same_second_draft_checks():
+    """A task created in the same second the previous lecture ended (finish,
+    then straight into a new lecture) belongs to the new lecture: the startup
+    backfill for leftover drafts mustn't retire it under the old one."""
+    import tempfile
+    from backend import store
+
+    old_path = store.DB_PATH
+    with tempfile.TemporaryDirectory() as tmp:
+        store.DB_PATH = os.path.join(tmp, "same-second.db")
+        try:
+            store.init_db()
+            conn = store._connect()
+            # The seeded lecture ends at 10:00:00 and the next one starts that same second.
+            conn.execute("UPDATE lectures SET started_at = '2026-11-16 09:00:00', ended_at = '2026-11-16 10:00:00'")
+            conn.execute("INSERT INTO lectures (started_at, label) VALUES ('2026-11-16 10:00:00', 'next')")
+            conn.commit()
+            conn.close()
+            store.create_question({
+                "title": "Same second", "prompt": "p", "language": "python",
+                "test_cases": [{"stdin": "", "expected_stdout": "1"}],
+            })
+            conn = store._connect()
+            conn.execute("UPDATE questions SET created_at = '2026-11-16 10:00:00' WHERE title = 'Same second'")
+            conn.commit()
+            conn.close()
+            store.init_db()  # what every server start runs
+            conn = store._connect()
+            row = conn.execute("SELECT status, lecture_id FROM questions WHERE title = 'Same second'").fetchone()
+            conn.close()
+            assert row["status"] == "draft" and row["lecture_id"] is None, dict(row)
+        finally:
+            store.DB_PATH = old_path
+    print("Draft created the second a lecture ended stays with the new lecture   OK")
+
+
 def main():
+    _run_same_second_draft_checks()
     _run_canonicalize_boundary_checks()
     _run_code_shape_checks()
     _run_llm_provider_checks()
@@ -525,6 +562,29 @@ def _run_checks(client):
         assert rejected_row["exec_verdict"] == "rejected", rejected_row
         assert rejected_row["rejection_reason"] == "whitespace_only", rejected_row
         print("Pre-execution rejection        OK ->", rejected_row["rejection_reason"])
+
+        # Run (student page's "Run" button): executes once on the student's own
+        # stdin and returns the output -- not graded, never stored.
+        before = len(client.get("/api/lecturer/submissions").json())
+        r = client.post(
+            "/api/run",
+            json={
+                "student_name": "Test Student",
+                "question_id": "sum-ints",
+                "source_code": "print(sum(int(x) for x in input().split()))",
+                "stdin": "4 5 6\n",
+            },
+        )
+        assert r.status_code == 200, r.text
+        run = r.json()
+        assert run["rejected"] is None and run["accepted"] and run["stdout"].strip() == "15", run
+        r = client.post(
+            "/api/run",
+            json={"student_name": "Test Student", "question_id": "sum-ints", "source_code": "   ", "stdin": ""},
+        )
+        assert r.status_code == 200 and r.json()["rejected"] == "whitespace_only", r.text
+        assert len(client.get("/api/lecturer/submissions").json()) == before, "a run must not be stored"
+        print("POST /api/run                  OK -> ran, not stored, rejects empty code")
 
         r = client.get("/api/lecturer/clusters")
         assert r.status_code == 200, r.text
@@ -699,6 +759,37 @@ def _run_checks(client):
             assert row["exec_verdict"] != "ignores_input", (code, row)
         print("Hard-coded output: example ungraded, flagged as ignores_input   OK")
 
+        # The student starter for file tasks points stdin at the task's file and
+        # may define reading helpers -- neither counts as reading on its own.
+        from backend.validation import reads_input
+        redirect = 'import sys\nsys.stdin = open("numbers.txt")\n'
+        helper = 'def read_numbers(name="numbers.txt"):\n    with open(name) as f:\n        return f.read().split()\n'
+        assert not reads_input(redirect + "print(6)")
+        assert not reads_input(helper + "print(6)")
+        assert reads_input(redirect + "print(sum(int(x) for x in input().split()))")
+        assert reads_input(helper + "print(sum(map(int, read_numbers())))")
+        assert reads_input("import sys\nprint(sys.stdin.read())")
+        assert reads_input("with open('numbers.txt') as f:\n    print(f.read())")
+        assert reads_input("def go():\n    return input()\nprint(go())")
+        print("reads_input: stdin redirect and unused helpers don't count   OK")
+
+        # With the lecturer's starter known, its own top-level reading doesn't
+        # count either -- but using what it read does.
+        given = helper + "numbers = read_numbers()\n"
+        assert not reads_input(given + "print(6)", "python", given)
+        assert reads_input(given + "print(sum(map(int, numbers)))", "python", given)
+        assert reads_input(given + "print(6)", "python", None), "unknown starter: never accuse"
+        assert reads_input("print(6)\nx = input()\n", "python", "def unfinished(:\n"), "unparsable starter is ignored"
+        # Opening a file only to write it isn't reading: a write_lines() helper
+        # mustn't make a hard-coded answer look like it read the input.
+        writer = 'def write_lines(name, lines):\n    with open(name, "w") as f:\n        f.write("\\n".join(lines))\n'
+        assert not reads_input(writer + 'write_lines("out.txt", ["6"])')
+        assert not reads_input('open("out.txt", mode="a").write("6")')
+        assert reads_input('print(open("numbers.txt", "r").read())')
+        assert reads_input('f = open("data.txt", "w+")\nprint(f.read())')
+        assert reads_input('m = "w"\nprint(open("numbers.txt", m))'), "unknown mode: never accuse"
+        print("reads_input: lecturer starter's own reading doesn't count, its results do   OK")
+
         # Output-signature grouping (aggregation.py's 2026-10-15 entry): two textually
         # different programs that print the same thing on every test case are one
         # sub-cluster, even though the diff signal alone would keep them apart -- and
@@ -817,6 +908,35 @@ def _run_question_setup_checks(client):
     r = client.post(f"/api/lecturer/questions/{qid}/validate")
     assert r.json()["validated"] is True, r.json()
     print("Only validation-relevant edits reset the check   OK")
+
+    # Starter code: what students find in their editor, written by the lecturer.
+    # None means "the student page's default". It's part of the check: a starter
+    # that already breaks a submission rule blocks the task, one that merely
+    # doesn't run yet (a skeleton to complete) is only a heads-up.
+    assert client.get(f"/api/lecturer/questions/{qid}").json()["starter_code"] is None
+    r = client.put(f"/api/lecturer/questions/{qid}", json={"starter_code": "# a\n# b\n# c\n# d\n"})
+    assert r.json()["validated"] is False, "a changed starter must reset the check"
+    v = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert all(t["passed"] for t in v["results"]), v
+    assert v["validated"] is False and v["starter_problem"]["blocking"], v  # over line_limit=3
+    assert "line limit" in v["starter_problem"]["message"], v
+
+    client.put(f"/api/lecturer/questions/{qid}", json={"starter_code": "import numpy\n"})
+    v = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert v["validated"] is False and v["starter_problem"]["blocking"], v
+    assert "package" in v["starter_problem"]["message"], v
+
+    client.put(f"/api/lecturer/questions/{qid}", json={"starter_code": NAME_ERROR_MARKER + "\n"})
+    v = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert v["validated"] is True and v["starter_problem"]["blocking"] is False, v
+    assert "NameError" in v["starter_problem"]["message"], v
+
+    starter = "def double(n):\n    return n * 2\n"
+    client.put(f"/api/lecturer/questions/{qid}", json={"starter_code": starter})
+    v = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert v["validated"] is True and v["starter_problem"] is None, v
+    assert client.get(f"/api/lecturer/questions/{qid}").json()["starter_code"] == starter
+    print("Starter code: stored, blocks on line limit / package, heads-up when it doesn't run   OK")
 
     r = client.post(f"/api/lecturer/questions/{qid}/start")
     assert r.status_code == 200, r.text

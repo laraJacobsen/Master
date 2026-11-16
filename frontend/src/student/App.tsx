@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
   LectureStatus,
@@ -18,16 +18,24 @@ import {
   sendActivity,
   submitCode as submitCodeApi,
 } from "../shared/api";
-import { isUntouched, starterCode } from "./starterCode";
+import { defaultStarterCode, isUntouched } from "../shared/starterCode";
+import { draftKey, loadDraft, pruneOldDrafts } from "./drafts";
 import { TestFiles } from "./TestFiles";
-import { Badge, BigTimer, BrandMark, Button, Callout, Card, Code, Eyebrow, Input, Label, Spinner, StatusLine, TimeLine } from "../shared/ui";
+import { Badge, BrandMark, Button, Callout, Card, Code, Eyebrow, Input, Label, Spinner, StatusLine, TimeLine } from "../shared/ui";
 import { CodeBlock, FailingTestStrip } from "../shared/code";
 import { HERO_FILL, SCORE_LINE, TILE_TONE } from "../shared/verdictStyles";
 import { cx } from "../shared/cx";
 import type { Tone } from "../shared/ui";
+import type { WorkspaceHandle } from "./Workspace";
 // Monaco is most of this page's weight -- loaded only once a task is live,
 // so the join and waiting screens stay instant.
-const CodeEditor = lazy(() => import("./CodeEditor").then((m) => ({ default: m.CodeEditor })));
+const Workspace = lazy(() => import("./Workspace").then((m) => ({ default: m.Workspace })));
+
+function formatBytes(n: number): string {
+  if (n < 1000) return `${n} B`;
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)} KB`;
+  return `${(n / 1_000_000).toFixed(2)} MB`;
+}
 
 const VERDICT_LABELS: Record<string, string> = {
   correct: "Correct",
@@ -56,7 +64,8 @@ function VerdictBadge({ verdict }: VerdictBadgeProps) {
 }
 
 export interface ExampleIoProps {
-  rows: Array<[label: string, value: string]>;
+  /** A string is shown in a monospace box; anything else (e.g. a file list) as is. */
+  rows: Array<[label: string, value: ReactNode]>;
 }
 
 // The task's example, label above a monospace box -- same as the lecturer's
@@ -67,9 +76,13 @@ function ExampleIo({ rows }: ExampleIoProps) {
       {rows.map(([label, value]) => (
         <div key={label}>
           <div className="mb-1.5 text-xs text-zinc-500">{label}</div>
-          <pre className="max-h-40 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-[13px] text-zinc-900">
-            {value}
-          </pre>
+          {typeof value === "string" ? (
+            <pre className="max-h-40 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-[13px] text-zinc-900">
+              {value}
+            </pre>
+          ) : (
+            value
+          )}
         </div>
       ))}
     </div>
@@ -178,6 +191,7 @@ export default function App() {
   const [language, setLanguage] = useState("python");
   const [promptText, setPromptText] = useState("");
   const [taskTitle, setTaskTitle] = useState("");
+  const [taskNumber, setTaskNumber] = useState<number | null>(null);
   const [example, setExample] = useState<TestCase | null>(null);
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
@@ -188,13 +202,18 @@ export default function App() {
   // re-joining from a new tab.
   const [name, setName] = useState(getJoinedName);
   const [code, setCode] = useState("");
+  // What the editor starts with for the current task: an autosaved draft from
+  // an earlier visit (see drafts.ts), else the starter skeleton.
+  const [initialCode, setInitialCode] = useState("");
   // Mirrors of `name`/`code` for the auto-submit-on-timeout path, which can
   // fire from inside a setInterval/poll callback where the `name`/`code`
   // state captured at effect-setup time would otherwise be stale.
   const nameRef = useRef(getJoinedName());
   const codeRef = useRef("");
-  // The live task's language, for the same callbacks (see isUntouched below).
+  // The live task's language, for the same callbacks.
   const languageRef = useRef("python");
+  // The live task's starter code -- code still equal to it isn't auto-submitted (see isUntouched).
+  const starterRef = useRef("");
   // Set on every keystroke, cleared by each heartbeat -- so a heartbeat
   // reports "typed since the last one" without ever sending the code.
   const editedRef = useRef(false);
@@ -215,6 +234,12 @@ export default function App() {
   const [wasAutoSubmitted, setWasAutoSubmitted] = useState(false);
 
   const [history, setHistory] = useState<StudentAttempt[] | null>(null);
+  // The hint card in the task panel -- scrolled into view when a new one arrives.
+  const hintRef = useRef<HTMLDivElement>(null);
+  // The task panel's file list opens files in the workspace through this.
+  const workspaceRef = useRef<WorkspaceHandle>(null);
+  const [openDataFiles, setOpenDataFiles] = useState<string[]>([]);
+  const handleOpenDataFilesChange = useCallback((names: string[]) => setOpenDataFiles(names), []);
   // Data files the student may open (status.question.files): the example's
   // during the task, every test's once time is up.
   const [files, setFiles] = useState<VisibleTestFile[]>([]);
@@ -247,6 +272,10 @@ export default function App() {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    pruneOldDrafts();
+  }, []);
 
   function updateName(v: string) {
     setName(v);
@@ -299,6 +328,7 @@ export default function App() {
       });
       setResult(data);
       resultRef.current = data;
+      window.requestAnimationFrame(() => hintRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
       loadHistory(trimmedName, qId);
       // Solved it -- nothing left to do on this task, so off to the waiting
       // screen. A wrong answer stays on the editor with its hint so the
@@ -333,7 +363,7 @@ export default function App() {
     const trimmedName = nameRef.current.trim();
     const trimmedCode = codeRef.current.trim();
     // An untouched starter skeleton is nothing the student wrote, same as an empty box.
-    if (!trimmedName || isUntouched(trimmedCode, languageRef.current)) return; // render shows the neutral note
+    if (!trimmedName || isUntouched(trimmedCode, starterRef.current)) return; // render shows the neutral note
 
     setWasAutoSubmitted(true);
     performSubmit(qId, trimmedName, trimmedCode);
@@ -409,13 +439,25 @@ export default function App() {
       setHadTask(true);
       setPromptText(q.prompt);
       setTaskTitle(q.title);
+      setTaskNumber(q.number ?? null);
       setLanguage(q.language);
       languageRef.current = q.language;
       editedRef.current = false;
       setNudge(null);
       setExample(q.example);
       setDurationSeconds(q.duration_seconds);
-      updateCode(starterCode(q.language));
+      const restored = loadDraft(draftKey(q.id, nameRef.current))?.code;
+      // The lecturer's own starter if they wrote one, else the built-in default.
+      const starter =
+        q.starter_code ??
+        defaultStarterCode(q.language, {
+          stdin: q.example?.stdin ?? "",
+          files: (q.files ?? []).filter((f) => f.test === 0).map((f) => f.name),
+        });
+      starterRef.current = starter;
+      const startWith = restored ?? starter;
+      setInitialCode(startWith);
+      updateCode(startWith);
       setResult(null);
       resultRef.current = null;
       setErrorMessage(null);
@@ -806,197 +848,235 @@ export default function App() {
 
   const timeFraction = durationSeconds && secondsRemaining != null ? secondsRemaining / durationSeconds : 0;
   const exampleFiles = files.filter((f) => f.test === 0);
+  // The example gives nothing on standard input: its input is its files.
+  const inputFromFiles = exampleFiles.length > 0 && !(example?.stdin ?? "").trim();
+  // The example's files as rows that open them in the workspace.
+  const taskFileList = (
+    <ul className="grid gap-1" aria-label="Task files">
+      {exampleFiles.map((f) => {
+        const isOpen = openDataFiles.includes(f.name);
+        return (
+          <li key={f.name}>
+            <button
+              type="button"
+              onClick={() => workspaceRef.current?.openDataFile(f.name)}
+              className={cx(
+                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] ring-1 transition-colors",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
+                isOpen
+                  ? "bg-brand-50 text-brand-700 ring-brand-200"
+                  : "bg-zinc-50 text-zinc-800 ring-zinc-200 hover:bg-white hover:ring-zinc-300",
+              )}
+            >
+              <svg className="size-3.5 flex-none text-zinc-400" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M3 1.5h5l3 3v8H3z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                <path d="M8 1.5v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+              </svg>
+              <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium">{f.name}</span>
+              <span className="font-mono text-[11px] text-zinc-400">{formatBytes(f.size)}</span>
+              <span className="text-xs text-zinc-500">{isOpen ? "Open" : "View"}</span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+  const lowTime = secondsRemaining != null && timeFraction <= 0.15;
 
   return (
     <>
       <StudentBar name={joinedName || name} />
-      <StudentPage>
-        <header className="pt-8 sm:pt-10">
-          <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-6">
-            <div className="min-w-0 flex-1 basis-96">
+      <TimeLine fraction={timeFraction} />
+      <main className="mx-auto grid w-full max-w-[112rem] gap-5 px-4 pt-5 pb-5 sm:px-6 lg:h-[calc(100dvh-3.5rem-2px)] lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+        {/* Left: the task, and where hints appear. */}
+        <aside className="flex min-h-0 flex-col overflow-hidden rounded-xl bg-white shadow-card" aria-label="Task">
+          <div className="flex-none border-b border-zinc-200 px-5 pt-5 pb-4">
+            <div className="flex items-center justify-between gap-3">
               <StatusLine
                 state={secondsRemaining === 0 ? "closed" : "live"}
-                label={secondsRemaining === 0 ? "Closed" : "Live"}
-                items={[
-                  <span className="capitalize">{language}</span>,
-                  history && `${history.length} attempt${history.length === 1 ? "" : "s"}`,
-                ]}
+                label={taskNumber ? `Task ${taskNumber}` : "Task"}
+                items={[<span className="capitalize">{language}</span>]}
               />
-              <h1 className="mt-3 text-4xl font-bold tracking-tight text-balance text-zinc-950 lg:text-5xl">
-                {taskTitle || "Task"}
-              </h1>
-            </div>
-            {secondsRemaining != null && <BigTimer seconds={secondsRemaining} />}
-          </div>
-          <TimeLine fraction={timeFraction} className="mt-8" />
-        </header>
-
-        <div className="grid items-start gap-x-14 gap-y-10 pt-10 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
-          <aside className="grid min-w-0 gap-8 lg:sticky lg:top-20" aria-label="Task">
-            <section>
-              <Eyebrow>Task</Eyebrow>
-              <p className="mt-2 max-h-[45vh] overflow-y-auto pr-2 text-[15px] leading-relaxed whitespace-pre-wrap text-zinc-800">
-                {promptText}
-              </p>
-              {outputFile && (
-                <div className="mt-4 border-l-2 border-brand-400 py-1 pl-3.5 text-[13px] leading-relaxed text-zinc-600">
-                  Write your answer to <Code>{outputFile}</Code>. That file is checked, not what your program prints.
-                </div>
-              )}
-            </section>
-            {example && (
-              <section>
-                <Eyebrow className="mb-3">Example</Eyebrow>
-                <ExampleIo
-                  rows={[
-                    ["Input", example.stdin.trimEnd() || "(none)"],
-                    [outputFile ? `Expected ${outputFile}` : "Expected output", example.expected_stdout.trimEnd()],
-                  ]}
-                />
-              </section>
-            )}
-            {questionId && exampleFiles.length > 0 && (
-              <section>
-                <Eyebrow className="mb-2">Files</Eyebrow>
-                <p className="mb-3 text-[13px] leading-relaxed text-zinc-500">
-                  Your program can open these by name, e.g. <Code>open(&quot;{exampleFiles[0].name}&quot;)</Code>. The
-                  graded tests use their own versions, shown when time is up.
-                </p>
-                <TestFiles key={questionId} questionId={questionId} files={exampleFiles} />
-              </section>
-            )}
-            {history && (
-              <section aria-label="Your attempts">
-                <Eyebrow className="mb-3">Your attempts</Eyebrow>
-                <ul className="grid grid-cols-[repeat(auto-fill,minmax(3.25rem,1fr))] gap-1.5">
-                  {history.map((row) => {
-                    const v = row.verdict ?? "error";
-                    const share = row.tests_total ? row.tests_passed / row.tests_total : 0;
-                    return (
-                      <li
-                        key={row.id}
-                        title={`Attempt ${row.attempt_number}: ${row.verdict || "unknown"}, ${row.tests_passed}/${row.tests_total} tests`}
-                        className={cx(
-                          "flex h-12 flex-col justify-between rounded-md border px-2 pt-1.5 pb-2",
-                          TILE_TONE[v],
-                        )}
-                      >
-                        <span className="font-mono text-xs leading-tight">#{row.attempt_number}</span>
-                        <span className="block h-[3px] overflow-hidden rounded-sm bg-black/10" aria-hidden="true">
-                          <span
-                            className={cx("block h-full rounded-sm", SCORE_LINE[v])}
-                            style={{ width: `${Math.max(share, 0.04) * 100}%` }}
-                          />
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            )}
-          </aside>
-
-          <div className="grid min-w-0 gap-6">
-            {nudge && (
-              <div
-                className="flex animate-fade-in-up flex-col items-start gap-3 rounded-lg border border-brand-200 bg-brand-50 px-5 py-4 sm:flex-row sm:items-center"
-                role="status"
-              >
-                <p className="flex-1 text-sm leading-relaxed text-brand-950">{nudge}</p>
-                <Button variant="secondary" size="sm" onClick={() => setNudge(null)}>
-                  Got it
-                </Button>
-              </div>
-            )}
-
-            <section aria-label="Your code">
-              <div className="mb-3 flex items-center gap-3">
-                <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Your code</h2>
-                <div className="ml-auto flex items-center gap-3">
-                  {submitting && statusText && (
-                    <span className="hidden text-[13px] text-zinc-500 sm:inline">{statusText}</span>
+              {secondsRemaining != null && (
+                <span
+                  role="timer"
+                  aria-label="Time left"
+                  className={cx(
+                    "font-mono text-xl font-semibold tracking-tight tabular-nums",
+                    lowTime ? "text-red-600" : "text-zinc-950",
                   )}
-                  <Button size="lg" disabled={submitting} onClick={handleSubmit}>
-                    {submitting && <Spinner />}
-                    {submitting ? "Running..." : "Submit"}
+                >
+                  {formatMMSS(secondsRemaining)}
+                </span>
+              )}
+            </div>
+            <h1 className="mt-2 text-2xl leading-tight font-bold tracking-tight text-balance text-zinc-950">
+              {taskTitle || "Task"}
+            </h1>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+            <div className="grid gap-7">
+              {nudge && (
+                <div className="animate-fade-in-up rounded-lg bg-brand-50 px-4 py-3.5 ring-1 ring-brand-200" role="status">
+                  <Eyebrow className="text-brand-700">A nudge</Eyebrow>
+                  <p className="mt-1.5 text-sm leading-relaxed text-brand-950">{nudge}</p>
+                  <Button variant="ghost" size="sm" className="mt-2 -ml-2 text-brand-700" onClick={() => setNudge(null)}>
+                    Got it
                   </Button>
                 </div>
-              </div>
-              <Suspense
-                fallback={
-                  <div className="h-[460px] rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-500">
-                    Loading editor...
-                  </div>
-                }
-              >
-                <CodeEditor
-                  key={questionId}
-                  language={language}
-                  initialValue={starterCode(language)}
-                  onChange={handleEditorChange}
-                />
-              </Suspense>
-              {submitting && statusText && <p className="mt-2 text-[13px] text-zinc-500 sm:hidden">{statusText}</p>}
-              {errorMessage && (
-                <Callout tone="danger" role="alert" className="mt-4">
-                  {errorMessage}
-                </Callout>
               )}
-            </section>
 
-            {result && (
-              <section className="animate-fade-in-up border-t border-zinc-200 pt-8" aria-label="Result">
-                <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-                  <div>
-                    <div className="font-mono text-4xl leading-none font-semibold tracking-tight text-zinc-950 tabular-nums">
-                      {result.tests_passed}
-                      <span className="text-xl text-zinc-400">/{result.tests_total}</span>
+              {result && (
+                <div ref={hintRef} className="animate-fade-in-up scroll-mt-4" role="status" aria-label="Your result">
+                  <div
+                    className={cx(
+                      "rounded-lg px-4 py-4 ring-1",
+                      result.verdict === "correct" ? "bg-emerald-50 ring-emerald-200" : "bg-violet-50/70 ring-violet-200",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <VerdictBadge verdict={result.verdict} />
+                      <span className="font-mono text-sm text-zinc-700 tabular-nums">
+                        {result.tests_passed}/{result.tests_total} tests
+                      </span>
+                      {result.hint_tier ? (
+                        <span className="ml-auto text-xs text-zinc-500">
+                          Hint <span className="font-mono text-zinc-900">{result.hint_tier}</span> of{" "}
+                          <span className="font-mono text-zinc-900">{result.hint_ceiling}</span>
+                        </span>
+                      ) : null}
                     </div>
-                    <div className="mt-1.5 text-xs text-zinc-500">tests passed</div>
-                  </div>
-                  <VerdictBadge verdict={result.verdict} />
-                  {result.hint_tier ? (
-                    <div className="ml-auto w-44">
-                      <div className="mb-1.5 text-xs text-zinc-500">
-                        Hint <span className="font-mono text-zinc-900">{result.hint_tier}</span> of{" "}
-                        <span className="font-mono text-zinc-900">{result.hint_ceiling}</span>
-                      </div>
-                      <div className="flex gap-1">
+                    {result.hint_tier ? (
+                      <div className="mt-2 flex gap-1" aria-hidden="true">
                         {Array.from({ length: result.hint_ceiling ?? 0 }, (_, i) => i + 1).map((i) => (
                           <div
                             key={i}
-                            className={cx("h-1 flex-1 rounded-sm", i <= (result.hint_tier ?? 0) ? "bg-brand-500" : "bg-zinc-200")}
+                            className={cx("h-1 flex-1 rounded-sm", i <= (result.hint_tier ?? 0) ? "bg-brand-500" : "bg-white")}
                           />
                         ))}
                       </div>
-                    </div>
-                  ) : null}
+                    ) : null}
+                    <p className="mt-3 text-sm leading-relaxed text-zinc-900">{result.feedback}</p>
+                  </div>
                 </div>
-                <p className="mt-6 max-w-3xl text-base leading-relaxed text-zinc-900">{result.feedback}</p>
-                {result.traceback && (
-                  <details className="mt-6">
-                    <summary className="cursor-pointer rounded-sm text-[13px] font-medium text-zinc-500 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500">
-                      Your program's error output
-                    </summary>
-                    <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-zinc-950 px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-100">
-                      {result.traceback}
-                    </pre>
-                  </details>
-                )}
-                {result.hidden_crash && (
-                  <p className="mt-4 max-w-3xl text-sm leading-relaxed text-zinc-500">
-                    Your program crashed on a hidden test{result.hidden_error ? ` (${result.hidden_error})` : ""}. Its
-                    error output isn&apos;t shown, because it could reveal that test&apos;s data. Try inputs like the
-                    hidden tests might use.
-                  </p>
+              )}
+
+              <section>
+                <Eyebrow>Description</Eyebrow>
+                <p className="mt-2 text-[15px] leading-relaxed whitespace-pre-wrap text-zinc-800">{promptText}</p>
+                {outputFile && (
+                  <div className="mt-4 border-l-2 border-brand-400 py-1 pl-3.5 text-[13px] leading-relaxed text-zinc-600">
+                    Write your answer to <Code>{outputFile}</Code>. That file is checked, not what your program prints.
+                  </div>
                 )}
               </section>
-            )}
+
+              {example && (
+                <section>
+                  <Eyebrow className="mb-3">Example</Eyebrow>
+                  <ExampleIo
+                    rows={[
+                      // File tasks: the example's input is its files, not standard input.
+                      inputFromFiles
+                        ? [exampleFiles.length === 1 ? "Input file" : "Input files", taskFileList]
+                        : ["Input", example.stdin.trimEnd() || "(none)"],
+                      [outputFile ? `Expected ${outputFile}` : "Expected output", example.expected_stdout.trimEnd()],
+                    ]}
+                  />
+                  {inputFromFiles && (
+                    <p className="mt-2.5 text-[13px] leading-relaxed text-zinc-500">
+                      The graded tests use their own versions of {exampleFiles.length === 1 ? "this file" : "these files"},
+                      shown when time is up.
+                    </p>
+                  )}
+                </section>
+              )}
+
+              {/* A task with both typed input and files: the files get their own section. */}
+              {exampleFiles.length > 0 && !inputFromFiles && (
+                <section aria-label="Task files">
+                  <Eyebrow className="mb-2">Files</Eyebrow>
+                  {taskFileList}
+                  <p className="mt-2.5 text-[13px] leading-relaxed text-zinc-500">
+                    Your program can open {exampleFiles.length === 1 ? "this file" : "these files"} by name, e.g.{" "}
+                    <Code>open(&quot;{exampleFiles[0].name}&quot;)</Code>. The graded tests use their own versions, shown
+                    when time is up.
+                  </p>
+                </section>
+              )}
+
+              {history && (
+                <section aria-label="Your attempts">
+                  <Eyebrow className="mb-3">Your attempts</Eyebrow>
+                  <ul className="grid grid-cols-[repeat(auto-fill,minmax(3.25rem,1fr))] gap-1.5">
+                    {history.map((row) => {
+                      const v = row.verdict ?? "error";
+                      const share = row.tests_total ? row.tests_passed / row.tests_total : 0;
+                      return (
+                        <li
+                          key={row.id}
+                          title={`Attempt ${row.attempt_number}: ${row.verdict || "unknown"}, ${row.tests_passed}/${row.tests_total} tests`}
+                          className={cx("flex h-12 flex-col justify-between rounded-md border px-2 pt-1.5 pb-2", TILE_TONE[v])}
+                        >
+                          <span className="font-mono text-xs leading-tight">#{row.attempt_number}</span>
+                          <span className="block h-[3px] overflow-hidden rounded-sm bg-black/10" aria-hidden="true">
+                            <span
+                              className={cx("block h-full rounded-sm", SCORE_LINE[v])}
+                              style={{ width: `${Math.max(share, 0.04) * 100}%` }}
+                            />
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              )}
+            </div>
           </div>
-        </div>
-      </StudentPage>
+        </aside>
+
+        {/* Right: files, editors and terminal. */}
+        <section className="h-[80dvh] min-h-[32rem] min-w-0 lg:h-auto" aria-label="Your code">
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center rounded-xl bg-white text-sm text-zinc-500 shadow-card">
+                <Spinner /> <span className="ml-2">Loading editor...</span>
+              </div>
+            }
+          >
+            {questionId && (
+              <Workspace
+                ref={workspaceRef}
+                onOpenDataFilesChange={handleOpenDataFilesChange}
+                key={questionId}
+                questionId={questionId}
+                studentName={name.trim()}
+                language={language}
+                initialCode={initialCode}
+                draftKey={draftKey(questionId, name)}
+                exampleStdin={example?.stdin ?? ""}
+                exampleExpected={example?.expected_stdout ?? null}
+                outputFile={outputFile}
+                dataFiles={exampleFiles}
+                onCodeChange={handleEditorChange}
+                onSubmit={handleSubmit}
+                submitting={submitting}
+                statusText={statusText}
+                result={result}
+                submitError={errorMessage}
+              />
+            )}
+          </Suspense>
+        </section>
+      </main>
     </>
   );
+}
+
+function formatMMSS(totalSeconds: number): string {
+  const sec = Math.max(0, Math.round(totalSeconds));
+  return `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, "0")}`;
 }
 
 export interface StudentBarProps {

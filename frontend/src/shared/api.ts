@@ -23,6 +23,7 @@ import type {
   StudentAttempt,
   SubmitResponse,
   ValidationResponse,
+  RunResponse,
 } from "./types";
 
 const API_BASE = ""; // same origin as the page when served by the FastAPI backend
@@ -102,6 +103,19 @@ export function submitCode(payload: {
   source_code: string;
 }): Promise<SubmitResponse> {
   return apiFetch(`${API_BASE}/api/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then((res) => asJson(res));
+}
+
+export function runCode(payload: {
+  student_name: string;
+  question_id: string;
+  source_code: string;
+  stdin: string;
+}): Promise<RunResponse> {
+  return apiFetch(`${API_BASE}/api/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
