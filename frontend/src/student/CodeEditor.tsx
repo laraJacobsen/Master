@@ -4,23 +4,21 @@ import { Editor } from "../shared/monaco";
 // the browser. Uncontrolled on purpose -- the parent remounts it per task
 // (key={questionId}), so every onChange is the student typing, which is what
 // the activity heartbeat counts (see student/App.tsx).
-export function CodeEditor({
-  language,
-  initialValue,
-  onChange,
-}: {
+export interface CodeEditorProps {
   language: string;
   initialValue: string;
   onChange: (value: string) => void;
-}) {
+}
+
+export function CodeEditor({ language, initialValue, onChange }: CodeEditorProps) {
   return (
-    <div className="code-editor">
+    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white transition-colors focus-within:border-brand-400 focus-within:ring-3 focus-within:ring-brand-500/10">
       <Editor
-        height="320px"
+        height="460px"
         defaultLanguage={language}
         defaultValue={initialValue}
         onChange={(v) => onChange(v ?? "")}
-        loading="Loading editor..."
+        loading={<span className="text-sm text-zinc-500">Loading editor...</span>}
         options={{
           minimap: { enabled: false },
           fontSize: 14,
@@ -29,7 +27,11 @@ export function CodeEditor({
           scrollBeyondLastLine: false,
           automaticLayout: true,
           lineNumbersMinChars: 3,
-          renderLineHighlight: "line",
+          renderLineHighlight: "none",
+          overviewRulerLanes: 0,
+          overviewRulerBorder: false,
+          hideCursorInOverviewRuler: true,
+          padding: { top: 8, bottom: 8 },
           // No autocomplete: it would suggest code, and this is an exercise.
           quickSuggestions: false,
           suggestOnTriggerCharacters: false,

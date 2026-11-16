@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { SubmissionRow, ValidationTestResult } from "../shared/types";
 import { nameSlots } from "./codeGroups";
+import { CodeBlock, FailingTestStrip } from "../shared/code";
 
 // Names to mark in the code: slot -> tooltip ("also called ...").
 type NameMarks = Map<number, string>;
@@ -18,7 +19,11 @@ function markedCode(sub: SubmissionRow, names: string[] | undefined, marks: Name
     out.push(sub.source_code.slice(at, start));
     out.push(
       marks?.has(slot) ? (
-        <mark key={start} className="name-var" title={marks.get(slot)}>
+        <mark
+          key={start}
+          className="cursor-help rounded-[2px] border-b-2 border-dotted border-brand-500 bg-brand-500/10 text-inherit"
+          title={marks.get(slot)}
+        >
           {text}
         </mark>
       ) : (
@@ -39,9 +44,11 @@ export interface SubmissionDetailProps {
   // Show the code with these names in place of the student's own (by slot).
   names?: string[];
   marks?: NameMarks;
+  /** Cap the code's height (scrolls inside, with an Expand toggle). Off in the drawer, which scrolls itself. */
+  clamp?: boolean;
 }
 
-export function SubmissionDetail({ sub, names, marks }: SubmissionDetailProps) {
+export function SubmissionDetail({ sub, names, marks, clamp = true }: SubmissionDetailProps) {
   const results: ValidationTestResult[] = JSON.parse(sub.raw_test_results || "[]");
   const failing = results.find((r) => !r.passed);
   // A program that didn't compile has no stderr -- the compiler's message is the error output.
@@ -50,28 +57,19 @@ export function SubmissionDetail({ sub, names, marks }: SubmissionDetailProps) {
   return (
     <>
       {failing && (
-        <div className="io-strip">
-          <div className="io-cell">
-            <span className="io-label">Input</span>
-            <code>{(failing.stdin ?? "").trimEnd() || "(none)"}</code>
-          </div>
-          <div className="io-cell">
-            <span className="io-label">Expected</span>
-            <code>{(failing.expected_stdout ?? "").trimEnd()}</code>
-          </div>
-          <div className="io-cell io-got">
-            <span className="io-label">Got</span>
-            <code>{(failing.stdout || "").trim() || "(nothing)"}</code>
-          </div>
-          {errorOutput && (
-            <div className="io-cell io-error">
-              <span className="io-label">Error</span>
-              <code>{errorOutput.trim().split("\n").pop()}</code>
-            </div>
-          )}
-        </div>
+        <FailingTestStrip
+          className="mb-2"
+          test={{
+            stdin: failing.stdin ?? "",
+            expected: failing.expected_stdout ?? "",
+            got: failing.stdout || "",
+            error: errorOutput,
+          }}
+        />
       )}
-      <code className="example-code">{markedCode(sub, names, marks)}</code>
+      <CodeBlock lines={sub.source_code.split("\n").length} clamp={clamp}>
+        {markedCode(sub, names, marks)}
+      </CodeBlock>
     </>
   );
 }
@@ -110,16 +108,24 @@ export function ExampleBlock({ subs }: ExampleBlockProps) {
   );
 
   return (
-    <div className="example">
-      <div className="example-head">
-        <div className="example-meta">
-          {subs.length > 1 && <strong>{subs.length} students </strong>}
-          {someNames(subs)} · {base.tests_passed}/{base.tests_total} tests
+    <div>
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <div className="text-xs text-zinc-500">
+          {subs.length > 1 && <strong className="font-semibold text-zinc-900">{subs.length} students </strong>}
+          {someNames(subs)} ·{" "}
+          <span className="font-mono">
+            {base.tests_passed}/{base.tests_total}
+          </span>{" "}
+          tests
         </div>
         {varying.length > 0 && (
-          <label className="view-as">
+          <label className="flex items-center gap-2 text-xs text-zinc-500">
             Show as written by
-            <select value={student ? viewAs : ""} onChange={(e) => setViewAs(e.target.value)}>
+            <select
+              className="h-7 max-w-44 rounded-md border border-zinc-200 bg-white px-1.5 text-xs text-zinc-900 hover:border-zinc-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 focus:outline-none"
+              value={student ? viewAs : ""}
+              onChange={(e) => setViewAs(e.target.value)}
+            >
               <option value="">Most common names</option>
               {[...subs]
                 .sort((a, b) => a.student_name.localeCompare(b.student_name))
@@ -134,16 +140,16 @@ export function ExampleBlock({ subs }: ExampleBlockProps) {
       </div>
       <SubmissionDetail sub={base} names={varying.length ? shown : undefined} marks={varying.length ? marks : undefined} />
       {varying.length > 0 && (
-        <dl className="name-legend" aria-label="Other names students used">
+        <dl className="mt-2 grid gap-0.5 text-xs" aria-label="Other names students used">
           {varying.map((s) => {
             const others = s.names.filter((n) => n.name !== shown[s.slot]);
             const more = others.length - MAX_ALTERNATIVES;
             return (
-              <div key={s.slot} className="name-legend-row">
-                <dt>{shown[s.slot]}</dt>
-                <dd>
-                  <span className="name-legend-also">also</span> {alsoCalled(others.slice(0, MAX_ALTERNATIVES))}
-                  {more > 0 && <span className="name-legend-more"> +{more} more</span>}
+              <div key={s.slot} className="grid grid-cols-[minmax(4rem,max-content)_1fr] gap-3">
+                <dt className="font-mono font-semibold text-zinc-900">{shown[s.slot]}</dt>
+                <dd className="font-mono text-zinc-700">
+                  <span className="font-sans text-zinc-500">also</span> {alsoCalled(others.slice(0, MAX_ALTERNATIVES))}
+                  {more > 0 && <span className="font-sans text-zinc-500"> +{more} more</span>}
                 </dd>
               </div>
             );

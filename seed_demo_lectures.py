@@ -25,6 +25,7 @@ Usage:
     python3 seed_demo_lectures.py                       # backend/prototype.db
     python3 seed_demo_lectures.py --archive-existing    # also archive every non-demo
                                                         # lecture (ends an active one)
+    python3 seed_demo_lectures.py --replace-demo        # delete an earlier demo set first
     python3 seed_demo_lectures.py --db path/to/other.db
 
 Backs the database up next to itself before touching it.
@@ -167,17 +168,42 @@ EXERCISES = {
     },
 }
 
-# Four weekly lectures. solve_p: chance a student who submits eventually gets it right;
-# skip_p: chance a joined student never submits that task.
+# One lecture every Tuesday of the autumn semester so far (Aug-Nov), so the history
+# page's month and semester views both have something to show. Difficulty wanders the
+# way a real course does: easy start, dips when strings / lists / dictionaries arrive,
+# recoveries in the review weeks. solve_p: chance a student who submits eventually gets
+# it right; skip_p: chance a joined student never submits that task.
 LECTURES = [
-    {"label": "Week 2: Input and arithmetic", "date": "2026-09-22", "tasks": ["sum", "double"],
+    {"label": "Week 1: Input and output", "date": "2026-08-04", "tasks": ["sum", "double"],
+     "solve_p": 0.9, "skip_p": 0.03},
+    {"label": "Week 2: Arithmetic and variables", "date": "2026-08-11", "tasks": ["double", "sum"],
+     "solve_p": 0.84, "skip_p": 0.04},
+    {"label": "Week 3: Conditionals", "date": "2026-08-18", "tasks": ["double", "palindrome"],
+     "solve_p": 0.72, "skip_p": 0.06},
+    {"label": "Week 4: Loops", "date": "2026-08-25", "tasks": ["sum", "vowels"],
+     "solve_p": 0.66, "skip_p": 0.07},
+    {"label": "Week 5: Strings", "date": "2026-09-01", "tasks": ["palindrome", "vowels"],
+     "solve_p": 0.5, "skip_p": 0.12},
+    {"label": "Week 6: String methods", "date": "2026-09-08", "tasks": ["vowels", "palindrome"],
+     "solve_p": 0.6, "skip_p": 0.09},
+    {"label": "Week 7: Lists", "date": "2026-09-15", "tasks": ["second", "sum"],
+     "solve_p": 0.45, "skip_p": 0.14},
+    {"label": "Week 8: Input and arithmetic, revisited", "date": "2026-09-22", "tasks": ["sum", "double"],
      "solve_p": 0.88, "skip_p": 0.04},
-    {"label": "Week 3: Working with strings", "date": "2026-09-29", "tasks": ["palindrome", "vowels"],
+    {"label": "Week 9: Working with strings", "date": "2026-09-29", "tasks": ["palindrome", "vowels"],
      "solve_p": 0.6, "skip_p": 0.1},
-    {"label": "Week 4: Lists and sorting", "date": "2026-10-06", "tasks": ["second", "sum"],
+    {"label": "Week 10: Lists and sorting", "date": "2026-10-06", "tasks": ["second", "sum"],
      "solve_p": 0.35, "skip_p": 0.18},
-    {"label": "Week 5: Review", "date": "2026-10-13", "tasks": ["double", "vowels", "second"],
+    {"label": "Week 11: Review", "date": "2026-10-13", "tasks": ["double", "vowels", "second"],
      "solve_p": 0.62, "skip_p": 0.08},
+    {"label": "Week 12: Functions", "date": "2026-10-20", "tasks": ["sum", "double"],
+     "solve_p": 0.74, "skip_p": 0.06},
+    {"label": "Week 13: Dictionaries", "date": "2026-10-27", "tasks": ["vowels", "second"],
+     "solve_p": 0.42, "skip_p": 0.15},
+    {"label": "Week 14: Searching", "date": "2026-11-03", "tasks": ["second", "palindrome"],
+     "solve_p": 0.55, "skip_p": 0.1},
+    {"label": "Week 15: Putting it together", "date": "2026-11-10", "tasks": ["palindrome", "sum", "vowels"],
+     "solve_p": 0.68, "skip_p": 0.07},
 ]
 
 
@@ -232,6 +258,8 @@ def main():
     ap.add_argument("--db", default=str(REPO / "backend" / "prototype.db"))
     ap.add_argument("--archive-existing", action="store_true",
                     help="archive every lecture that isn't a demo lecture (ends an active one first)")
+    ap.add_argument("--replace-demo", action="store_true",
+                    help="delete existing [Demo] lectures (and their tasks, joins and submissions) first")
     args = ap.parse_args()
 
     db = Path(args.db)
@@ -239,6 +267,8 @@ def main():
         backup = db.with_name(f"{db.stem}-backup-{datetime.now():%Y-%m-%d-%H%M%S}.db")
         shutil.copy2(db, backup)
         print(f"Backed up {db.name} -> {backup.name}")
+        if args.replace_demo:
+            delete_demo(db)
 
     os.environ["PROTOTYPE_DB_PATH"] = str(db)
     os.environ["LLM_PROVIDER"] = "idun"  # with no key below: no Label calls from a seed script
@@ -256,7 +286,8 @@ def main():
 
             existing = ok(client.get("/api/lecturer/lectures", params={"include_archived": True}))
             if any(l["label"] and l["label"].startswith(DEMO_PREFIX) for l in existing):
-                sys.exit("Demo lectures already exist in this database -- not adding a second set.")
+                sys.exit("Demo lectures already exist in this database -- not adding a second set. "
+                         "Rerun with --replace-demo to swap them for a fresh set.")
 
             active = ok(client.get("/api/lecturer/lectures/active"))
             if active["lecture"]:
@@ -318,6 +349,26 @@ def main():
             for r in review:
                 if r["enough_data"]:
                     print(f"  {r['solve_rate']:.0%} solved  {r['display_label']}")
+
+
+def delete_demo(db):
+    """Removes every "[Demo] ..." lecture and everything hanging off it. Only rows this
+    script made carry the prefix, so nothing else is touched."""
+    conn = sqlite3.connect(db)
+    lecture_ids = [r[0] for r in conn.execute("SELECT id FROM lectures WHERE label LIKE ?", (DEMO_PREFIX + "%",))]
+    if lecture_ids:
+        marks = ",".join("?" * len(lecture_ids))
+        qids = [str(r[0]) for r in conn.execute(f"SELECT id FROM questions WHERE lecture_id IN ({marks})", lecture_ids)]
+        if qids:
+            qmarks = ",".join("?" * len(qids))
+            conn.execute(f"DELETE FROM submissions WHERE question_id IN ({qmarks})", qids)
+            conn.execute(f"DELETE FROM student_activity WHERE question_id IN ({qmarks})", qids)
+            conn.execute(f"DELETE FROM questions WHERE id IN ({qmarks})", qids)
+        conn.execute(f"DELETE FROM lecture_joins WHERE lecture_id IN ({marks})", lecture_ids)
+        conn.execute(f"DELETE FROM lectures WHERE id IN ({marks})", lecture_ids)
+        conn.commit()
+    conn.close()
+    print(f"Deleted {len(lecture_ids)} earlier demo lecture(s)")
 
 
 def backdate(db, lecture_id, date, question_ids, rng):

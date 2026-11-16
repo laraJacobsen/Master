@@ -1,11 +1,16 @@
 import { StrictMode } from "react";
 import type { ComponentType } from "react";
 import { createRoot } from "react-dom/client";
-import "./base.css";
+import "@fontsource/poppins/400.css";
+import "@fontsource/poppins/500.css";
+import "@fontsource/poppins/600.css";
+import "@fontsource/poppins/700.css";
+import "@fontsource-variable/jetbrains-mono";
+import "./index.css";
 
 // Every page's main.tsx did this exact StrictMode/createRoot dance --
-// pulled out once here, imported first (before that page's own style.css)
-// so base.css's rules load before any page-specific override.
+// pulled out once here, together with the font and the one Tailwind
+// stylesheet every page shares.
 export function mountApp(App: ComponentType) {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
