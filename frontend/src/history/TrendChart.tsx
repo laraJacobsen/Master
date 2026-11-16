@@ -13,7 +13,7 @@ export interface TrendPoint {
   date: string;
   /** Share of tasks solved, 0..1. */
   rate: number;
-  /** Small secondary line in the tooltip (date, students, ...). */
+  /** Small secondary line in the tooltip (students, ...). The date is on the axis. */
   detail: string;
 }
 
@@ -203,7 +203,7 @@ export function TrendChart({ points, selectedId, onSelect, className }: TrendCha
                 type="button"
                 className="absolute top-0 rounded-md focus-visible:bg-brand-500/5 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500"
                 style={{ left, width: right - left, height: HEIGHT }}
-                aria-label={`${p.label}, ${p.detail}: ${pct(p.rate)} solved. Show its tasks.`}
+                aria-label={`${p.label}, ${p.date}, ${p.detail}: ${pct(p.rate)} solved. Show its tasks.`}
                 aria-pressed={p.id === selectedId}
                 onMouseEnter={() => setHoverId(p.id)}
                 onMouseLeave={() => setHoverId(null)}

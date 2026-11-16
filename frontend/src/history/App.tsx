@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import type { LectureHistoryRow, LectureReview, LectureReviewTask } from "../shared/types";
 import { archiveLecture, fetchLectureHistory, fetchLectureReview, unarchiveLecture } from "../shared/api";
 import { NavBar } from "../shared/NavBar";
@@ -13,6 +14,7 @@ import {
   Page,
   SectionTitle,
   SegmentedControl,
+  Skeleton,
   TextLink,
 } from "../shared/ui";
 import { cx } from "../shared/cx";
@@ -338,7 +340,7 @@ function Trend({ ranked, selectedId, onSelect }: TrendProps) {
       label: r.display_label,
       date: shortDate(r.started_at),
       rate: r.solve_rate ?? 0,
-      detail: `${formatDate(r.started_at)} · ${plural(r.students, "student")}`,
+      detail: plural(r.students, "student"),
     }));
   return (
     <>
@@ -374,6 +376,208 @@ function Trend({ ranked, selectedId, onSelect }: TrendProps) {
         <EmptyState className="mt-6" title={`No ranked lectures in ${period.label}.`} />
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------- Loading
+
+/** The page's own layout in grey, shown until the ranking arrives. */
+function ReviewSkeleton() {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6" role="status" aria-label="Loading lecture history">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Card key={i} className="relative">
+            <Skeleton className="absolute -top-3 -right-3 size-10 rounded-full ring-4 ring-zinc-50" />
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="mt-6 h-11 w-24" />
+            <Skeleton className="mt-3 h-2.5 w-32" />
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="ml-auto h-7 w-40" />
+          <Skeleton className="h-8 w-40 rounded-lg" />
+        </div>
+        <Skeleton className="mt-6 h-[220px] w-full rounded-lg" />
+        <Skeleton className="mt-3 h-3 w-full" />
+      </Card>
+
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
+        <Card>
+          <Skeleton className="mb-5 h-4 w-44" />
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="flex items-center gap-4 border-t border-zinc-200 py-4 first:border-t-0">
+              <Skeleton className="size-7 flex-none" />
+              <div className="flex-1">
+                <Skeleton className="h-3.5 w-3/5" />
+                <Skeleton className="mt-2 h-3 w-2/5" />
+              </div>
+              <Skeleton className="h-3 w-24 max-sm:hidden" />
+            </div>
+          ))}
+        </Card>
+        <Card>
+          <Skeleton className="mb-5 h-4 w-36" />
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="border-t border-zinc-200 py-4 first:border-t-0 first:pt-0">
+              <Skeleton className="h-3.5 w-1/2" />
+              <Skeleton className="mt-3 h-1.5 w-full" />
+              <Skeleton className="mt-3 h-3 w-4/5" />
+            </div>
+          ))}
+        </Card>
+      </div>
+      <span className="sr-only">Loading…</span>
+    </div>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <ul className="mt-3" role="status" aria-label="Loading lectures">
+      {[0, 1, 2, 3].map((i) => (
+        <li key={i} className="flex items-center gap-3 border-t border-zinc-200 py-3.5 first:border-t-0">
+          <div className="flex-1">
+            <Skeleton className="h-3.5 w-1/3" />
+            <Skeleton className="mt-2 h-3 w-1/2" />
+          </div>
+          <Skeleton className="h-8 w-20 rounded-lg" />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ------------------------------------------------------------ Overview cards
+
+function mean(xs: number[]): number {
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+/** Share of the lecture's students who submitted anything, averaged over its tasks. */
+function participationOf(r: LectureReview): number {
+  const shares = r.tasks.filter((t) => t.students > 0).map((t) => t.submitted / t.students);
+  return shares.length ? mean(shares) : 0;
+}
+
+function monthIndex(d: Date): number {
+  return d.getFullYear() * 12 + d.getMonth();
+}
+
+/** This calendar month's average of `metric` minus last month's, or null if
+ *  either month had no ranked lectures. */
+function monthDelta(ranked: LectureReview[], metric: (r: LectureReview) => number): number | null {
+  const now = monthIndex(new Date());
+  const inMonth = (m: number) => ranked.filter((r) => monthIndex(parseDate(r.started_at)) === m).map(metric);
+  const cur = inMonth(now);
+  const prev = inMonth(now - 1);
+  return cur.length && prev.length ? mean(cur) - mean(prev) : null;
+}
+
+export interface DeltaProps {
+  /** Difference as a share (0.05 = 5 percentage points). */
+  value: number;
+}
+
+/** "+5 pts since last month" -- green up, red down, grey when flat. */
+function Delta({ value }: DeltaProps) {
+  const pts = Math.round(value * 100);
+  const tone = pts > 0 ? "text-emerald-700" : pts < 0 ? "text-red-600" : "text-zinc-500";
+  const sign = pts > 0 ? "+" : pts < 0 ? "\u2212" : "\u00b1";
+  return (
+    <div className={cx("mt-2 text-[11px] font-normal", tone)}>
+      {sign}
+      {Math.abs(pts)} pts since last month
+    </div>
+  );
+}
+
+export interface OverviewCardProps {
+  label: string;
+  icon: ReactNode;
+  value: ReactNode;
+  /** Render the value as a heading (a name) rather than a big number. */
+  valueIsText?: boolean;
+  delta?: number | null;
+}
+
+function OverviewCard({ label, icon, value, valueIsText = false, delta = null }: OverviewCardProps) {
+  return (
+    <Card className="relative flex min-w-0 flex-col">
+      {/* Sits on the card's top-right corner, half over the edge. */}
+      <span
+        className="absolute -top-3 -right-3 grid size-10 place-items-center rounded-full bg-brand-50 text-brand-600 shadow-card ring-4 ring-zinc-50"
+        aria-hidden="true"
+      >
+        {icon}
+      </span>
+      <Eyebrow className="pr-6 text-xs">{label}</Eyebrow>
+      <div
+        className={cx(
+          "mt-5",
+          valueIsText
+            ? "flex min-h-14 items-center text-3xl leading-tight font-bold tracking-tight text-balance text-zinc-950"
+            : "font-mono text-5xl leading-[3.5rem] font-semibold tracking-tight text-zinc-950 tabular-nums",
+        )}
+      >
+        {value}
+      </div>
+      {delta !== null && <Delta value={delta} />}
+    </Card>
+  );
+}
+
+const iconProps = {
+  className: "size-[18px]",
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.8,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+function IconTrendDown() {
+  return (
+    <svg {...iconProps}>
+      <path d="M3 7l6 6 4-4 8 8" />
+      <path d="M15 17h6v-6" />
+    </svg>
+  );
+}
+
+function IconTarget() {
+  return (
+    <svg {...iconProps}>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4.5" />
+      <circle cx="12" cy="12" r="0.8" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconGauge() {
+  return (
+    <svg {...iconProps}>
+      <path d="M4.5 17a8.5 8.5 0 1 1 15 0" />
+      <path d="M12 13l3.5-4" />
+      <circle cx="12" cy="13" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconUsers() {
+  return (
+    <svg {...iconProps}>
+      <circle cx="9" cy="8.5" r="3.2" />
+      <path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6" />
+      <path d="M15.5 5.6a3 3 0 0 1 0 5.8" />
+      <path d="M17.5 14.6c1.7.5 2.8 2 3.1 4.4" />
+    </svg>
   );
 }
 
@@ -441,6 +645,7 @@ export default function App() {
   const unranked = (reviews ?? []).length - ranked.length;
   const topics = topicsFrom(ranked);
   const average = ranked.length ? ranked.reduce((s, r) => s + (r.solve_rate ?? 0), 0) / ranked.length : null;
+  const participation = ranked.length ? mean(ranked.map(participationOf)) : null;
 
   return (
     <>
@@ -453,6 +658,7 @@ export default function App() {
         />
 
         <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
+          {reviews === null && !reviewError && <ReviewSkeleton />}
           {reviewError && <EmptyState title="Couldn't load the ranking." />}
           {reviews && ranked.length === 0 && !reviewError && (
             <EmptyState title={`No finished lectures with ${MIN_STUDENTS_FOR_REVIEW}+ students yet.`} />
@@ -460,32 +666,35 @@ export default function App() {
 
           {ranked.length > 0 && (
             <>
-              <section
-                className="grid grid-cols-1 divide-y divide-zinc-200 rounded-xl bg-white shadow-card sm:grid-cols-[1fr_1.4fr_1fr] sm:divide-x sm:divide-y-0"
-                aria-label="Overview"
-              >
-                <div className="min-w-0 p-5 sm:p-6">
-                  <Eyebrow>Weakest lecture</Eyebrow>
-                  <div className="mt-2 font-mono text-3xl font-semibold tracking-tight tabular-nums">
-                    {percent(ranked[0].solve_rate ?? 0)}
-                  </div>
-                  <div className="mt-1 truncate text-[13px] text-zinc-500">{ranked[0].display_label}</div>
-                </div>
+              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Overview">
+                <OverviewCard
+                  label="Weakest lecture"
+                  icon={<IconTrendDown />}
+                  value={percent(ranked[0].solve_rate ?? 0)}
+                />
                 {topics[0] && (
-                  <div className="min-w-0 p-5 sm:p-6">
-                    <Eyebrow>Hardest topic</Eyebrow>
-                    <div className="mt-2 text-xl leading-tight font-bold tracking-tight text-zinc-950">{topics[0].title}</div>
-                    <div className="mt-1 truncate text-[13px] text-zinc-500">
-                      {percent(topics[0].rate)} solved · {plural(topics[0].lectures, "lecture")}
-                    </div>
-                  </div>
+                  <OverviewCard
+                    label="Hardest topic"
+                    icon={<IconTarget />}
+                    value={topics[0].title}
+                    valueIsText
+                  />
                 )}
                 {average !== null && (
-                  <div className="min-w-0 p-5 sm:p-6">
-                    <Eyebrow>Average</Eyebrow>
-                    <div className="mt-2 font-mono text-3xl font-semibold tracking-tight tabular-nums">{percent(average)}</div>
-                    <div className="mt-1 truncate text-[13px] text-zinc-500">{plural(ranked.length, "lecture")}</div>
-                  </div>
+                  <OverviewCard
+                    label="Average solved"
+                    icon={<IconGauge />}
+                    value={percent(average)}
+                    delta={monthDelta(ranked, (r) => r.solve_rate ?? 0)}
+                  />
+                )}
+                {participation !== null && (
+                  <OverviewCard
+                    label="Participation"
+                    icon={<IconUsers />}
+                    value={percent(participation)}
+                    delta={monthDelta(ranked, participationOf)}
+                  />
                 )}
               </section>
 
@@ -546,6 +755,7 @@ export default function App() {
             >
               All lectures
             </SectionTitle>
+            {history === null && <ListSkeleton />}
             {history && history.length === 0 && <p className="mt-3 text-sm text-zinc-500">No lectures yet.</p>}
             {history && history.length > 0 && (
               <ul className="mt-3">

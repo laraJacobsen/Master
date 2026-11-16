@@ -49,6 +49,12 @@
   --animate-fade-in: fade-in 0.15s ease-out both;
   --animate-fade-in-up: fade-in-up 0.4s ease-out both;
   --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+
+  @keyframes shimmer {
+    from { background-position: 100% 0; }
+    to { background-position: -100% 0; }
+  }
 
   @keyframes fade-in {
     from { opacity: 0; }

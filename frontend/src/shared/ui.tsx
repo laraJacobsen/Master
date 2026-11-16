@@ -578,3 +578,21 @@ export function SegmentedControl<T extends string>({ options, value, onChange, l
     </div>
   );
 }
+
+export interface SkeletonProps {
+  className?: string;
+}
+
+/** A grey placeholder block with a soft shimmer, sized by className. */
+export function Skeleton({ className }: SkeletonProps) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cx(
+        "animate-shimmer rounded-md bg-[length:200%_100%]",
+        "bg-[linear-gradient(90deg,var(--color-zinc-100)_25%,var(--color-zinc-200)_50%,var(--color-zinc-100)_75%)]",
+        className,
+      )}
+    />
+  );
+}
