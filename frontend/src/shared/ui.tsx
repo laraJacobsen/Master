@@ -515,7 +515,7 @@ export interface BigTimerProps {
   className?: string;
 }
 
-function formatMMSS(totalSeconds: number): string {
+export function formatMMSS(totalSeconds: number): string {
   const s = Math.max(0, Math.round(totalSeconds));
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 }

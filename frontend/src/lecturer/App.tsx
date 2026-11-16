@@ -24,12 +24,11 @@ import {
   raiseIssue,
 } from "../shared/api";
 import { ClassProgress } from "./ClassProgress";
-import { ClassBar } from "./ClassBar";
 import { IssueList } from "./IssueList";
 import { clusterIds, issueKey } from "./issues";
-import { TaskHeader } from "./TaskHeader";
+import { TaskHeader, TaskStatusCard } from "./TaskHeader";
+import { VerdictBreakdown } from "./VerdictBreakdown";
 import { buildTracks } from "./studentTracks";
-import { StudentGrid } from "./StudentGrid";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
@@ -572,19 +571,52 @@ export default function App() {
                 onEndTaskNow={handleEndTaskNow}
                 onEndLecture={() => setConfirmFinishOpen(true)}
               />
-              <section className="pt-10 pb-12" aria-label="Class progress">
-                <ClassBar
-                  tracks={tracks}
-                  submitted={progress?.submitted ?? tracks.filter((t) => t.best).length}
-                  expected={progress?.expected ?? null}
-                  showActivity={taskRunning}
-                />
-              </section>
+              <TaskStatusCard
+                question={question}
+                secondsRemaining={secondsRemaining}
+                submitted={progress?.submitted ?? tracks.filter((t) => t.best).length}
+                expected={progress?.expected ?? null}
+                tracks={tracks}
+                showActivity={taskRunning}
+                lastTask={lastTask}
+              />
             </>
           )
         )}
 
-        {!lectureFinished && !LECTURE_ID && !LOBBY_ID && (
+        {QUESTION_ID && !lectureFinished && !LECTURE_ID && (
+          <div className="mt-6 grid items-start gap-6 pb-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <VerdictBreakdown
+              tracks={tracks}
+              subs={subRows}
+              expected={progress?.expected ?? null}
+              activity={taskRunning ? activity : null}
+            />
+            <section aria-label="Discussion points" className="min-w-0">
+              <div className="mb-3 flex items-baseline gap-3">
+                <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Discussion points</h2>
+                <span className="text-[13px] text-zinc-400">biggest first · open one for the specifics</span>
+              </div>
+              {raiseError && <ErrorText className="mb-3">{raiseError}</ErrorText>}
+              <IssueList
+                issues={clusters}
+                classSize={classSize}
+                openKeys={openIssues}
+                onToggleOpen={toggleIssue}
+                subsFor={(c) =>
+                  clusterIds(c)
+                    .map(knownSub)
+                    .filter((sub): sub is SubmissionRow => !!sub)
+                }
+                loadError={issueLoadError}
+                raisingKey={raisingKey}
+                onToggleRaised={toggleRaised}
+              />
+            </section>
+          </div>
+        )}
+
+        {!QUESTION_ID && !lectureFinished && !LECTURE_ID && !LOBBY_ID && (
           <div className="grid items-start gap-x-14 gap-y-12 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] 2xl:grid-cols-[minmax(0,1fr)_minmax(18rem,30rem)]">
             <section aria-label="Common issues" className="min-w-0">
               <div className="mb-4 flex items-baseline gap-3">
@@ -604,14 +636,10 @@ export default function App() {
                 }
                 loadError={issueLoadError}
                 raisingKey={raisingKey}
-                onToggleRaised={QUESTION_ID ? toggleRaised : null}
+                onToggleRaised={null}
               />
             </section>
-            {QUESTION_ID ? (
-              <div className="lg:sticky lg:top-20">
-                <StudentGrid subs={subRows} activity={taskRunning ? activity : null} />
-              </div>
-            ) : (
+            {
               // No ?question_id= (the old everything-at-once view): students span
               // several questions there, so it keeps the plain attempt log.
               <Card>
@@ -671,7 +699,7 @@ export default function App() {
                   </table>
                 )}
               </Card>
-            )}
+            }
           </div>
         )}
 
