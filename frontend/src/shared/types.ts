@@ -221,6 +221,9 @@ export interface ActiveLectureResponse {
   live_question_id: string | null;
   // Whether "Next task" would start anything -- only sent while a lecture is active.
   has_next_task?: boolean;
+  // The live task's position: "Task 3 of 4" (null when nothing is live).
+  task_number?: number | null;
+  task_count?: number;
 }
 
 // GET /api/lecturer/stats/totals

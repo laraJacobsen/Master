@@ -29,6 +29,7 @@ import { clusterIds, issueKey } from "./issues";
 import { TaskHeader, TaskStatusCard } from "./TaskHeader";
 import { VerdictBreakdown } from "./VerdictBreakdown";
 import { buildTracks } from "./studentTracks";
+import { buildMock } from "./mockData";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
@@ -58,6 +59,10 @@ const LECTURE_ID = new URLSearchParams(window.location.search).get("lecture_id")
 // separate page -- the audience and the underlying page never change,
 // only which controls/data are showing.
 const LOBBY_ID = new URLSearchParams(window.location.search).get("lobby");
+
+// ?mock fills the live task view with fake data (see mockData.ts) instead of
+// polling the backend -- for previewing the layout. Use with ?question_id=mock.
+const MOCK = new URLSearchParams(window.location.search).has("mock");
 
 const VERDICT_TONE: Record<string, Tone> = {
   correct: "success",
@@ -108,6 +113,10 @@ export default function App() {
   // on setup mid-lecture brings it back. null = not known yet, so the button
   // shows as usual until the first answer arrives.
   const [hasNextTask, setHasNextTask] = useState<boolean | null>(null);
+  // "Introduction to Programming · Task 3 of 4" above the task name.
+  const [lectureLabel, setLectureLabel] = useState<string | null>(null);
+  const [taskNumber, setTaskNumber] = useState<number | null>(null);
+  const [taskCount, setTaskCount] = useState<number | null>(null);
 
   // Powers the "Time remaining" banner and gates the Next task/Finish
   // lecture controls -- see api_lecture_next/finish in backend/main.py.
@@ -208,6 +217,22 @@ export default function App() {
   useEffect(() => {
     if (LECTURE_ID || LOBBY_ID) return; // historical/lobby mode -- no live task polling, see effects above.
 
+    if (MOCK) {
+      const m = buildMock();
+      setPageTitle(m.question.title);
+      setQuestion(m.question);
+      setSubRows(m.subs);
+      setClusters(m.clusters);
+      setProgress(m.progress);
+      setActivity(m.activity);
+      setJoinCode(m.joinCode);
+      setHasNextTask(true);
+      setLectureLabel(m.lectureLabel);
+      setTaskNumber(m.taskNumber);
+      setTaskCount(m.taskCount);
+      return;
+    }
+
     if (QUESTION_ID) {
       fetchQuestionDetail(QUESTION_ID)
         .then((q) => {
@@ -224,6 +249,9 @@ export default function App() {
         .then((a) => {
           setJoinCode(a.lecture?.join_code ?? null);
           setHasNextTask(a.has_next_task ?? null);
+          setLectureLabel(a.lecture?.display_label ?? null);
+          setTaskNumber(a.task_number ?? null);
+          setTaskCount(a.task_count ?? null);
         })
         .catch(() => {
           // Not critical -- the card omits the code and keeps "Next task".
@@ -318,6 +346,10 @@ export default function App() {
   }, [question]);
 
   async function handleNextTask() {
+    if (MOCK) {
+      setAdvanceMessage("Mock mode: Next task doesn't do anything here.");
+      return;
+    }
     setAdvancing(true);
     setAdvanceMessage(null);
     try {
@@ -341,6 +373,11 @@ export default function App() {
   // can show them examples before clicking "Next task".
   async function handleEndTaskNow() {
     if (!QUESTION_ID) return;
+    if (MOCK) {
+      // Pretend the timer ran out, so the "time's up" state can be previewed.
+      setQuestion((q) => q && { ...q, started_at: new Date(Date.now() - q.duration_seconds * 1000).toISOString().slice(0, 19).replace("T", " ") });
+      return;
+    }
     setAdvancing(true);
     setAdvanceMessage(null);
     try {
@@ -445,6 +482,10 @@ export default function App() {
   async function toggleRaised(c: ClusterRow) {
     if (!QUESTION_ID) return;
     const key = issueKey(c);
+    if (MOCK) {
+      setClusters((prev) => prev.map((x) => (issueKey(x) === key ? { ...x, raised: !x.raised } : x)));
+      return;
+    }
     setRaisingKey(key);
     setRaiseError(null);
     try {
@@ -470,8 +511,6 @@ export default function App() {
 
   const lastTask = hasNextTask === false;
   const taskRunning = secondsRemaining != null && secondsRemaining > 0;
-  // What an issue's bar is a share of: everyone who's submitted so far.
-  const classSize = Math.max(progress?.submitted ?? 0, ...clusters.map((c) => c.count), 1);
   const tracks = buildTracks(subRows, taskRunning ? activity : null);
 
   return (
@@ -561,6 +600,9 @@ export default function App() {
             <>
               <TaskHeader
                 title={pageTitle}
+                lectureLabel={lectureLabel}
+                taskNumber={taskNumber}
+                taskCount={taskCount}
                 question={question}
                 secondsRemaining={secondsRemaining}
                 joinCode={joinCode}
@@ -585,22 +627,14 @@ export default function App() {
         )}
 
         {QUESTION_ID && !lectureFinished && !LECTURE_ID && (
-          <div className="mt-6 grid items-start gap-6 pb-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-            <VerdictBreakdown
-              tracks={tracks}
-              subs={subRows}
-              expected={progress?.expected ?? null}
-              activity={taskRunning ? activity : null}
-            />
+          <>
+          <div className="mt-5 grid items-start gap-5 lg:grid-cols-2">
+            <VerdictBreakdown tracks={tracks} subs={subRows} activity={taskRunning ? activity : null} />
             <section aria-label="Discussion points" className="min-w-0">
-              <div className="mb-3 flex items-baseline gap-3">
-                <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Discussion points</h2>
-                <span className="text-[13px] text-zinc-400">biggest first · open one for the specifics</span>
-              </div>
               {raiseError && <ErrorText className="mb-3">{raiseError}</ErrorText>}
               <IssueList
                 issues={clusters}
-                classSize={classSize}
+                taskRunning={taskRunning}
                 openKeys={openIssues}
                 onToggleOpen={toggleIssue}
                 subsFor={(c) =>
@@ -614,6 +648,10 @@ export default function App() {
               />
             </section>
           </div>
+          <p className="mt-6 pb-12 text-center text-[12px] text-zinc-400">
+            Student names and individual code stay hidden until you open a discussion point or show the students.
+          </p>
+          </>
         )}
 
         {!QUESTION_ID && !lectureFinished && !LECTURE_ID && !LOBBY_ID && (
@@ -626,7 +664,7 @@ export default function App() {
               {raiseError && <ErrorText className="mb-3">{raiseError}</ErrorText>}
               <IssueList
                 issues={clusters}
-                classSize={classSize}
+                taskRunning={false}
                 openKeys={openIssues}
                 onToggleOpen={toggleIssue}
                 subsFor={(c) =>

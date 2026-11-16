@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ActivityStatus, QuestionRow } from "../shared/types";
 import { Menu } from "../shared/Menu";
 import type { MenuEntry } from "../shared/Menu";
-import { Button, Card, Eyebrow, StatusLine, formatMMSS } from "../shared/ui";
+import { Button, Card, Eyebrow, formatMMSS } from "../shared/ui";
 import { ACTIVITY_LABEL, isSolved } from "./studentTracks";
 import type { StudentTrack } from "./studentTracks";
 import { ActivityDot } from "./ClassProgress";
@@ -10,6 +10,10 @@ import { cx } from "../shared/cx";
 
 export interface TaskHeaderProps {
   title: string;
+  // "Introduction to Programming · Task 3 of 4" -- each part optional.
+  lectureLabel: string | null;
+  taskNumber: number | null;
+  taskCount: number | null;
   question: QuestionRow | null;
   secondsRemaining: number | null;
   joinCode: string | null;
@@ -23,11 +27,14 @@ export interface TaskHeaderProps {
   onEndLecture: () => void;
 }
 
-// The top of the live dashboard: the task name, and on the other side the one
-// next step plus a "..." menu for everything else (task text, ending the task
-// early, join code, projector, setup, ending the lecture).
+// The top of the live dashboard: lecture and task position, the task name, and
+// on the other side Next task plus a "..." menu for everything
+// else (task text, ending the task early, join code, projector, setup).
 export function TaskHeader({
   title,
+  lectureLabel,
+  taskNumber,
+  taskCount,
   question,
   secondsRemaining,
   joinCode,
@@ -40,7 +47,6 @@ export function TaskHeader({
 }: TaskHeaderProps) {
   const [showTask, setShowTask] = useState(false);
   const running = secondsRemaining != null && secondsRemaining > 0;
-  const timeUp = secondsRemaining === 0;
   const example = question?.test_cases[0] ?? null;
 
   const taskItems: MenuEntry[] = [
@@ -53,27 +59,25 @@ export function TaskHeader({
     { label: "Projector view ↗", href: "present.html", newTab: true },
     { label: "Question setup", href: "setup.html" },
     "separator",
-    {
-      label: lastTask ? "End lecture..." : "End lecture early...",
-      tone: "danger",
-      disabled: advancing,
-      onSelect: onEndLecture,
-    },
+    // Ends the whole lecture for everyone -- kept in here, not on the page,
+    // so it isn't clicked by accident (and it still asks to confirm).
+    { label: "End session...", tone: "danger", disabled: advancing, onSelect: onEndLecture },
   ];
+  const eyebrow = [
+    lectureLabel,
+    taskNumber != null && (taskCount != null ? `Task ${taskNumber} of ${taskCount}` : `Task ${taskNumber}`),
+  ].filter(Boolean);
 
   return (
     <header className="pt-8 sm:pt-10">
-      <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
-        <h1 className="min-w-0 flex-1 basis-80 text-3xl font-bold tracking-tight text-balance text-zinc-950 lg:text-4xl">
-          {title}
-        </h1>
+      <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+        <div className="min-w-0 flex-1 basis-80">
+          {eyebrow.length > 0 && <Eyebrow>{eyebrow.join(" · ")}</Eyebrow>}
+          <h1 className="mt-1.5 text-3xl font-bold tracking-tight text-balance text-zinc-950 lg:text-4xl">{title}</h1>
+        </div>
         <div className="flex items-center gap-2">
-          {lastTask ? (
-            <Button variant={timeUp ? "primary" : "secondary"} size="lg" onClick={onEndLecture} disabled={advancing}>
-              End lecture
-            </Button>
-          ) : (
-            <Button variant={timeUp ? "primary" : "secondary"} size="lg" onClick={onNextTask} disabled={advancing}>
+          {!lastTask && (
+            <Button size="lg" onClick={onNextTask} disabled={advancing}>
               Next task
               <span aria-hidden="true">&rarr;</span>
             </Button>
@@ -141,7 +145,8 @@ export interface TaskStatusCardProps {
   lastTask: boolean;
 }
 
-// "12/20 submitted" and the time remaining, with the time drawn as a draining bar.
+// "18 / 42 submitted" with a submissions bar, and the time remaining with its
+// own draining bar, split by a divider.
 export function TaskStatusCard({
   question,
   secondsRemaining,
@@ -153,10 +158,12 @@ export function TaskStatusCard({
 }: TaskStatusCardProps) {
   const running = secondsRemaining != null && secondsRemaining > 0;
   const timeUp = secondsRemaining === 0;
-  const fraction =
+  const timeFraction =
     question && secondsRemaining != null && question.duration_seconds > 0
       ? Math.min(1, Math.max(0, secondsRemaining / question.duration_seconds))
       : 0;
+  const submittedFraction = expected ? Math.min(1, submitted / expected) : submitted > 0 ? 1 : 0;
+  const notSubmitted = expected != null ? Math.max(0, expected - submitted) : null;
   const unsolved = tracks.filter((t) => !isSolved(t));
   const activityCounts = (["active", "idle", "away"] as ActivityStatus[]).map(
     (st) => [st, unsolved.filter((t) => (t.activity?.status ?? "away") === st).length] as const,
@@ -164,62 +171,72 @@ export function TaskStatusCard({
 
   return (
     <Card className="mt-6">
-      <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
-        <div>
-          <Eyebrow>Submitted</Eyebrow>
-          <p className="mt-1 flex items-baseline gap-2">
+      <div className="flex flex-wrap items-stretch justify-between gap-x-8 gap-y-5">
+        <div className="min-w-0 flex-1 basis-72">
+          <div className="flex items-center gap-2">
+            {running ? (
+              <span className="grid size-3.5 place-items-center rounded-full border border-emerald-500" aria-hidden="true">
+                <span className="size-1.5 animate-pulse-dot rounded-full bg-emerald-500" />
+              </span>
+            ) : (
+              <span className="size-2 rounded-full bg-zinc-300" aria-hidden="true" />
+            )}
+            <Eyebrow>{running ? "Live submissions" : timeUp ? "Submissions · closed" : "Submissions"}</Eyebrow>
+          </div>
+          <p className="mt-2 flex items-baseline gap-1.5">
             <span className="font-mono text-4xl leading-none font-semibold tracking-tight text-zinc-950 tabular-nums">
               {submitted}
             </span>
             {expected != null && submitted <= expected && (
-              <span className="font-mono text-xl text-zinc-400 tabular-nums">/ {expected}</span>
+              <span className="text-xl text-zinc-400 tabular-nums">/ {expected}</span>
             )}
-            <span className="ml-1 text-sm text-zinc-500">
-              submitted
-              {expected != null && submitted > expected && ` · more than the ${expected} expected`}
-            </span>
+            <span className="text-xl text-zinc-400">submitted</span>
+            {expected != null && submitted > expected && (
+              <span className="ml-1 text-sm text-zinc-500">· more than the {expected} expected</span>
+            )}
           </p>
         </div>
-        <div className="text-right">
+        <div className="flex flex-col items-end justify-center border-zinc-200 sm:border-l sm:pl-8">
           <Eyebrow className={timeUp ? "text-red-600" : undefined}>{timeUp ? "Time's up" : "Time remaining"}</Eyebrow>
           <div
             role="timer"
             className={cx(
-              "mt-1 font-mono text-4xl leading-none font-semibold tracking-tight tabular-nums",
+              "mt-1.5 font-mono text-3xl leading-none font-semibold tracking-tight tabular-nums",
               timeUp ? "text-red-600" : "text-zinc-950",
             )}
           >
             {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
           </div>
+          <div className="mt-2.5 h-1 w-28 overflow-hidden rounded-full bg-zinc-100" aria-hidden="true">
+            <div
+              className={cx(
+                "ml-auto h-full rounded-full transition-[width,background-color] duration-1000 ease-linear",
+                timeFraction <= 0.15 ? "bg-red-500" : timeFraction <= 0.4 ? "bg-amber-500" : "bg-zinc-800",
+              )}
+              style={{ width: `${timeFraction * 100}%` }}
+            />
+          </div>
         </div>
       </div>
 
       <div
-        className="mt-5 h-3 overflow-hidden rounded-full bg-zinc-100"
+        className="mt-5 h-2 overflow-hidden rounded-full bg-zinc-100"
         role="progressbar"
-        aria-label="Time remaining"
+        aria-label="Submitted"
         aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(fraction * 100)}
+        aria-valuemax={expected ?? submitted}
+        aria-valuenow={submitted}
       >
         <div
-          className={cx(
-            "h-full rounded-full transition-[width,background-color] duration-1000 ease-linear",
-            fraction <= 0.15 ? "bg-red-500" : fraction <= 0.4 ? "bg-amber-400" : "bg-brand-500",
-          )}
-          style={{ width: `${fraction * 100}%` }}
+          className="h-full rounded-full bg-brand-500 transition-[width] duration-700 ease-out"
+          style={{ width: `${submittedFraction * 100}%` }}
         />
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-[13px]">
-        <StatusLine
-          state={running ? "live" : timeUp ? "closed" : "idle"}
-          label={running ? "Live" : timeUp ? "Closed" : "Not running"}
-          items={[question && <span className="capitalize">{question.language}</span>, lastTask && "Last task"]}
-        />
-        {showActivity && unsolved.length > 0 && (
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-[12px] text-zinc-500">
+        {showActivity && unsolved.length > 0 ? (
           <ul
-            className="flex gap-5 text-zinc-500"
+            className="flex gap-4"
             aria-label="Students who haven't solved it, by activity"
             title="Students who haven't solved it yet. Idle: no typing for a few minutes. Away: editor not open."
           >
@@ -230,12 +247,19 @@ export function TaskStatusCard({
               </li>
             ))}
           </ul>
+        ) : (
+          <span>{question ? <span className="capitalize">{question.language}</span> : null}{lastTask && " · Last task"}</span>
+        )}
+        {notSubmitted != null && (
+          <span>
+            <span className="font-mono font-semibold text-zinc-900 tabular-nums">{notSubmitted}</span> not yet submitted
+          </span>
         )}
       </div>
       {timeUp && (
         <p className="mt-3 flex items-center gap-2 text-[13px] text-zinc-600">
           <span className="size-1.5 animate-pulse-dot rounded-[2px] bg-amber-500" aria-hidden="true" />
-          Students are waiting. Pick what to show them, then {lastTask ? "end the lecture" : "start the next task"}.
+          Students are waiting. The queued examples are on screen now. {lastTask ? "End the session from the ··· menu" : "Start the next task"} when you're done.
         </p>
       )}
     </Card>
