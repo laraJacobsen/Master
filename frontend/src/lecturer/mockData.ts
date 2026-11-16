@@ -55,13 +55,22 @@ const TIMEOUT = `def is_balanced(s):
 
 print(is_balanced(input()))`;
 
+const SYNTAX = `def is_balanced(s)
+    stack = []
+    for ch in s:
+        if ch in "([{":
+            stack.append(ch)
+    return not stack
+
+print(is_balanced(input()))`;
+
 const NAMES = [
   "Ada", "Bjørn", "Camille", "Dev", "Emma", "Farid", "Greta", "Hiro", "Ingrid", "Jonas",
   "Kari", "Leo", "Maja", "Nils", "Olivia", "Per", "Quinn", "Rania", "Sofie", "Tobias",
   "Una", "Viktor", "Wen", "Ximena", "Yusuf", "Zara",
 ];
 
-type Kind = "correct" | "no_match" | "counting" | "index_error" | "timeout";
+type Kind = "correct" | "no_match" | "counting" | "index_error" | "timeout" | "syntax";
 
 const KIND: Record<Kind, { code: string; verdict: Verdict; exec: string; error_type: string | null; passed: number; stdout: string; stderr?: string }> = {
   correct: { code: REFERENCE, verdict: "correct", exec: "pass", error_type: null, passed: 5, stdout: "False" },
@@ -76,6 +85,15 @@ const KIND: Record<Kind, { code: string; verdict: Verdict; exec: string; error_t
     stdout: "",
     stderr: 'Traceback (most recent call last):\n  File "main.py", line 7, in is_balanced\n    if stack[-1] == "(" and ch == ")":\nIndexError: list index out of range',
   },
+  syntax: {
+    code: SYNTAX,
+    verdict: "error",
+    exec: "syntax_error",
+    error_type: null,
+    passed: 0,
+    stdout: "",
+    stderr: '  File "main.py", line 1\n    def is_balanced(s)\n                      ^\nSyntaxError: expected \':\'',
+  },
   timeout: { code: TIMEOUT, verdict: "error", exec: "timeout", error_type: null, passed: 0, stdout: "" },
 };
 
@@ -84,8 +102,8 @@ const PLAN: Kind[][] = [
   ["correct"], ["no_match", "correct"], ["no_match"], ["counting", "no_match"], ["index_error", "no_match"],
   ["correct"], ["counting"], ["no_match"], ["index_error"], ["counting", "counting"],
   ["no_match", "no_match", "correct"], ["timeout"], ["no_match"], ["counting"], ["index_error", "index_error"],
-  ["correct"], ["no_match"], ["timeout", "counting"], ["no_match"], ["correct"],
-  ["index_error"], ["no_match"],
+  ["correct"], ["syntax", "no_match"], ["timeout", "counting"], ["syntax"], ["correct"],
+  ["index_error"], ["syntax"],
 ];
 
 function ts(minutesAgo: number): string {
@@ -162,6 +180,11 @@ export function buildMock() {
       title: "Reading the top of an empty stack",
       action: "Run the code on \")\" together and read the traceback's last line.",
     }),
+    cluster(SYNTAX, "syntax_error", null, {
+      discussion_point: "Syntax error. Worth comparing the flagged line against the exact pattern of a def statement.",
+      title: "Missing colon after the def line",
+      action: "Put the flagged line next to a correct def header and ask what's different.",
+    }),
     cluster(TIMEOUT, "timeout", null, {
       discussion_point: "Didn't finish. Worth checking what should update the loop's stopping condition.",
       title: "Loop never changes the string",
@@ -206,5 +229,15 @@ export function buildMock() {
     nudged: i === 3,
   }));
 
-  return { subs, clusters, question, progress, activity, joinCode: "482913" };
+  return {
+    subs,
+    clusters,
+    question,
+    progress,
+    activity,
+    joinCode: "482913",
+    lectureLabel: "Introduction to Programming",
+    taskNumber: 3,
+    taskCount: 4,
+  };
 }

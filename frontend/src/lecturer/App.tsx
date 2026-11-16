@@ -113,6 +113,10 @@ export default function App() {
   // on setup mid-lecture brings it back. null = not known yet, so the button
   // shows as usual until the first answer arrives.
   const [hasNextTask, setHasNextTask] = useState<boolean | null>(null);
+  // "Introduction to Programming · Task 3 of 4" above the task name.
+  const [lectureLabel, setLectureLabel] = useState<string | null>(null);
+  const [taskNumber, setTaskNumber] = useState<number | null>(null);
+  const [taskCount, setTaskCount] = useState<number | null>(null);
 
   // Powers the "Time remaining" banner and gates the Next task/Finish
   // lecture controls -- see api_lecture_next/finish in backend/main.py.
@@ -223,6 +227,9 @@ export default function App() {
       setActivity(m.activity);
       setJoinCode(m.joinCode);
       setHasNextTask(true);
+      setLectureLabel(m.lectureLabel);
+      setTaskNumber(m.taskNumber);
+      setTaskCount(m.taskCount);
       return;
     }
 
@@ -242,6 +249,9 @@ export default function App() {
         .then((a) => {
           setJoinCode(a.lecture?.join_code ?? null);
           setHasNextTask(a.has_next_task ?? null);
+          setLectureLabel(a.lecture?.display_label ?? null);
+          setTaskNumber(a.task_number ?? null);
+          setTaskCount(a.task_count ?? null);
         })
         .catch(() => {
           // Not critical -- the card omits the code and keeps "Next task".
@@ -501,8 +511,6 @@ export default function App() {
 
   const lastTask = hasNextTask === false;
   const taskRunning = secondsRemaining != null && secondsRemaining > 0;
-  // What an issue's bar is a share of: everyone who's submitted so far.
-  const classSize = Math.max(progress?.submitted ?? 0, ...clusters.map((c) => c.count), 1);
   const tracks = buildTracks(subRows, taskRunning ? activity : null);
 
   return (
@@ -592,6 +600,9 @@ export default function App() {
             <>
               <TaskHeader
                 title={pageTitle}
+                lectureLabel={lectureLabel}
+                taskNumber={taskNumber}
+                taskCount={taskCount}
                 question={question}
                 secondsRemaining={secondsRemaining}
                 joinCode={joinCode}
@@ -616,22 +627,14 @@ export default function App() {
         )}
 
         {QUESTION_ID && !lectureFinished && !LECTURE_ID && (
-          <div className="mt-6 grid items-start gap-6 pb-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-            <VerdictBreakdown
-              tracks={tracks}
-              subs={subRows}
-              expected={progress?.expected ?? null}
-              activity={taskRunning ? activity : null}
-            />
+          <>
+          <div className="mt-5 grid items-start gap-5 lg:grid-cols-2">
+            <VerdictBreakdown tracks={tracks} subs={subRows} activity={taskRunning ? activity : null} />
             <section aria-label="Discussion points" className="min-w-0">
-              <div className="mb-3 flex items-baseline gap-3">
-                <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Discussion points</h2>
-                <span className="text-[13px] text-zinc-400">biggest first · open one for the specifics</span>
-              </div>
               {raiseError && <ErrorText className="mb-3">{raiseError}</ErrorText>}
               <IssueList
                 issues={clusters}
-                classSize={classSize}
+                taskRunning={taskRunning}
                 openKeys={openIssues}
                 onToggleOpen={toggleIssue}
                 subsFor={(c) =>
@@ -645,6 +648,10 @@ export default function App() {
               />
             </section>
           </div>
+          <p className="mt-6 pb-12 text-center text-[12px] text-zinc-400">
+            Student names and individual code stay hidden until you open a discussion point or show the students.
+          </p>
+          </>
         )}
 
         {!QUESTION_ID && !lectureFinished && !LECTURE_ID && !LOBBY_ID && (
@@ -657,7 +664,7 @@ export default function App() {
               {raiseError && <ErrorText className="mb-3">{raiseError}</ErrorText>}
               <IssueList
                 issues={clusters}
-                classSize={classSize}
+                taskRunning={false}
                 openKeys={openIssues}
                 onToggleOpen={toggleIssue}
                 subsFor={(c) =>

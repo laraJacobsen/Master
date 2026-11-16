@@ -569,6 +569,16 @@ def next_draft_question():
         return _deserialize_question(dict(row)) if row else None
 
 
+def count_ready_drafts() -> int:
+    """How many validated drafts "Next task" could still start -- the
+    not-yet-run tasks in the live dashboard's "Task N of M"."""
+    with _lock:
+        conn = _connect()
+        n = conn.execute("SELECT COUNT(*) FROM questions WHERE status = 'draft' AND validated = 1").fetchone()[0]
+        conn.close()
+        return n
+
+
 def _lecture_display_label(row: dict) -> str:
     if row.get("label"):
         return row["label"]
