@@ -90,7 +90,7 @@ export function TestFiles({ questionId, files, groupByTest = false }: TestFilesP
                     onClick={() => void toggle(f)}
                     className={cx(
                       "flex w-full items-center gap-3 border-l-2 py-2 pr-1 pl-2.5 text-left text-[13px] transition-colors",
-                      "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900",
+                      "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500",
                       isOpen ? "border-l-zinc-900 bg-white" : "border-l-transparent hover:bg-white",
                     )}
                   >

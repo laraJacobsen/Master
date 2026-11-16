@@ -15,7 +15,7 @@ export function HeaderNavLink({ href, children, className }: HeaderNavLinkProps)
       href={href}
       className={cx(
         "inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-zinc-500 transition-colors " +
-          "hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900",
+          "hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
         className,
       )}
     >

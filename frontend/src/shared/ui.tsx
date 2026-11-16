@@ -18,7 +18,7 @@ import { cx } from "./cx";
 
 
 const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500";
 
 // ---------------------------------------------------------------- Buttons
 
@@ -32,8 +32,8 @@ const buttonBase =
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-zinc-900 text-white hover:bg-zinc-700 active:bg-zinc-800 " +
-    "disabled:bg-zinc-200 disabled:text-zinc-400",
+    "bg-brand-500 text-white shadow-sm shadow-brand-500/25 hover:bg-brand-600 active:bg-brand-700 " +
+    "disabled:bg-zinc-200 disabled:text-zinc-400 disabled:shadow-none",
   secondary:
     "border border-zinc-200 bg-white text-zinc-900 hover:border-zinc-300 hover:bg-zinc-100 " +
     "disabled:bg-white disabled:text-zinc-400 disabled:hover:border-zinc-200",
@@ -41,7 +41,7 @@ const buttonVariants: Record<ButtonVariant, string> = {
     "bg-red-600 text-white hover:bg-red-700 active:bg-red-800 " +
     "disabled:bg-red-200 disabled:text-white",
   ghost:
-    "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 " +
+    "text-zinc-600 hover:bg-brand-50 hover:text-brand-700 " +
     "disabled:text-zinc-300 disabled:hover:bg-transparent",
   "danger-ghost":
     "text-zinc-500 hover:bg-red-50 hover:text-red-700 " +
@@ -88,8 +88,8 @@ export function TextLink({ className, ...rest }: TextLinkProps) {
   return (
     <a
       className={cx(
-        "font-medium text-zinc-900 underline decoration-zinc-300 underline-offset-4 " +
-          "transition-colors hover:decoration-zinc-900 rounded-sm",
+        "font-medium text-zinc-900 underline decoration-brand-300 underline-offset-4 " +
+          "transition-colors hover:text-brand-700 hover:decoration-brand-500 rounded-sm",
         focusRing,
         className,
       )}
@@ -200,7 +200,7 @@ export function Label({ hint, className, children, ...rest }: LabelProps) {
 const fieldBase =
   "block w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-900 " +
   "placeholder:text-zinc-400 transition-[border-color,box-shadow] duration-150 " +
-  "hover:border-zinc-300 focus:border-zinc-900 focus:ring-3 focus:ring-zinc-900/10 focus:outline-none " +
+  "hover:border-zinc-300 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15 focus:outline-none " +
   "disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-zinc-400 " +
   "aria-invalid:border-red-500 aria-invalid:focus:ring-red-500/15";
 
@@ -264,7 +264,7 @@ const badgeText: Record<Tone, string> = {
   success: "text-emerald-700",
   warning: "text-amber-700",
   danger: "text-red-700",
-  info: "text-sky-700",
+  info: "text-brand-700",
   inverse: "text-zinc-950 font-semibold",
 };
 
@@ -273,7 +273,7 @@ const badgeMark: Record<Tone, string> = {
   success: "bg-emerald-500",
   warning: "bg-amber-500",
   danger: "bg-red-500",
-  info: "bg-sky-500",
+  info: "bg-brand-500",
   inverse: "bg-zinc-950",
 };
 
@@ -301,7 +301,7 @@ const calloutTones: Record<Exclude<Tone, "inverse">, string> = {
   success: "border-emerald-200 bg-emerald-50 text-emerald-900",
   warning: "border-amber-200 bg-amber-50 text-amber-900",
   danger: "border-red-200 bg-red-50 text-red-900",
-  info: "border-sky-200 bg-sky-50 text-sky-900",
+  info: "border-brand-200 bg-brand-50 text-brand-900",
 };
 
 export interface CalloutProps extends HTMLAttributes<HTMLDivElement> {
@@ -321,7 +321,7 @@ export interface ProgressBarProps {
 }
 
 const barTones: Record<NonNullable<ProgressBarProps["tone"]>, string> = {
-  neutral: "bg-zinc-900",
+  neutral: "bg-brand-500",
   success: "bg-emerald-500",
   warning: "bg-amber-500",
   danger: "bg-red-500",
@@ -413,7 +413,7 @@ export function Checkbox({ label, className, ...rest }: CheckboxProps) {
     <label className={cx("inline-flex cursor-pointer items-center gap-2 text-[13px] text-zinc-600 select-none hover:text-zinc-900", className)}>
       <input
         type="checkbox"
-        className="size-4 rounded border-zinc-300 accent-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+        className="size-4 rounded border-zinc-300 accent-brand-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
         {...rest}
       />
       {label}
@@ -445,7 +445,7 @@ export function BrandMark({ compact = false, className }: BrandMarkProps) {
   return (
     <span className={cx("flex items-center gap-2.5", className)}>
       <span
-        className="grid size-7 place-items-center rounded-md bg-zinc-950 font-mono text-[11px] font-bold text-white"
+        className="grid size-7 place-items-center rounded-md bg-linear-to-br from-brand-500 to-violet-500 font-mono text-[11px] font-bold text-white"
         aria-hidden="true"
       >
         IL
@@ -503,7 +503,7 @@ export function TimeLine({ fraction, className }: TimeLineProps) {
   return (
     <div className={cx("h-0.5 w-full bg-zinc-200", className)} aria-hidden="true">
       <div
-        className={cx("h-full transition-[width] duration-1000 ease-linear", f <= 0.15 ? "bg-red-500" : "bg-zinc-900")}
+        className={cx("h-full transition-[width] duration-1000 ease-linear", f <= 0.15 ? "bg-red-500" : "bg-brand-500")}
         style={{ width: `${f * 100}%` }}
       />
     </div>

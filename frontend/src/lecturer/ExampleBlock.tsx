@@ -21,7 +21,7 @@ function markedCode(sub: SubmissionRow, names: string[] | undefined, marks: Name
       marks?.has(slot) ? (
         <mark
           key={start}
-          className="cursor-help rounded-[2px] border-b-2 border-dotted border-zinc-900 bg-zinc-900/10 text-inherit"
+          className="cursor-help rounded-[2px] border-b-2 border-dotted border-brand-500 bg-brand-500/10 text-inherit"
           title={marks.get(slot)}
         >
           {text}
@@ -122,7 +122,7 @@ export function ExampleBlock({ subs }: ExampleBlockProps) {
           <label className="flex items-center gap-2 text-xs text-zinc-500">
             Show as written by
             <select
-              className="h-7 max-w-44 rounded-md border border-zinc-200 bg-white px-1.5 text-xs text-zinc-900 hover:border-zinc-300 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 focus:outline-none"
+              className="h-7 max-w-44 rounded-md border border-zinc-200 bg-white px-1.5 text-xs text-zinc-900 hover:border-zinc-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 focus:outline-none"
               value={student ? viewAs : ""}
               onChange={(e) => setViewAs(e.target.value)}
             >

@@ -2,13 +2,46 @@
    visual lives in Tailwind utilities on the components themselves -- see
    .claude/skills/ui-design.md for the rules (zinc palette, thin borders,
    rounded-lg/xl, tight bold headers, monospace only for code and numbers).
-   This file only holds what utilities can't: the font token, page-level
-   base styles, and the few keyframe animations. */
+   This file only holds what utilities can't: the font and colour tokens,
+   page-level base styles, and the few keyframe animations.
+
+   Colour: three primaries -- ink #292D32 (zinc-900), base #F9FAFA (zinc-50)
+   and accent #5E65E8 (brand-500). The zinc scale is overridden below as a
+   cool grey ramp between the first two, so every existing zinc-* utility
+   follows the palette. brand-* is for interactive and "you are here" marks
+   (primary buttons, focus rings, selection, progress); Tailwind's violet is
+   the secondary accent, used sparingly next to brand. */
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Cool neutral ramp: 50 = base #F9FAFA, 900 = ink #292D32. */
+  --color-zinc-50: #f9fafa;
+  --color-zinc-100: #f1f3f5;
+  --color-zinc-200: #e4e7eb;
+  --color-zinc-300: #cdd2d9;
+  --color-zinc-400: #9ca3ae;
+  --color-zinc-500: #6b7179;
+  --color-zinc-600: #50565e;
+  --color-zinc-700: #3c4148;
+  --color-zinc-800: #31353b;
+  --color-zinc-900: #292d32;
+  --color-zinc-950: #1d2024;
+
+  /* Accent ramp around #5E65E8 (500). White text on 500 is 4.7:1. */
+  --color-brand-50: #f1f2fe;
+  --color-brand-100: #e4e6fd;
+  --color-brand-200: #cdd0fb;
+  --color-brand-300: #abaff7;
+  --color-brand-400: #8489f0;
+  --color-brand-500: #5e65e8;
+  --color-brand-600: #4b50d8;
+  --color-brand-700: #3e41bd;
+  --color-brand-800: #353799;
+  --color-brand-900: #2f3179;
+  --color-brand-950: #1c1d47;
 
   --animate-fade-in: fade-in 0.15s ease-out both;
   --animate-fade-in-up: fade-in-up 0.4s ease-out both;
@@ -45,6 +78,17 @@
   }
   body {
     @apply bg-zinc-50 font-sans text-zinc-900 antialiased;
+    /* A faint blue/violet wash at the top of every page -- airy, not loud. */
+    background-image:
+      radial-gradient(60rem 28rem at 0% -10%, rgb(94 101 232 / 0.07), transparent 70%),
+      radial-gradient(48rem 24rem at 100% -10%, rgb(139 92 246 / 0.06), transparent 70%);
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  ::selection {
+    background: var(--color-brand-100);
+    color: var(--color-zinc-950);
   }
   /* Tailwind's preflight resets buttons to cursor: default. */
   button:not(:disabled),

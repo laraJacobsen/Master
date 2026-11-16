@@ -839,7 +839,7 @@ export default function App() {
                 {promptText}
               </p>
               {outputFile && (
-                <div className="mt-4 border-l-2 border-zinc-900 py-1 pl-3.5 text-[13px] leading-relaxed text-zinc-600">
+                <div className="mt-4 border-l-2 border-brand-400 py-1 pl-3.5 text-[13px] leading-relaxed text-zinc-600">
                   Write your answer to <Code>{outputFile}</Code>. That file is checked, not what your program prints.
                 </div>
               )}
@@ -899,10 +899,10 @@ export default function App() {
           <div className="grid min-w-0 gap-6">
             {nudge && (
               <div
-                className="flex animate-fade-in-up flex-col items-start gap-3 rounded-lg border border-sky-200 bg-sky-50 px-5 py-4 sm:flex-row sm:items-center"
+                className="flex animate-fade-in-up flex-col items-start gap-3 rounded-lg border border-brand-200 bg-brand-50 px-5 py-4 sm:flex-row sm:items-center"
                 role="status"
               >
-                <p className="flex-1 text-sm leading-relaxed text-sky-950">{nudge}</p>
+                <p className="flex-1 text-sm leading-relaxed text-brand-950">{nudge}</p>
                 <Button variant="secondary" size="sm" onClick={() => setNudge(null)}>
                   Got it
                 </Button>
@@ -965,7 +965,7 @@ export default function App() {
                         {Array.from({ length: result.hint_ceiling ?? 0 }, (_, i) => i + 1).map((i) => (
                           <div
                             key={i}
-                            className={cx("h-1 flex-1 rounded-sm", i <= (result.hint_tier ?? 0) ? "bg-zinc-900" : "bg-zinc-200")}
+                            className={cx("h-1 flex-1 rounded-sm", i <= (result.hint_tier ?? 0) ? "bg-brand-500" : "bg-zinc-200")}
                           />
                         ))}
                       </div>
@@ -975,7 +975,7 @@ export default function App() {
                 <p className="mt-6 max-w-3xl text-base leading-relaxed text-zinc-900">{result.feedback}</p>
                 {result.traceback && (
                   <details className="mt-6">
-                    <summary className="cursor-pointer rounded-sm text-[13px] font-medium text-zinc-500 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900">
+                    <summary className="cursor-pointer rounded-sm text-[13px] font-medium text-zinc-500 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500">
                       Your program's error output
                     </summary>
                     <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-zinc-950 px-4 py-3 font-mono text-[13px] leading-relaxed text-zinc-100">

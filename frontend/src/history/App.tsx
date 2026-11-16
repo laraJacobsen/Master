@@ -71,7 +71,7 @@ function Meter({ rate, size = "md", className }: MeterProps) {
       role="img"
       aria-label={`${percent(rate)} solved`}
     >
-      <span className="block h-full rounded-sm bg-zinc-900" style={{ width: percent(rate) }} />
+      <span className="block h-full rounded-sm bg-brand-500" style={{ width: percent(rate) }} />
     </span>
   );
 }
@@ -150,7 +150,7 @@ function LectureItem({ review, rank, open, onToggle }: LectureItemProps) {
     <li className="border-t border-zinc-200 first:border-t-0">
       <button
         type="button"
-        className="group -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-4 rounded-lg px-3 py-3.5 text-left transition-colors hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900"
+        className="group -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-4 rounded-lg px-3 py-3.5 text-left transition-colors hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={onToggle}
@@ -158,7 +158,7 @@ function LectureItem({ review, rank, open, onToggle }: LectureItemProps) {
         <span
           className={cx(
             "grid size-7 flex-none place-items-center rounded-md font-mono text-xs font-semibold",
-            rank === 1 ? "bg-zinc-950 text-white" : "border border-zinc-200 text-zinc-600",
+            rank === 1 ? "bg-brand-500 text-white" : "border border-zinc-200 text-zinc-600",
           )}
         >
           {rank}
@@ -268,7 +268,7 @@ function Trend({ ranked }: TrendProps) {
             <span
               className={cx(
                 "min-h-0.5 w-full rounded-t-sm transition-colors",
-                r.lecture_id === weakest ? "bg-zinc-950" : "bg-zinc-300 group-hover:bg-zinc-400",
+                r.lecture_id === weakest ? "bg-brand-500" : "bg-zinc-300 group-hover:bg-zinc-400",
               )}
               style={{ height: percent(r.solve_rate ?? 0) }}
             />
@@ -456,7 +456,7 @@ export default function App() {
                     )}
                   >
                     <a
-                      className="group flex min-w-0 flex-1 flex-col gap-0.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                      className="group flex min-w-0 flex-1 flex-col gap-0.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
                       href={`lecturer.html?lecture_id=${row.id}`}
                     >
                       <span className="truncate text-sm font-semibold text-zinc-900 group-hover:underline group-hover:underline-offset-4">

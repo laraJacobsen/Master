@@ -62,10 +62,10 @@ export function NavBar({ wide = false }: NavBarProps) {
       <div className={cx("mx-auto flex h-14 items-center gap-6 px-5 sm:px-8", wide ? "max-w-[112rem]" : "max-w-7xl")}>
         <a
           href="index.html"
-          className="group flex items-center gap-2.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-900"
+          className="group flex items-center gap-2.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500"
         >
           <span
-            className="grid size-7 place-items-center rounded-md bg-zinc-950 font-mono text-[11px] font-bold text-white transition-colors group-hover:bg-zinc-700"
+            className="grid size-7 place-items-center rounded-md bg-linear-to-br from-brand-500 to-violet-500 font-mono text-[11px] font-bold text-white transition-opacity group-hover:opacity-85"
             aria-hidden="true"
           >
             IL
@@ -105,12 +105,12 @@ function NavLink({ href, current, children }: NavLinkProps) {
       aria-current={current ? "page" : undefined}
       className={cx(
         "relative rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors",
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
         current ? "text-zinc-950" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900",
       )}
     >
       {children}
-      {current && <span className="absolute inset-x-2.5 -bottom-[13px] h-px bg-zinc-950" aria-hidden="true" />}
+      {current && <span className="absolute inset-x-2.5 -bottom-[13px] h-0.5 rounded-full bg-brand-500" aria-hidden="true" />}
     </a>
   );
 }

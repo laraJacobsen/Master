@@ -93,7 +93,7 @@ export function IssueList({
               type="button"
               aria-expanded={open}
               onClick={() => onToggleOpen(c)}
-              className="inline-flex items-center gap-2 rounded-md py-1 text-[13px] text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+              className="inline-flex items-center gap-2 rounded-md py-1 text-[13px] text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
             >
               <span className="grid size-4 place-items-center rounded-[4px] bg-emerald-600 text-white" aria-hidden="true">
                 <svg className="size-2.5" viewBox="0 0 10 10" fill="none">
@@ -147,7 +147,7 @@ function IssueRow({
           type="button"
           aria-expanded={open}
           onClick={onToggleOpen}
-          className="group flex w-full min-w-0 flex-1 items-start gap-4 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-900 sm:gap-7"
+          className="group flex w-full min-w-0 flex-1 items-start gap-4 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500 sm:gap-7"
         >
           <span className="w-14 flex-none pl-1 sm:w-16" title={`${c.count} of ${classSize} students who submitted`}>
             <span className="block font-mono text-4xl leading-none font-semibold tracking-tight text-zinc-950 tabular-nums">
@@ -197,10 +197,10 @@ function IssueRow({
             title={c.raised ? "Stop showing this on students' screens" : "Put this on students' screens when time is up"}
             className={cx(
               "ml-20 inline-flex h-8 flex-none items-center gap-1.5 self-start rounded-lg border px-3 sm:ml-0 text-[13px] font-medium whitespace-nowrap transition-colors",
-              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 disabled:cursor-not-allowed",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed",
               raising && "cursor-wait",
               c.raised
-                ? "border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-700"
+                ? "border-brand-500 bg-brand-500 text-white hover:bg-brand-600"
                 : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100 disabled:text-zinc-400",
             )}
           >

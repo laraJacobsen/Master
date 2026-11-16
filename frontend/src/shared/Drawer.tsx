@@ -50,7 +50,7 @@ export function Drawer({ open, onClose, title, meta, toolbar, children }: Drawer
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="grid size-9 flex-none place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+            className="grid size-9 flex-none place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
           >
             <svg className="size-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M4 4l8 8m0-8l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />

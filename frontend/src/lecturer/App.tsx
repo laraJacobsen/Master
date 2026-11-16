@@ -639,7 +639,7 @@ export default function App() {
                               <td className="py-2 pr-2">
                                 <button
                                   type="button"
-                                  className="rounded-sm text-left text-zinc-900 underline decoration-zinc-300 decoration-dotted underline-offset-4 hover:decoration-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                                  className="rounded-sm text-left text-zinc-900 underline decoration-zinc-300 decoration-dotted underline-offset-4 hover:decoration-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
                                   aria-expanded={isOpen}
                                   onClick={() => toggleExpanded(row.id)}
                                 >

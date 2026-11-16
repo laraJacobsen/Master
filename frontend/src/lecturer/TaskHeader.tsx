@@ -72,7 +72,7 @@ export function TaskHeader({
               type="button"
               aria-expanded={showTask}
               onClick={() => setShowTask((v) => !v)}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-md py-0.5 text-[13px] font-medium text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-md py-0.5 text-[13px] font-medium text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
             >
               <svg
                 className={cx("size-3 transition-transform", showTask && "rotate-90")}

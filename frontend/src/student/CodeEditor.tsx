@@ -12,7 +12,7 @@ export interface CodeEditorProps {
 
 export function CodeEditor({ language, initialValue, onChange }: CodeEditorProps) {
   return (
-    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white transition-colors focus-within:border-zinc-900">
+    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white transition-colors focus-within:border-brand-400 focus-within:ring-3 focus-within:ring-brand-500/10">
       <Editor
         height="460px"
         defaultLanguage={language}

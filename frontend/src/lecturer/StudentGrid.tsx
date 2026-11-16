@@ -95,7 +95,7 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
             type="button"
             aria-pressed={showNames}
             onClick={toggleNames}
-            className="ml-auto rounded-md px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+            className="ml-auto rounded-md px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
           >
             {showNames ? "Hide names" : "Show names"}
           </button>
@@ -137,10 +137,10 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
                   }
                   className={cx(
                     "relative flex h-12 w-full flex-col justify-between rounded-md border px-2 pt-1.5 pb-2 text-left transition-[border-color,box-shadow]",
-                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900",
+                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
                     TILE_TONE[group],
                     TILE_HOVER[group],
-                    selected === t.name && "ring-2 ring-zinc-900 ring-offset-1",
+                    selected === t.name && "ring-2 ring-brand-500 ring-offset-1",
                   )}
                 >
                   <span className={cx("truncate pr-2.5 text-xs leading-tight", showNames ? "font-medium" : "font-mono")}>
@@ -203,7 +203,7 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
                     onClick={() => setSelectedAttempt(s.id)}
                     className={cx(
                       "min-w-9 border-b-2 px-2 pt-1 pb-2 font-mono text-sm transition-colors",
-                      "rounded-t-sm focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900",
+                      "rounded-t-sm focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500",
                       VERDICT_BORDER[verdictOf(s)],
                       pressed ? "font-bold text-zinc-950 border-b-[3px]" : "text-zinc-400 opacity-60 hover:text-zinc-900 hover:opacity-100",
                     )}

@@ -34,7 +34,7 @@ export function CodeBlock({ children, lines, clamp = true, className }: CodeBloc
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="absolute right-2 bottom-2 rounded-md border border-zinc-200 bg-white/95 px-2 py-1 text-xs font-medium text-zinc-600 shadow-sm backdrop-blur transition-colors hover:text-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+          className="absolute right-2 bottom-2 rounded-md border border-zinc-200 bg-white/95 px-2 py-1 text-xs font-medium text-zinc-600 shadow-sm backdrop-blur transition-colors hover:text-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
         >
           {expanded ? "Collapse" : `Expand · ${lines} lines`}
         </button>

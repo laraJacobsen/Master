@@ -81,7 +81,7 @@ export function Menu({ label, items, header, className }: MenuProps) {
         className={cx(
           "grid size-9 place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-600 transition-colors",
           "hover:border-zinc-300 hover:bg-zinc-100 hover:text-zinc-900",
-          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900",
+          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
           open && "border-zinc-300 bg-zinc-100 text-zinc-900",
         )}
       >

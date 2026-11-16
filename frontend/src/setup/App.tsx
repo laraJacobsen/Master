@@ -114,7 +114,7 @@ function RemoveButton({ label, onClick, className }: RemoveButtonProps) {
       onClick={onClick}
       className={cx(
         "grid size-7 flex-none place-items-center rounded-md text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-600",
-        "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-zinc-900 disabled:pointer-events-none disabled:opacity-40",
+        "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-500 disabled:pointer-events-none disabled:opacity-40",
         className,
       )}
     >
@@ -139,7 +139,7 @@ function FilePickLabel({ children, inputLabel, multiple = false, onFiles }: File
     <label
       className={cx(
         "relative inline-flex cursor-pointer items-center gap-1 rounded-sm text-xs font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-4 transition-colors",
-        "hover:text-zinc-900 hover:decoration-zinc-900 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-zinc-900",
+        "hover:text-zinc-900 hover:decoration-zinc-900 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand-500",
         "group-disabled:cursor-default group-disabled:opacity-50 group-disabled:hover:text-zinc-500 group-disabled:hover:decoration-zinc-300",
       )}
     >
@@ -816,13 +816,13 @@ export default function App() {
                       key={q.id}
                       className={cx(
                         "group/q flex items-center gap-1 rounded-lg border pr-1.5 transition-colors",
-                        selected ? "border-zinc-900 bg-white" : "border-transparent hover:border-zinc-200 hover:bg-white",
+                        selected ? "border-brand-400 bg-white" : "border-transparent hover:border-zinc-200 hover:bg-white",
                       )}
                     >
                       <button
                         type="button"
                         aria-current={selected ? "true" : undefined}
-                        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-2.5 pl-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900"
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-2.5 pl-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500"
                         onClick={() => {
                           if (selected) return;
                           flushThen(() => loadQuestionIntoForm(q));
@@ -831,7 +831,7 @@ export default function App() {
                         <span
                           className={cx(
                             "grid size-6 flex-none place-items-center rounded-md font-mono text-[11px] font-semibold",
-                            selected ? "bg-zinc-950 text-white" : "border border-zinc-200 bg-white text-zinc-500",
+                            selected ? "bg-brand-500 text-white" : "border border-zinc-200 bg-white text-zinc-500",
                           )}
                         >
                           {i + 1}
@@ -921,8 +921,8 @@ export default function App() {
                         type="button"
                         className={cx(
                           "-mb-px flex w-full items-center gap-2.5 border-b-2 px-1 pt-1 pb-3 text-left text-[13px] font-semibold transition-colors",
-                          "rounded-t-md focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900",
-                          current ? "border-zinc-950 text-zinc-950" : "border-transparent text-zinc-500 hover:text-zinc-900",
+                          "rounded-t-md focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500",
+                          current ? "border-brand-500 text-zinc-950" : "border-transparent text-zinc-500 hover:text-zinc-900",
                         )}
                         aria-current={current ? "step" : undefined}
                         onClick={() => setStep(i)}
@@ -931,7 +931,7 @@ export default function App() {
                           className={cx(
                             "grid size-6 flex-none place-items-center rounded-md font-mono text-[11px] font-bold",
                             current
-                              ? "bg-zinc-950 text-white"
+                              ? "bg-brand-500 text-white"
                               : done
                                 ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                                 : "border border-zinc-200 bg-white",
@@ -994,7 +994,7 @@ export default function App() {
                       <input
                         type="radio"
                         name="grade-mode"
-                        className="size-4 accent-zinc-900"
+                        className="size-4 accent-brand-500"
                         checked={!gradeFile}
                         onChange={() => setGradeFile(false)}
                       />
@@ -1004,7 +1004,7 @@ export default function App() {
                       <input
                         type="radio"
                         name="grade-mode"
-                        className="size-4 accent-zinc-900"
+                        className="size-4 accent-brand-500"
                         checked={gradeFile}
                         onChange={() => setGradeFile(true)}
                       />
@@ -1070,7 +1070,7 @@ export default function App() {
                                 <span className="font-mono text-zinc-400">{formatBytes(new Blob([f.content]).size)}</span>
                                 <button
                                   type="button"
-                                  className="rounded-sm text-zinc-400 transition-colors group-disabled:hidden hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-zinc-900"
+                                  className="rounded-sm text-zinc-400 transition-colors group-disabled:hidden hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-500"
                                   aria-label={`Remove ${f.name} from test ${i + 1}`}
                                   onClick={() => removeFile(i, f.name)}
                                 >
@@ -1215,7 +1215,7 @@ export default function App() {
                   <div>
                     <button
                       type="button"
-                      className="inline-flex items-center gap-2 rounded-md py-1 text-[13px] font-semibold text-zinc-900 transition-colors hover:text-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                      className="inline-flex items-center gap-2 rounded-md py-1 text-[13px] font-semibold text-zinc-900 transition-colors hover:text-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
                       aria-expanded={showAdvanced}
                       onClick={() => setShowAdvanced((v) => !v)}
                     >
