@@ -41,7 +41,7 @@ from backend.aggregation import (
 )
 from backend import test_files
 from backend.ai_feedback import _traceback_for, judge_and_feedback
-from backend.judge0_client import Judge0Error, run_test_cases
+from backend.judge0_client import Judge0Error, run_submission, run_test_cases
 from backend.questions import get_question, list_questions
 from backend.validation import pre_execution_check, reads_input, DEFAULT_LINE_LIMIT
 
@@ -64,6 +64,14 @@ class SubmitRequest(BaseModel):
     student_name: str
     question_id: str
     source_code: str
+
+
+class RunRequest(BaseModel):
+    # "Run" on the student page: one ungraded run with stdin the student chose.
+    student_name: str
+    question_id: str
+    source_code: str
+    stdin: str = ""
 
 
 class TestFile(BaseModel):
@@ -571,6 +579,9 @@ def api_lecture_status():
         "lecture_id": lecture_id,
         "question": {
             "id": question["id"],
+            # Its place in this lecture ("Task 2"), in run order; None if it
+            # isn't tied to a lecture.
+            "number": _task_number(question),
             "title": question["title"],
             "prompt": question["prompt"],
             "language": question["language"],
@@ -595,6 +606,14 @@ def api_lecture_status():
         # they're still answering.
         "shown_examples": shown_examples(question["id"]) if _seconds_remaining(question) <= 0 else [],
     }
+
+
+def _task_number(question: dict) -> int | None:
+    lecture_id = question.get("lecture_id")
+    if lecture_id is None:
+        return None
+    ids = [q["id"] for q in store.questions_for_lecture(lecture_id)]
+    return ids.index(question["id"]) + 1 if question["id"] in ids else None
 
 
 def _test_files_visible(question: dict, test_index: int) -> bool:
@@ -910,6 +929,69 @@ def _submit(req: SubmitRequest):
         "hint_tier": feedback.get("hint_tier"),
         "hint_ceiling": feedback.get("hint_ceiling"),
         **_student_error_output(test_results, feedback),
+    }
+
+
+# Stdin a student can type into the Run input -- generous for an exercise, but
+# keeps a pasted novel from going to Judge0.
+MAX_RUN_STDIN_CHARS = 100_000
+
+
+@app.post("/api/run")
+async def api_run(req: RunRequest):
+    """The student page's Run button: runs the code once on the stdin the
+    student typed, next to the example test's data files (which they can see
+    anyway -- never a graded test's), and returns what it printed. Not graded,
+    not stored, no AI feedback: it's for trying things before submitting, so
+    the lecturer's dashboard and the attempt count only ever see real submits.
+    Shares the submit limiter so a class hammering Run can't starve Judge0."""
+    return await anyio.to_thread.run_sync(_run, req, limiter=_submit_limiter)
+
+
+def _run(req: RunRequest):
+    question = get_question(req.question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail=f"Unknown question_id: {req.question_id!r}")
+    if question["status"] != "live":
+        raise HTTPException(status_code=409, detail="This question isn't live (not started yet, or already closed).")
+    if len(req.stdin) > MAX_RUN_STDIN_CHARS:
+        raise HTTPException(status_code=400, detail=f"The input is too long (max {MAX_RUN_STDIN_CHARS:,} characters).")
+
+    rejection_reason = pre_execution_check(
+        req.source_code, line_limit=question["line_limit"], extra_packages=question["extra_packages"],
+        language=question["language"],
+    )
+    if rejection_reason:
+        return {"rejected": rejection_reason}
+
+    example = question["test_cases"][0] if question["test_cases"] else {}
+    output_file = question.get("output_file")
+    try:
+        r = run_submission(
+            req.source_code,
+            req.stdin,
+            language=question["language"],
+            cpu_time_limit=question["cpu_time_limit_s"],
+            memory_limit_kb=question["memory_limit_kb"],
+            files=test_files.files_of(example) or None,
+            output_file=output_file,
+        )
+    except Judge0Error as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return {
+        "rejected": None,
+        "status": r["status_description"],
+        "accepted": r["status_description"] == "Accepted",
+        # With a graded output file, `stdout` is that file; what was printed is separate.
+        "stdout": r.get("printed_stdout", "") if output_file else (r["stdout"] or ""),
+        "stderr": r["stderr"] or "",
+        "compile_output": r["compile_output"] or "",
+        "message": r["message"] or "",
+        "time_s": r["time_s"],
+        "exit_code": r["exit_code"],
+        "output_file": output_file,
+        "output_file_content": r["stdout"] if output_file else None,
     }
 
 

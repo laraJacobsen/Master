@@ -287,18 +287,31 @@ def init_db():
         # bank (lecture_id NULL) and resurface in the next lecture -- see
         # end_lecture(). One-time backfill for DBs from before that fix: a
         # draft created during an already-ended lecture is retired under it.
+        # Timestamps are whole seconds, so a draft created in the same second
+        # a lecture ended and the next one started (finish, then straight into
+        # a new lecture) matches both -- it belongs to the newer one, which is
+        # what the NOT EXISTS says. Without it, that draft was retired on the
+        # next server start.
         conn.execute(
             """
             UPDATE questions SET status = 'skipped', lecture_id = (
                 SELECT l.id FROM lectures l
                 WHERE l.ended_at IS NOT NULL
                   AND questions.created_at BETWEEN l.started_at AND l.ended_at
+                  AND NOT EXISTS (
+                      SELECT 1 FROM lectures newer
+                      WHERE newer.id > l.id AND newer.started_at <= questions.created_at
+                  )
                 ORDER BY l.id DESC LIMIT 1
             )
             WHERE status = 'draft' AND lecture_id IS NULL AND EXISTS (
                 SELECT 1 FROM lectures l
                 WHERE l.ended_at IS NOT NULL
                   AND questions.created_at BETWEEN l.started_at AND l.ended_at
+                  AND NOT EXISTS (
+                      SELECT 1 FROM lectures newer
+                      WHERE newer.id > l.id AND newer.started_at <= questions.created_at
+                  )
             )
             """
         )

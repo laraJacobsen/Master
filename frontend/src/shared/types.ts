@@ -50,6 +50,8 @@ export interface PublicQuestion {
 // GET /api/lecture/status's `question` -- same shape as PublicQuestion plus
 // the timer fields the student page needs to run its countdown.
 export interface LiveQuestion extends PublicQuestion {
+  // Its place in the lecture ("Task 2"); null when not tied to a lecture.
+  number: number | null;
   files: VisibleTestFile[];
   duration_seconds: number;
   started_at: string | null;
@@ -318,6 +320,24 @@ export interface SubmitResponse {
   hidden_crash?: boolean;
   hidden_error?: string | null;
 }
+
+// POST /api/run -- one ungraded run on the student's own stdin (never stored).
+export type RunResponse =
+  | { rejected: string }
+  | {
+      rejected: null;
+      status: string;
+      accepted: boolean;
+      stdout: string;
+      stderr: string;
+      compile_output: string;
+      message: string;
+      time_s: string | null;
+      exit_code: number | null;
+      // Tasks graded on a file: what the program wrote there (null = not created).
+      output_file: string | null;
+      output_file_content: string | null;
+    };
 
 export interface ApiErrorBody {
   detail?: string;

@@ -426,7 +426,44 @@ def _run_code_shape_checks():
     print("code_shape() same-code-different-names grouping   OK")
 
 
+def _run_same_second_draft_checks():
+    """A task created in the same second the previous lecture ended (finish,
+    then straight into a new lecture) belongs to the new lecture: the startup
+    backfill for leftover drafts mustn't retire it under the old one."""
+    import tempfile
+    from backend import store
+
+    old_path = store.DB_PATH
+    with tempfile.TemporaryDirectory() as tmp:
+        store.DB_PATH = os.path.join(tmp, "same-second.db")
+        try:
+            store.init_db()
+            conn = store._connect()
+            # The seeded lecture ends at 10:00:00 and the next one starts that same second.
+            conn.execute("UPDATE lectures SET started_at = '2026-11-16 09:00:00', ended_at = '2026-11-16 10:00:00'")
+            conn.execute("INSERT INTO lectures (started_at, label) VALUES ('2026-11-16 10:00:00', 'next')")
+            conn.commit()
+            conn.close()
+            store.create_question({
+                "title": "Same second", "prompt": "p", "language": "python",
+                "test_cases": [{"stdin": "", "expected_stdout": "1"}],
+            })
+            conn = store._connect()
+            conn.execute("UPDATE questions SET created_at = '2026-11-16 10:00:00' WHERE title = 'Same second'")
+            conn.commit()
+            conn.close()
+            store.init_db()  # what every server start runs
+            conn = store._connect()
+            row = conn.execute("SELECT status, lecture_id FROM questions WHERE title = 'Same second'").fetchone()
+            conn.close()
+            assert row["status"] == "draft" and row["lecture_id"] is None, dict(row)
+        finally:
+            store.DB_PATH = old_path
+    print("Draft created the second a lecture ended stays with the new lecture   OK")
+
+
 def main():
+    _run_same_second_draft_checks()
     _run_canonicalize_boundary_checks()
     _run_code_shape_checks()
     _run_llm_provider_checks()
@@ -525,6 +562,29 @@ def _run_checks(client):
         assert rejected_row["exec_verdict"] == "rejected", rejected_row
         assert rejected_row["rejection_reason"] == "whitespace_only", rejected_row
         print("Pre-execution rejection        OK ->", rejected_row["rejection_reason"])
+
+        # Run (student page's "Run" button): executes once on the student's own
+        # stdin and returns the output -- not graded, never stored.
+        before = len(client.get("/api/lecturer/submissions").json())
+        r = client.post(
+            "/api/run",
+            json={
+                "student_name": "Test Student",
+                "question_id": "sum-ints",
+                "source_code": "print(sum(int(x) for x in input().split()))",
+                "stdin": "4 5 6\n",
+            },
+        )
+        assert r.status_code == 200, r.text
+        run = r.json()
+        assert run["rejected"] is None and run["accepted"] and run["stdout"].strip() == "15", run
+        r = client.post(
+            "/api/run",
+            json={"student_name": "Test Student", "question_id": "sum-ints", "source_code": "   ", "stdin": ""},
+        )
+        assert r.status_code == 200 and r.json()["rejected"] == "whitespace_only", r.text
+        assert len(client.get("/api/lecturer/submissions").json()) == before, "a run must not be stored"
+        print("POST /api/run                  OK -> ran, not stored, rejects empty code")
 
         r = client.get("/api/lecturer/clusters")
         assert r.status_code == 200, r.text
@@ -698,6 +758,20 @@ def _run_checks(client):
             row = client.get(f"/api/lecturer/submissions/{r.json()['submission_id']}").json()
             assert row["exec_verdict"] != "ignores_input", (code, row)
         print("Hard-coded output: example ungraded, flagged as ignores_input   OK")
+
+        # The student starter for file tasks points stdin at the task's file and
+        # may define reading helpers -- neither counts as reading on its own.
+        from backend.validation import reads_input
+        redirect = 'import sys\nsys.stdin = open("numbers.txt")\n'
+        helper = 'def read_numbers(name="numbers.txt"):\n    with open(name) as f:\n        return f.read().split()\n'
+        assert not reads_input(redirect + "print(6)")
+        assert not reads_input(helper + "print(6)")
+        assert reads_input(redirect + "print(sum(int(x) for x in input().split()))")
+        assert reads_input(helper + "print(sum(map(int, read_numbers())))")
+        assert reads_input("import sys\nprint(sys.stdin.read())")
+        assert reads_input("with open('numbers.txt') as f:\n    print(f.read())")
+        assert reads_input("def go():\n    return input()\nprint(go())")
+        print("reads_input: stdin redirect and unused helpers don't count   OK")
 
         # Output-signature grouping (aggregation.py's 2026-10-15 entry): two textually
         # different programs that print the same thing on every test case are one

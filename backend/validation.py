@@ -95,22 +95,66 @@ _INPUT_NAMES = {"input", "stdin", "fileinput", "open"}
 
 
 def reads_input(source_code: str, language: str = "python") -> bool:
-    """Whether the program reads standard input at all. A program that doesn't
-    can only print fixed text, so it can pass a test only by hard-coding that
+    """Whether the program reads its input at all. A program that doesn't can
+    only print fixed text, so it can pass a test only by hard-coding that
     test's expected output (see api_submit's ignores_input handling). Python
-    only: other languages, and code that can't be tokenized, return True so
-    nothing is flagged on a guess."""
+    only: other languages, and code that doesn't parse, return True so nothing
+    is flagged on a guess.
+
+    Two things in the student starter code (frontend student/starterCode.ts)
+    don't count as reading on their own, or every program would pass:
+    - `sys.stdin = open("data.txt")`, which only points input() at the task's
+      file -- the program still has to call input() (or read stdin);
+    - helper functions that read (def read_numbers(): ... open(...)), which
+      count only where they're actually called."""
     if language != "python":
         return True
-    import io
-    import tokenize
+    import ast
 
     try:
-        names = {
-            tok.string
-            for tok in tokenize.generate_tokens(io.StringIO(source_code).readline)
-            if tok.type == tokenize.NAME
-        }
-    except (tokenize.TokenError, IndentationError, SyntaxError):
+        tree = ast.parse(source_code)
+    except (SyntaxError, ValueError):
         return True
-    return bool(names & _INPUT_NAMES)
+
+    # Subtrees that don't count by themselves: stdin redirects, and the bodies
+    # of functions (found below) whose only job is reading.
+    skipped: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(_is_sys_stdin(t) for t in node.targets):
+            skipped.update(id(n) for n in ast.walk(node))
+
+    functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    readers = set(_INPUT_NAMES)
+    changed = True
+    while changed:  # a function that calls a reader is a reader too
+        changed = False
+        for fn in functions:
+            if fn.name not in readers and any(_names_reader(n, readers) for n in ast.walk(fn)):
+                readers.add(fn.name)
+                changed = True
+    for fn in functions:
+        if fn.name in readers:
+            skipped.update(id(n) for n in ast.walk(fn))
+
+    return any(id(n) not in skipped and _names_reader(n, readers) for n in ast.walk(tree))
+
+
+def _is_sys_stdin(node) -> bool:
+    import ast
+
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "stdin"
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "sys"
+    )
+
+
+def _names_reader(node, readers: set) -> bool:
+    import ast
+
+    if isinstance(node, ast.Name):
+        return node.id in readers
+    if isinstance(node, ast.Attribute):
+        return node.attr in readers
+    return False

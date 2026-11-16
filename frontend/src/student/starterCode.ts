@@ -8,12 +8,71 @@ const STARTERS: Record<string, string> = {
   c: ["#include <stdio.h>", "", "int main(void) {", "    ", "    return 0;", "}", ""].join("\n"),
 };
 
-export function starterCode(language: string): string {
+// Tasks whose data is in a file (and that give nothing on standard input)
+// start with standard input pointed at that file, so students read it exactly
+// like typed input -- input() / scanf / Scanner -- instead of first having to
+// learn file handling. The backend doesn't count the redirect line itself as
+// "reading the input" (validation.reads_input), so hard-coded answers are
+// still caught.
+function fileStarter(language: string, file: string): string | null {
+  const name = JSON.stringify(file);
+  switch (language) {
+    case "python":
+      return [
+        "import sys",
+        "",
+        `# input() now reads ${file}, one line per call, as if it were typed in.`,
+        `sys.stdin = open(${name})`,
+        "",
+        "",
+      ].join("\n");
+    case "c":
+      return [
+        "#include <stdio.h>",
+        "",
+        "int main(void) {",
+        `    /* scanf now reads ${file}, as if it were typed in. */`,
+        `    freopen(${name}, "r", stdin);`,
+        "    ",
+        "    return 0;",
+        "}",
+        "",
+      ].join("\n");
+    case "java":
+      return [
+        "import java.io.FileInputStream;",
+        "import java.util.Scanner;",
+        "",
+        "public class Main {",
+        "    public static void main(String[] args) throws Exception {",
+        `        // System.in now reads ${file}, as if it were typed in.`,
+        `        System.setIn(new FileInputStream(${name}));`,
+        "        Scanner in = new Scanner(System.in);",
+        "        ",
+        "    }",
+        "}",
+        "",
+      ].join("\n");
+    default:
+      return null;
+  }
+}
+
+export interface StarterOptions {
+  /** The task's main data file, when its input comes from a file. */
+  inputFile?: string | null;
+}
+
+export function starterCode(language: string, options: StarterOptions = {}): string {
+  if (options.inputFile) {
+    const s = fileStarter(language, options.inputFile);
+    if (s) return s;
+  }
   return STARTERS[language] ?? "";
 }
 
 // Code that's still just the starter (or empty) is nothing the student wrote:
 // it isn't auto-submitted when time runs out.
-export function isUntouched(code: string, language: string): boolean {
-  return code.trim() === "" || code.trim() === starterCode(language).trim();
+export function isUntouched(code: string, starter: string): boolean {
+  return code.trim() === "" || code.trim() === starter.trim();
 }
