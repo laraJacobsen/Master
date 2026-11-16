@@ -2,7 +2,19 @@ import { useEffect, useState } from "react";
 import type { LectureHistoryRow, LectureReview, LectureReviewTask } from "../shared/types";
 import { archiveLecture, fetchLectureHistory, fetchLectureReview, unarchiveLecture } from "../shared/api";
 import { NavBar } from "../shared/NavBar";
-import { Button, Card, Checkbox, Code, EmptyState, Eyebrow, PageHeader, Page, SectionTitle, TextLink } from "../shared/ui";
+import {
+  Button,
+  Card,
+  Checkbox,
+  Code,
+  EmptyState,
+  Eyebrow,
+  PageHeader,
+  Page,
+  SectionTitle,
+  SegmentedControl,
+  TextLink,
+} from "../shared/ui";
 import { cx } from "../shared/cx";
 import { TrendChart } from "./TrendChart";
 import type { TrendPoint } from "./TrendChart";
@@ -18,7 +30,15 @@ import type { TrendPoint } from "./TrendChart";
 // explain why some lectures aren't ranked (the backend decides which).
 const MIN_STUDENTS_FOR_REVIEW = 3;
 const TOPICS_SHOWN = 5;
-const TREND_LECTURES = 10;
+// Time windows for the "Solved per lecture" chart, counted back from today.
+// A semester is taken as the usual ~16 teaching weeks.
+type TrendRange = "month" | "semester";
+const TREND_RANGES: ReadonlyArray<{ value: TrendRange; label: string }> = [
+  { value: "month", label: "Month" },
+  { value: "semester", label: "Semester" },
+];
+const TREND_RANGE_DAYS: Record<TrendRange, number> = { month: 30, semester: 16 * 7 };
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function parseDate(isoLike: string): Date {
   // Server timestamps are "YYYY-MM-DD HH:MM:SS" UTC with no offset marker.
@@ -244,9 +264,11 @@ export interface TrendProps {
 }
 
 function Trend({ ranked, selectedId, onSelect }: TrendProps) {
-  const points: TrendPoint[] = [...ranked]
+  const [range, setRange] = useState<TrendRange>("semester");
+  const since = Date.now() - TREND_RANGE_DAYS[range] * DAY_MS;
+  const points: TrendPoint[] = ranked
+    .filter((r) => parseDate(r.started_at).getTime() >= since)
     .sort((a, b) => parseDate(a.started_at).getTime() - parseDate(b.started_at).getTime())
-    .slice(-TREND_LECTURES)
     .map((r) => ({
       id: r.lecture_id,
       label: r.display_label,
@@ -254,7 +276,21 @@ function Trend({ ranked, selectedId, onSelect }: TrendProps) {
       rate: r.solve_rate ?? 0,
       detail: `${formatDate(r.started_at)} · ${plural(r.students, "student")}`,
     }));
-  return <TrendChart className="mt-6" points={points} selectedId={selectedId} onSelect={onSelect} />;
+  return (
+    <>
+      <SectionTitle
+        meta={points.length > 0 ? "Click a lecture to see its tasks" : undefined}
+        actions={<SegmentedControl label="Time range" options={TREND_RANGES} value={range} onChange={setRange} />}
+      >
+        Solved per lecture
+      </SectionTitle>
+      {points.length > 0 ? (
+        <TrendChart className="mt-6" points={points} selectedId={selectedId} onSelect={onSelect} />
+      ) : (
+        <EmptyState className="mt-6" title={`No ranked lectures in the last ${range === "month" ? "30 days" : "16 weeks"}.`} />
+      )}
+    </>
+  );
 }
 
 export default function App() {
@@ -370,7 +406,6 @@ export default function App() {
               </section>
 
               <Card>
-                <SectionTitle meta="Click a lecture to see its tasks">Solved per lecture</SectionTitle>
                 <Trend ranked={ranked} selectedId={openId} onSelect={selectFromTrend} />
               </Card>
 

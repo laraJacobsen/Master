@@ -538,3 +538,43 @@ export function BigTimer({ seconds, className }: BigTimerProps) {
     </div>
   );
 }
+
+export interface SegmentedOption<T extends string> {
+  value: T;
+  label: ReactNode;
+}
+
+export interface SegmentedControlProps<T extends string> {
+  options: ReadonlyArray<SegmentedOption<T>>;
+  value: T;
+  onChange: (value: T) => void;
+  /** Accessible name for the group, e.g. "Time range". */
+  label: string;
+  className?: string;
+}
+
+/** A small set of mutually exclusive views (e.g. Month / Semester). */
+export function SegmentedControl<T extends string>({ options, value, onChange, label, className }: SegmentedControlProps<T>) {
+  return (
+    <div role="group" aria-label={label} className={cx("inline-flex gap-0.5 rounded-lg bg-zinc-100 p-0.5", className)}>
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(o.value)}
+            className={cx(
+              "h-7 rounded-md px-3 text-[13px] font-medium transition-colors",
+              focusRing,
+              on ? "bg-white text-brand-700 shadow-sm shadow-zinc-950/5" : "text-zinc-500 hover:text-zinc-900",
+            )}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
