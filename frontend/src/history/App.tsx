@@ -4,6 +4,8 @@ import { archiveLecture, fetchLectureHistory, fetchLectureReview, unarchiveLectu
 import { NavBar } from "../shared/NavBar";
 import { Button, Card, Checkbox, Code, EmptyState, Eyebrow, PageHeader, Page, SectionTitle, TextLink } from "../shared/ui";
 import { cx } from "../shared/cx";
+import { TrendChart } from "./TrendChart";
+import type { TrendPoint } from "./TrendChart";
 
 // Lecture history, reachable from the nav bar on every lecturer page. Built
 // around one decision: what should a review lecture go back over? Top to
@@ -147,10 +149,13 @@ export interface LectureItemProps {
 function LectureItem({ review, rank, open, onToggle }: LectureItemProps) {
   const panelId = `lecture-panel-${review.lecture_id}`;
   return (
-    <li className="border-t border-zinc-200 first:border-t-0">
+    <li id={`lecture-item-${review.lecture_id}`} className="scroll-mt-24 border-t border-zinc-200 first:border-t-0">
       <button
         type="button"
-        className="group -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-4 rounded-lg px-3 py-3.5 text-left transition-colors hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500"
+        className={cx(
+          "group -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-4 rounded-lg px-3 py-3.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500",
+          open ? "bg-brand-50/70" : "hover:bg-zinc-50",
+        )}
         aria-expanded={open}
         aria-controls={panelId}
         onClick={onToggle}
@@ -234,56 +239,22 @@ function topicsFrom(ranked: LectureReview[]): Topic[] {
 
 export interface TrendProps {
   ranked: LectureReview[];
+  selectedId: number | null;
+  onSelect: (id: number) => void;
 }
 
-function Trend({ ranked }: TrendProps) {
-  const chronological = [...ranked]
+function Trend({ ranked, selectedId, onSelect }: TrendProps) {
+  const points: TrendPoint[] = [...ranked]
     .sort((a, b) => parseDate(a.started_at).getTime() - parseDate(b.started_at).getTime())
-    .slice(-TREND_LECTURES);
-  const weakest = ranked[0]?.lecture_id;
-  return (
-    <div className="mt-6" role="img" aria-label="Share of tasks solved per lecture, oldest to newest">
-      <div className="relative flex h-36 items-end justify-evenly gap-1.5 border-b border-zinc-300 pr-10 sm:gap-3">
-        {[0.25, 0.5, 0.75, 1].map((y) => (
-          <span key={y} className="absolute inset-x-0 border-t border-dashed border-zinc-200" style={{ bottom: percent(y) }} />
-        ))}
-        {[0.5, 1].map((y) => (
-          <span
-            key={y}
-            className="absolute right-0 translate-y-1/2 bg-white pl-1 font-mono text-[11px] text-zinc-400"
-            style={{ bottom: percent(y) }}
-          >
-            {percent(y)}
-          </span>
-        ))}
-        {chronological.map((r) => (
-          <div
-            key={r.lecture_id}
-            className="group relative flex h-full max-w-24 flex-1 flex-col items-center justify-end"
-            title={`${r.display_label}: ${percent(r.solve_rate ?? 0)} solved`}
-          >
-            {r.lecture_id === weakest && (
-              <span className="mb-1 font-mono text-xs font-semibold text-zinc-950">{percent(r.solve_rate ?? 0)}</span>
-            )}
-            <span
-              className={cx(
-                "min-h-0.5 w-full rounded-t-sm transition-colors",
-                r.lecture_id === weakest ? "bg-brand-500" : "bg-zinc-300 group-hover:bg-zinc-400",
-              )}
-              style={{ height: percent(r.solve_rate ?? 0) }}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="mt-2 flex justify-evenly gap-1.5 pr-10 sm:gap-3">
-        {chronological.map((r) => (
-          <span key={r.lecture_id} className="max-w-24 flex-1 text-center font-mono text-[11px] whitespace-nowrap text-zinc-500">
-            {shortDate(r.started_at)}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
+    .slice(-TREND_LECTURES)
+    .map((r) => ({
+      id: r.lecture_id,
+      label: r.display_label,
+      date: shortDate(r.started_at),
+      rate: r.solve_rate ?? 0,
+      detail: `${formatDate(r.started_at)} · ${plural(r.students, "student")}`,
+    }));
+  return <TrendChart className="mt-6" points={points} selectedId={selectedId} onSelect={onSelect} />;
 }
 
 export default function App() {
@@ -294,6 +265,18 @@ export default function App() {
   const [history, setHistory] = useState<LectureHistoryRow[] | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [archiving, setArchiving] = useState<number | null>(null);
+
+  // Clicking a point on the trend opens that lecture in the ranked list and
+  // brings it into view; clicking the selected point again closes it.
+  function selectFromTrend(id: number) {
+    const opening = openId !== id;
+    setOpenId(opening ? id : null);
+    if (opening) {
+      requestAnimationFrame(() =>
+        document.getElementById(`lecture-item-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    }
+  }
 
   function loadReview() {
     fetchLectureReview()
@@ -387,8 +370,8 @@ export default function App() {
               </section>
 
               <Card>
-                <SectionTitle>Solved per lecture</SectionTitle>
-                <Trend ranked={ranked} />
+                <SectionTitle meta="Click a lecture to see its tasks">Solved per lecture</SectionTitle>
+                <Trend ranked={ranked} selectedId={openId} onSelect={selectFromTrend} />
               </Card>
 
               <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
