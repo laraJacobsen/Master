@@ -96,7 +96,7 @@ function StudentRow({ track, showActivity }: StudentRowProps) {
               <ActivityDot status={a.status} />
               {activityText(a)}
               {a.nudged && (
-                <span className="rounded border border-zinc-200 px-1 text-[10px] font-normal text-zinc-500">nudged</span>
+                <span className="font-normal text-zinc-400">· nudged</span>
               )}
             </>
           )}

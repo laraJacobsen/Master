@@ -174,7 +174,7 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
           track && (
             <>
               {track.best ? (
-                <Badge tone={VERDICT_TONE[verdictOf(track.best)]} dot>
+                <Badge tone={VERDICT_TONE[verdictOf(track.best)]}>
                   Best: {LABEL[verdictOf(track.best)]} · {track.best.tests_passed}/{track.best.tests_total}
                 </Badge>
               ) : (
@@ -190,8 +190,8 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
         toolbar={
           track &&
           track.attempts.length > 1 && (
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Attempts">
-              <span className="mr-1 text-xs text-zinc-500">Attempt</span>
+            <div className="-mb-3 flex flex-wrap items-end gap-1" role="group" aria-label="Attempts">
+              <span className="mr-2 pb-2.5 text-xs text-zinc-500">Attempt</span>
               {track.attempts.map((s) => {
                 const pressed = shownSub?.id === s.id;
                 return (
@@ -202,12 +202,10 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
                     title={attemptTitle(s)}
                     onClick={() => setSelectedAttempt(s.id)}
                     className={cx(
-                      "min-w-8 rounded-md border border-b-[3px] px-2 py-1 font-mono text-xs font-semibold transition-colors",
-                      "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900",
+                      "min-w-9 border-b-2 px-2 pt-1 pb-2 font-mono text-sm transition-colors",
+                      "rounded-t-sm focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900",
                       VERDICT_BORDER[verdictOf(s)],
-                      pressed
-                        ? "border-x-zinc-900 border-t-zinc-900 bg-zinc-900 text-white"
-                        : "border-x-zinc-200 border-t-zinc-200 bg-white text-zinc-900 hover:bg-zinc-100",
+                      pressed ? "font-bold text-zinc-950 border-b-[3px]" : "text-zinc-400 opacity-60 hover:text-zinc-900 hover:opacity-100",
                     )}
                   >
                     {s.attempt_number}

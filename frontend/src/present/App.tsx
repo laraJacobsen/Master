@@ -77,7 +77,7 @@ export default function App() {
         <BrandMark />
         <div className="flex items-center gap-3">
           {joinCode && question && (
-            <span className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-1.5 text-lg">
+            <span className="flex items-baseline gap-3 text-lg">
               <span className="text-zinc-500">Join code</span>
               <strong className="font-mono font-bold tracking-[0.12em] text-zinc-950">{joinCode}</strong>
             </span>
@@ -212,7 +212,7 @@ function IoTable({ rows, className }: IoTableProps) {
         <Fragment key={label}>
           <dt className="pt-1 font-medium text-zinc-500">{label}</dt>
           <dd>
-            <code className="inline-block rounded-lg border border-zinc-200 bg-white px-3 py-1 font-mono whitespace-pre-wrap text-zinc-950">
+            <code className="block border-l-2 border-zinc-300 pl-4 font-mono whitespace-pre-wrap text-zinc-950">
               {value}
             </code>
           </dd>

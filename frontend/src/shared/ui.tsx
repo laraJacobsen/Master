@@ -259,34 +259,38 @@ export function ErrorText({ children, className }: ErrorTextProps) {
 
 export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "inverse";
 
-const badgeTones: Record<Tone, string> = {
-  neutral: "border-zinc-200 bg-zinc-50 text-zinc-600",
-  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  warning: "border-amber-200 bg-amber-50 text-amber-800",
-  danger: "border-red-200 bg-red-50 text-red-700",
-  info: "border-sky-200 bg-sky-50 text-sky-700",
-  inverse: "border-zinc-900 bg-zinc-900 text-white",
+const badgeText: Record<Tone, string> = {
+  neutral: "text-zinc-500",
+  success: "text-emerald-700",
+  warning: "text-amber-700",
+  danger: "text-red-700",
+  info: "text-sky-700",
+  inverse: "text-zinc-950 font-semibold",
+};
+
+const badgeMark: Record<Tone, string> = {
+  neutral: "bg-zinc-400",
+  success: "bg-emerald-500",
+  warning: "bg-amber-500",
+  danger: "bg-red-500",
+  info: "bg-sky-500",
+  inverse: "bg-zinc-950",
 };
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   tone?: Tone;
-  /** Show a leading status dot. */
-  dot?: boolean;
-  /** Animate the dot (for "live" states). */
+  /** Animate the marker (for "live" states). */
   pulse?: boolean;
 }
 
-export function Badge({ tone = "neutral", dot = false, pulse = false, className, children, ...rest }: BadgeProps) {
+/** A status label: small coloured square + coloured text. No box -- not a pill. */
+export function Badge({ tone = "neutral", pulse = false, className, children, ...rest }: BadgeProps) {
   return (
     <span
-      className={cx(
-        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
-        badgeTones[tone],
-        className,
-      )}
+      className={cx("inline-flex items-center gap-1.5 text-[13px] font-medium whitespace-nowrap", badgeText[tone], className)}
       {...rest}
     >
-      {dot && <span className={cx("size-1.5 rounded-[2px] bg-current", pulse && "animate-pulse-dot")} aria-hidden="true" />}
+      <span className={cx("size-1.5 flex-none rounded-[2px]", badgeMark[tone], pulse && "animate-pulse-dot")} aria-hidden="true" />
       {children}
     </span>
   );
@@ -391,7 +395,7 @@ export function Code({ children, className }: CodeProps) {
   return (
     <code
       className={cx(
-        "rounded-md border border-zinc-200 bg-zinc-100 px-1.5 py-px font-mono text-[0.85em] whitespace-pre-wrap text-zinc-900",
+        "font-mono text-[0.9em] font-medium whitespace-pre-wrap text-zinc-950",
         className,
       )}
     >

@@ -141,7 +141,7 @@ function IssueRow({
   const kind = issueKind(c);
   const share = Math.min(1, c.count / classSize);
   return (
-    <li className={cx("border-b border-zinc-200 transition-colors", c.raised && "bg-zinc-50")}>
+    <li className={cx("border-b border-l-2 border-b-zinc-200 pl-4 transition-colors", c.raised ? "border-l-zinc-900" : "border-l-transparent")}>
       <div className="flex flex-col gap-3 py-5 pr-1 sm:flex-row sm:items-start sm:gap-5">
         <button
           type="button"
@@ -162,7 +162,7 @@ function IssueRow({
               <span className={cx("size-2 rounded-[2px]", KIND_FILL[kind])} aria-hidden="true" />
               {issueTag(c)}
               {c.raised && (
-                <span className="rounded-md bg-zinc-900 px-1.5 py-0.5 text-[11px] font-medium text-white">On students' screens</span>
+                <span className="font-semibold text-zinc-950">· on students' screens</span>
               )}
             </span>
             {/* Two lines until opened -- the full text is one click away. */}
@@ -219,7 +219,7 @@ function IssueRow({
           </button>
         )}
       </div>
-      {open && <IssueCode subs={subs} loadError={loadError} className="pb-6 sm:pl-[6.5rem]" />}
+      {open && <IssueCode subs={subs} loadError={loadError} className="pb-6 sm:pl-[5.5rem]" />}
     </li>
   );
 }

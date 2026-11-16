@@ -43,30 +43,6 @@ export function CodeBlock({ children, lines, clamp = true, className }: CodeBloc
   );
 }
 
-export interface IoCellProps {
-  label: string;
-  value: string;
-  /** Mark as the wrong part (got / error). */
-  bad?: boolean;
-}
-
-// One labelled value of a failing test: input, expected, got, error.
-export function IoCell({ label, value, bad = false }: IoCellProps) {
-  return (
-    <div
-      className={cx(
-        "flex max-w-full items-baseline gap-2 rounded-md border px-2 py-1 text-xs",
-        bad ? "border-red-200 bg-red-50" : "border-zinc-200 bg-zinc-50",
-      )}
-    >
-      <span className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">{label}</span>
-      <code className={cx("font-mono break-words whitespace-pre-wrap", bad ? "text-red-700" : "text-zinc-900")}>
-        {value}
-      </code>
-    </div>
-  );
-}
-
 export interface FailingTest {
   stdin: string;
   expected: string;
@@ -80,12 +56,24 @@ export interface FailingTestStripProps {
 }
 
 export function FailingTestStrip({ test, className }: FailingTestStripProps) {
+  const rows: Array<[string, string, boolean]> = [
+    ["Input", test.stdin.trimEnd() || "(none)", false],
+    ["Expected", test.expected.trimEnd(), false],
+    ["Got", test.got.trim() || "(nothing)", true],
+  ];
+  if (test.error) rows.push(["Error", test.error.trim().split("\n").pop() ?? "", true]);
+  // A small two-column table: labels left, values in monospace. Long values
+  // wrap inside their cell instead of stretching the page.
   return (
-    <div className={cx("flex flex-wrap gap-1.5", className)}>
-      <IoCell label="Input" value={test.stdin.trimEnd() || "(none)"} />
-      <IoCell label="Expected" value={test.expected.trimEnd()} />
-      <IoCell label="Got" value={test.got.trim() || "(nothing)"} bad />
-      {test.error && <IoCell label="Error" value={test.error.trim().split("\n").pop() ?? ""} bad />}
-    </div>
+    <dl className={cx("grid grid-cols-[max-content_minmax(0,1fr)] gap-x-5 gap-y-1 text-xs", className)}>
+      {rows.map(([label, value, bad]) => (
+        <div key={label} className="contents">
+          <dt className="pt-px text-[10px] font-semibold tracking-wider text-zinc-400 uppercase">{label}</dt>
+          <dd className={cx("max-h-24 overflow-auto font-mono break-words whitespace-pre-wrap", bad ? "text-red-700" : "text-zinc-900")}>
+            {value}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }

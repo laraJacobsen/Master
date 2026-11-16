@@ -138,9 +138,9 @@ function FilePickLabel({ children, inputLabel, multiple = false, onFiles }: File
   return (
     <label
       className={cx(
-        "relative inline-flex cursor-pointer items-center rounded-md border border-dashed border-zinc-300 px-2 py-0.5 text-xs text-zinc-500 transition-colors",
-        "hover:border-zinc-500 hover:text-zinc-900 focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-zinc-900",
-        "group-disabled:cursor-default group-disabled:opacity-50 group-disabled:hover:border-zinc-300 group-disabled:hover:text-zinc-500",
+        "relative inline-flex cursor-pointer items-center gap-1 rounded-sm text-xs font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-4 transition-colors",
+        "hover:text-zinc-900 hover:decoration-zinc-900 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-zinc-900",
+        "group-disabled:cursor-default group-disabled:opacity-50 group-disabled:hover:text-zinc-500 group-disabled:hover:decoration-zinc-300",
       )}
     >
       {children}
@@ -731,7 +731,7 @@ export default function App() {
           description={
             activeLecture && (
               <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <Badge tone={LECTURE_TONE[lectureState]} dot pulse={lectureState === "live"}>
+                <Badge tone={LECTURE_TONE[lectureState]} pulse={lectureState === "live"}>
                   {liveQuestionId ? "Live" : lobbyOpen ? "Lobby open" : "Preparing"}
                 </Badge>
                 <span>
@@ -1062,25 +1062,25 @@ export default function App() {
                             onClick={() => removeTestCaseRow(i)}
                           />
                         </div>
-                        <div className="flex flex-wrap items-center gap-1.5 pr-9">
-                          {tc.files.map((f) => (
-                            <span
-                              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 py-0.5 pr-0.5 pl-2 text-xs"
-                              key={f.name}
-                              title={f.name}
-                            >
-                              <span className="truncate font-mono text-zinc-900">{f.name}</span>
-                              <span className="font-mono text-zinc-500">{formatBytes(new Blob([f.content]).size)}</span>
-                              <button
-                                type="button"
-                                className="rounded px-1 leading-none text-zinc-400 transition-colors group-disabled:hidden hover:bg-red-50 hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-zinc-900"
-                                aria-label={`Remove ${f.name} from test ${i + 1}`}
-                                onClick={() => removeFile(i, f.name)}
-                              >
-                                &times;
-                              </button>
-                            </span>
-                          ))}
+                        {tc.files.length > 0 && (
+                          <ul className="mr-9 border-t border-zinc-200 text-xs">
+                            {tc.files.map((f) => (
+                              <li key={f.name} title={f.name} className="flex items-center gap-3 border-b border-zinc-200 py-1.5 pl-1">
+                                <span className="min-w-0 flex-1 truncate font-mono text-zinc-900">{f.name}</span>
+                                <span className="font-mono text-zinc-400">{formatBytes(new Blob([f.content]).size)}</span>
+                                <button
+                                  type="button"
+                                  className="rounded-sm text-zinc-400 transition-colors group-disabled:hidden hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-zinc-900"
+                                  aria-label={`Remove ${f.name} from test ${i + 1}`}
+                                  onClick={() => removeFile(i, f.name)}
+                                >
+                                  Remove
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pr-9">
                           <FilePickLabel
                             inputLabel={`Load test ${i + 1}'s expected output from a file`}
                             onFiles={(files) => void loadExpectedFromFile(i, files)}
@@ -1092,7 +1092,7 @@ export default function App() {
                             inputLabel={`Attach files to test ${i + 1}`}
                             onFiles={(files) => void attachFiles(i, files)}
                           >
-                            + File
+                            Attach files
                           </FilePickLabel>
                           {i === 0 && tc.files.length > 0 && (
                             <span className="text-xs text-zinc-500">Test 1 is the example: students can open its files.</span>

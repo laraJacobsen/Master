@@ -49,7 +49,7 @@ export interface VerdictBadgeProps {
 
 function VerdictBadge({ verdict }: VerdictBadgeProps) {
   return (
-    <Badge tone={VERDICT_TONES[verdict] ?? "neutral"} dot>
+    <Badge tone={VERDICT_TONES[verdict] ?? "neutral"}>
       {VERDICT_LABELS[verdict] || verdict}
     </Badge>
   );

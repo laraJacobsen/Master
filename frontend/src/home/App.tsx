@@ -125,7 +125,7 @@ export default function App() {
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-xl font-bold tracking-tight text-zinc-950">Lecture in progress</h2>
                   {active!.lecture!.lobby_opened_at ? (
-                    <Badge tone="success" dot pulse>
+                    <Badge tone="success" pulse>
                       Open
                     </Badge>
                   ) : null}

@@ -79,31 +79,33 @@ export function TestFiles({ questionId, files, groupByTest = false }: TestFilesP
       {groups.map((g) => (
         <div className="grid gap-1.5" key={g.label ?? "all"}>
           {g.label && <Eyebrow>{g.label}</Eyebrow>}
-          <div className="flex flex-wrap gap-1.5">
+          <ul className="border-t border-zinc-200">
             {g.files.map((f) => {
               const isOpen = openKey === keyOf(f);
               return (
-                <button
-                  type="button"
-                  key={keyOf(f)}
-                  className={cx(
-                    "inline-flex max-w-full items-baseline gap-2 rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors",
-                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900",
-                    isOpen
-                      ? "border-zinc-900 bg-zinc-900 text-white"
-                      : "border-zinc-200 bg-white text-zinc-900 hover:border-zinc-300 hover:bg-zinc-50",
-                  )}
-                  aria-expanded={isOpen}
-                  onClick={() => void toggle(f)}
-                >
-                  <span className="truncate font-mono">{f.name}</span>
-                  <span className={cx("font-mono text-[11px]", isOpen ? "text-zinc-400" : "text-zinc-500")}>
-                    {formatBytes(f.size)}
-                  </span>
-                </button>
+                <li key={keyOf(f)} className="border-b border-zinc-200">
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    onClick={() => void toggle(f)}
+                    className={cx(
+                      "flex w-full items-center gap-3 border-l-2 py-2 pr-1 pl-2.5 text-left text-[13px] transition-colors",
+                      "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-zinc-900",
+                      isOpen ? "border-l-zinc-900 bg-white" : "border-l-transparent hover:bg-white",
+                    )}
+                  >
+                    <svg className="size-3.5 flex-none text-zinc-400" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <path d="M3 1.5h5l3 3v8H3z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                      <path d="M8 1.5v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                    </svg>
+                    <span className="min-w-0 flex-1 truncate font-mono font-medium text-zinc-900">{f.name}</span>
+                    <span className="font-mono text-[11px] text-zinc-400">{formatBytes(f.size)}</span>
+                    <span className="w-9 text-right text-xs text-zinc-500">{isOpen ? "Hide" : "View"}</span>
+                  </button>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </div>
       ))}
 
