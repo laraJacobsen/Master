@@ -30,15 +30,36 @@ import type { TrendPoint } from "./TrendChart";
 // explain why some lectures aren't ranked (the backend decides which).
 const MIN_STUDENTS_FOR_REVIEW = 3;
 const TOPICS_SHOWN = 5;
-// Time windows for the "Solved per lecture" chart, counted back from today.
-// A semester is taken as the usual ~16 teaching weeks.
+// Time windows for the "Solved per lecture" chart: a calendar month, or a
+// semester -- Spring is January-July, Autumn August-December. Both can be
+// stepped back and forth with the arrows next to the toggle.
 type TrendRange = "month" | "semester";
 const TREND_RANGES: ReadonlyArray<{ value: TrendRange; label: string }> = [
   { value: "month", label: "Month" },
   { value: "semester", label: "Semester" },
 ];
-const TREND_RANGE_DAYS: Record<TrendRange, number> = { month: 30, semester: 16 * 7 };
-const DAY_MS = 24 * 60 * 60 * 1000;
+const AUTUMN_START_MONTH = 7; // August, 0-based
+
+interface Period {
+  start: Date; // inclusive
+  end: Date; // exclusive
+  label: string;
+}
+
+/** The month or semester that contains `at`. */
+function periodAt(range: TrendRange, at: Date): Period {
+  const y = at.getFullYear();
+  if (range === "month") {
+    return {
+      start: new Date(y, at.getMonth(), 1),
+      end: new Date(y, at.getMonth() + 1, 1),
+      label: at.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+    };
+  }
+  return at.getMonth() >= AUTUMN_START_MONTH
+    ? { start: new Date(y, AUTUMN_START_MONTH, 1), end: new Date(y + 1, 0, 1), label: `Autumn ${y}` }
+    : { start: new Date(y, 0, 1), end: new Date(y, AUTUMN_START_MONTH, 1), label: `Spring ${y}` };
+}
 
 function parseDate(isoLike: string): Date {
   // Server timestamps are "YYYY-MM-DD HH:MM:SS" UTC with no offset marker.
@@ -257,6 +278,29 @@ function topicsFrom(ranked: LectureReview[]): Topic[] {
     .sort((a, b) => a.rate - b.rate);
 }
 
+export interface PeriodArrowProps {
+  dir: "prev" | "next";
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}
+
+function PeriodArrow({ dir, label, disabled, onClick }: PeriodArrowProps) {
+  return (
+    <Button variant="ghost" size="sm" className="w-8 px-0" aria-label={label} disabled={disabled} onClick={onClick}>
+      <svg className="size-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d={dir === "prev" ? "M10 4L6 8l4 4" : "M6 4l4 4-4 4"}
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </Button>
+  );
+}
+
 export interface TrendProps {
   ranked: LectureReview[];
   selectedId: number | null;
@@ -265,9 +309,29 @@ export interface TrendProps {
 
 function Trend({ ranked, selectedId, onSelect }: TrendProps) {
   const [range, setRange] = useState<TrendRange>("semester");
-  const since = Date.now() - TREND_RANGE_DAYS[range] * DAY_MS;
+  // Any date inside the period on screen; switching Month <-> Semester keeps
+  // you in the same stretch of time (October -> Autumn -> October).
+  const [cursor, setCursor] = useState(() => new Date());
+  const period = periodAt(range, cursor);
+  const earliest = ranked.reduce<number>((min, r) => Math.min(min, parseDate(r.started_at).getTime()), Infinity);
+  const canPrev = earliest < period.start.getTime();
+  const canNext = period.end.getTime() <= Date.now();
+
+  function changeRange(next: TrendRange) {
+    // Stepping between semesters leaves the cursor on its first day; going back
+    // to Month from there, show the latest month of it that has happened.
+    if (next === "month" && range === "semester") {
+      const now = new Date();
+      setCursor(period.end.getTime() > now.getTime() ? now : new Date(period.end.getTime() - 1));
+    }
+    setRange(next);
+  }
+
   const points: TrendPoint[] = ranked
-    .filter((r) => parseDate(r.started_at).getTime() >= since)
+    .filter((r) => {
+      const t = parseDate(r.started_at).getTime();
+      return t >= period.start.getTime() && t < period.end.getTime();
+    })
     .sort((a, b) => parseDate(a.started_at).getTime() - parseDate(b.started_at).getTime())
     .map((r) => ({
       id: r.lecture_id,
@@ -279,15 +343,35 @@ function Trend({ ranked, selectedId, onSelect }: TrendProps) {
   return (
     <>
       <SectionTitle
-        meta={points.length > 0 ? "Click a lecture to see its tasks" : undefined}
-        actions={<SegmentedControl label="Time range" options={TREND_RANGES} value={range} onChange={setRange} />}
+        actions={
+          <>
+            <div className="flex items-center gap-0.5">
+              <PeriodArrow
+                dir="prev"
+                label={`Previous ${range}`}
+                disabled={!canPrev}
+                onClick={() => setCursor(new Date(period.start.getTime() - 1))}
+              />
+              <span className="min-w-32 text-center text-[13px] font-semibold text-zinc-900 tabular-nums" aria-live="polite">
+                {period.label}
+              </span>
+              <PeriodArrow
+                dir="next"
+                label={`Next ${range}`}
+                disabled={!canNext}
+                onClick={() => setCursor(new Date(period.end))}
+              />
+            </div>
+            <SegmentedControl label="Time range" options={TREND_RANGES} value={range} onChange={changeRange} />
+          </>
+        }
       >
         Solved per lecture
       </SectionTitle>
       {points.length > 0 ? (
         <TrendChart className="mt-6" points={points} selectedId={selectedId} onSelect={onSelect} />
       ) : (
-        <EmptyState className="mt-6" title={`No ranked lectures in the last ${range === "month" ? "30 days" : "16 weeks"}.`} />
+        <EmptyState className="mt-6" title={`No ranked lectures in ${period.label}.`} />
       )}
     </>
   );
@@ -368,7 +452,7 @@ export default function App() {
           description="What should a review lecture go back over? Lectures and topics, worst first."
         />
 
-        <div className="grid gap-6">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
           {reviewError && <EmptyState title="Couldn't load the ranking." />}
           {reviews && ranked.length === 0 && !reviewError && (
             <EmptyState title={`No finished lectures with ${MIN_STUDENTS_FOR_REVIEW}+ students yet.`} />
@@ -409,7 +493,7 @@ export default function App() {
                 <Trend ranked={ranked} selectedId={openId} onSelect={selectFromTrend} />
               </Card>
 
-              <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
+              <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
                 <Card>
                   <SectionTitle className="mb-2">Lectures, worst first</SectionTitle>
                   <ol>

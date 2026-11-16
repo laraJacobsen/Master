@@ -129,7 +129,7 @@ export function SectionTitle({ children, meta, actions, className, as: Tag = "h2
     <div className={cx("flex flex-wrap items-center gap-x-3 gap-y-2", className)}>
       <Tag className="text-[15px] font-bold tracking-tight text-zinc-900">{children}</Tag>
       {meta && <span className="text-[13px] text-zinc-500">{meta}</span>}
-      {actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
+      {actions && <div className="ml-auto flex flex-wrap items-center justify-end gap-2">{actions}</div>}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { cx } from "../shared/cx";
 
 // "Solved per lecture" on the history page: a smooth brand-coloured line over
@@ -78,9 +78,12 @@ export function TrendChart({ points, selectedId, onSelect, className }: TrendCha
   const [hoverId, setHoverId] = useState<number | null>(null);
   const gradId = useId();
 
-  useEffect(() => {
+  // Measure before first paint (so the chart never flashes empty), then keep
+  // following the container's width.
+  useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
+    setWidth(el.getBoundingClientRect().width);
     const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
     ro.observe(el);
     return () => ro.disconnect();
