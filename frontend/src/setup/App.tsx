@@ -41,6 +41,12 @@ interface TestCaseDraft {
 // Same limit as the backend (backend/test_files.py): Judge0 caps what a
 // program may print at 1 MB, so bigger test data couldn't be checked anyway.
 const MAX_TEST_FILE_BYTES = 1_000_000;
+// Starter code and reference solutions loaded from a file -- far more than a
+// lecture exercise needs, small enough to catch picking the wrong file.
+const MAX_CODE_FILE_BYTES = 200_000;
+
+// Source file extensions, to notice a file in a different language than the task's.
+const LANGUAGE_BY_EXTENSION: Record<string, string> = { py: "python", c: "c", h: "c", java: "java" };
 
 function formatBytes(n: number): string {
   if (n < 1000) return `${n} B`;
@@ -159,6 +165,27 @@ function FilePickLabel({ children, inputLabel, multiple = false, onFiles }: File
         }}
       />
     </label>
+  );
+}
+
+export interface CodeFileNoteProps {
+  text: string;
+  /** ok: loaded. warn: loaded, but looks like another language. bad: not loaded. */
+  tone: "ok" | "warn" | "bad";
+}
+
+/** One line under a code box after loading it from a file: what was loaded, or why not. */
+function CodeFileNote({ text, tone }: CodeFileNoteProps) {
+  return (
+    <p
+      className={cx(
+        "mt-1.5 text-[13px]",
+        tone === "bad" ? "text-red-700" : tone === "warn" ? "text-amber-700" : "text-zinc-500",
+      )}
+      role={tone === "bad" ? "alert" : "status"}
+    >
+      {text}
+    </p>
   );
 }
 
@@ -440,6 +467,7 @@ export default function App() {
     setIdleNudgeMinutes("3");
     setReferenceSolution("");
     setStarterCode(null);
+    setCodeFileNote(null);
     setGradeFile(false);
     setOutputFile("result.txt");
     setTestCases([emptyTestCase()]);
@@ -472,6 +500,7 @@ export default function App() {
     setIdleNudgeMinutes(String(q.idle_nudge_seconds / 60));
     setReferenceSolution(q.reference_solution || "");
     setStarterCode(q.starter_code ?? null);
+    if (!keepStep) setCodeFileNote(null);
     setGradeFile(Boolean(q.output_file));
     setOutputFile(q.output_file || "result.txt");
     setTestCases(
@@ -550,6 +579,40 @@ export default function App() {
     }
     updateTestCase(index, "expected", content);
     markEdited();
+  }
+
+  // Starter code / reference solution read from a file (e.g. one written in an
+  // editor) instead of pasted. Replaces what's in the box.
+  const [codeFileNote, setCodeFileNote] = useState<
+    ({ field: "starter" | "reference" } & CodeFileNoteProps) | null
+  >(null);
+
+  async function loadCodeFromFile(field: "starter" | "reference", list: FileList | null) {
+    const file = list?.[0];
+    if (!file) return;
+    setCodeFileNote(null);
+    if (file.size > MAX_CODE_FILE_BYTES) {
+      setCodeFileNote({ field, tone: "bad", text: `"${file.name}" is ${formatBytes(file.size)}, too big for a code file.` });
+      return;
+    }
+    const content = await file.text();
+    if (content.includes("\u0000")) {
+      setCodeFileNote({ field, tone: "bad", text: `"${file.name}" isn't a text file.` });
+      return;
+    }
+    if (field === "starter") setStarterCode(content === defaultStarter ? null : content);
+    else setReferenceSolution(content);
+    markEdited();
+    // Loaded fine, but written for another language than this task's: say so.
+    const fileLanguage = LANGUAGE_BY_EXTENSION[file.name.split(".").pop()?.toLowerCase() ?? ""];
+    const mismatch = Boolean(fileLanguage && fileLanguage !== language);
+    setCodeFileNote({
+      field,
+      tone: mismatch ? "warn" : "ok",
+      text: mismatch
+        ? `Loaded ${file.name}. It looks like ${LANGUAGE_NAMES[fileLanguage]}, but this task is ${LANGUAGE_NAMES[language] ?? language}.`
+        : `Loaded ${file.name}.`,
+    });
   }
 
   function removeFile(index: number, name: string) {
@@ -1051,7 +1114,7 @@ export default function App() {
                   )}
 
                   <div className="mt-7 mb-2 text-[13px] font-semibold text-zinc-900">Test cases</div>
-                  <div className="grid gap-3">
+                  <div className="grid gap-4">
                     <div
                       className="grid grid-cols-[1fr_1fr_1.75rem] gap-2 text-[11px] font-semibold tracking-[0.08em] text-zinc-500 uppercase"
                       aria-hidden="true"
@@ -1061,16 +1124,56 @@ export default function App() {
                       <span />
                     </div>
                     {testCases.map((tc, i) => (
-                      <div className="grid gap-1.5" key={i}>
-                        <div className="grid grid-cols-[1fr_1fr_1.75rem] items-start gap-2">
+                      <div className="grid grid-cols-[1fr_1fr_1.75rem] items-start gap-2" key={i}>
+                        {i === 0 && (
+                          <div className="col-span-3 -mb-0.5 text-xs text-zinc-500">
+                            <span className="font-medium text-brand-600">Example</span> · students see this one
+                          </div>
+                        )}
+                        {/* Input: typed text, plus the data files the program reads. */}
+                        <div className="grid min-w-0 gap-1.5">
                           <Textarea
                             mono
                             className="min-h-11"
                             aria-label={`Test ${i + 1} input`}
-                            placeholder="1 2 3"
+                            placeholder={tc.files.length ? "(nothing typed)" : "1 2 3"}
                             value={tc.stdin}
                             onChange={(e) => updateTestCase(i, "stdin", e.target.value)}
                           />
+                          {tc.files.length > 0 && (
+                            <ul className="border-t border-zinc-200 text-xs" aria-label={`Test ${i + 1} input files`}>
+                              {tc.files.map((f) => (
+                                <li key={f.name} title={f.name} className="flex items-center gap-2 border-b border-zinc-200 py-1.5 pl-1">
+                                  <svg className="size-3.5 flex-none text-zinc-400" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                                    <path d="M3 1.5h5l3 3v8H3z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                                    <path d="M8 1.5v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                                  </svg>
+                                  <span className="min-w-0 flex-1 truncate font-mono text-zinc-900">{f.name}</span>
+                                  <span className="font-mono text-zinc-400">{formatBytes(new Blob([f.content]).size)}</span>
+                                  <button
+                                    type="button"
+                                    className="rounded-sm text-zinc-400 transition-colors group-disabled:hidden hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-500"
+                                    aria-label={`Remove ${f.name} from test ${i + 1}`}
+                                    onClick={() => removeFile(i, f.name)}
+                                  >
+                                    Remove
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          <div>
+                            <FilePickLabel
+                              multiple
+                              inputLabel={`Add input files to test ${i + 1}`}
+                              onFiles={(files) => void attachFiles(i, files)}
+                            >
+                              + Add input file
+                            </FilePickLabel>
+                          </div>
+                        </div>
+                        {/* Expected: what the program must produce. */}
+                        <div className="grid min-w-0 gap-1.5">
                           <Textarea
                             mono
                             className="min-h-11"
@@ -1079,56 +1182,23 @@ export default function App() {
                             value={tc.expected}
                             onChange={(e) => updateTestCase(i, "expected", e.target.value)}
                           />
-                          <RemoveButton
-                            label={`Remove test ${i + 1}`}
-                            className="mt-2"
-                            onClick={() => removeTestCaseRow(i)}
-                          />
+                          <div>
+                            <FilePickLabel
+                              inputLabel={`Fill test ${i + 1}'s expected output from a file`}
+                              onFiles={(files) => void loadExpectedFromFile(i, files)}
+                            >
+                              Fill from a file
+                            </FilePickLabel>
+                          </div>
                         </div>
-                        {tc.files.length > 0 && (
-                          <ul className="mr-9 border-t border-zinc-200 text-xs">
-                            {tc.files.map((f) => (
-                              <li key={f.name} title={f.name} className="flex items-center gap-3 border-b border-zinc-200 py-1.5 pl-1">
-                                <span className="min-w-0 flex-1 truncate font-mono text-zinc-900">{f.name}</span>
-                                <span className="font-mono text-zinc-400">{formatBytes(new Blob([f.content]).size)}</span>
-                                <button
-                                  type="button"
-                                  className="rounded-sm text-zinc-400 transition-colors group-disabled:hidden hover:text-red-600 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-500"
-                                  aria-label={`Remove ${f.name} from test ${i + 1}`}
-                                  onClick={() => removeFile(i, f.name)}
-                                >
-                                  Remove
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pr-9">
-                          <FilePickLabel
-                            inputLabel={`Load test ${i + 1}'s expected output from a file`}
-                            onFiles={(files) => void loadExpectedFromFile(i, files)}
-                          >
-                            Expected from file
-                          </FilePickLabel>
-                          <FilePickLabel
-                            multiple
-                            inputLabel={`Attach files to test ${i + 1}`}
-                            onFiles={(files) => void attachFiles(i, files)}
-                          >
-                            Attach files
-                          </FilePickLabel>
-                          {i === 0 && tc.files.length > 0 && (
-                            <span className="text-xs text-zinc-500">Test 1 is the example: students can open its files.</span>
-                          )}
-                        </div>
+                        <RemoveButton
+                          label={`Remove test ${i + 1}`}
+                          className="mt-2"
+                          onClick={() => removeTestCaseRow(i)}
+                        />
                       </div>
                     ))}
                   </div>
-                  <p className="mt-3 text-[13px] leading-relaxed text-zinc-500">
-                    Files are put next to the student&apos;s program, which opens them by name, e.g.{" "}
-                    <Code>open(&quot;numbers.txt&quot;)</Code>. Text files, up to 1 MB each. Students see the
-                    example&apos;s files during the task and every test&apos;s files once time is up.
-                  </p>
                   {fileError && (
                     <div
                       className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[13px] text-red-900"
@@ -1155,6 +1225,14 @@ export default function App() {
                       onChange={(e) => setStarterCode(e.target.value === defaultStarter ? null : e.target.value)}
                     />
                     <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px] leading-relaxed text-zinc-500">
+                      <span className="order-last">
+                        <FilePickLabel
+                          inputLabel="Load the starter code from a file"
+                          onFiles={(files) => void loadCodeFromFile("starter", files)}
+                        >
+                          Load from file
+                        </FilePickLabel>
+                      </span>
                       {starterCode === null ? (
                         <span>
                           The default for {LANGUAGE_NAMES[language] ?? language}
@@ -1185,6 +1263,7 @@ export default function App() {
                         </>
                       )}
                     </p>
+                    {codeFileNote?.field === "starter" && <CodeFileNote {...codeFileNote} />}
                   </div>
 
                   <div className="mt-8">
@@ -1199,6 +1278,15 @@ export default function App() {
                       value={referenceSolution}
                       onChange={(e) => setReferenceSolution(e.target.value)}
                     />
+                    <div className="mt-1.5">
+                      <FilePickLabel
+                        inputLabel="Load the reference solution from a file"
+                        onFiles={(files) => void loadCodeFromFile("reference", files)}
+                      >
+                        Load from file
+                      </FilePickLabel>
+                    </div>
+                    {codeFileNote?.field === "reference" && <CodeFileNote {...codeFileNote} />}
                   </div>
                   <Button variant="secondary" className="mt-3" onClick={checkSolution}>
                     {busy === "checking" ? "Checking..." : "Check solution"}
