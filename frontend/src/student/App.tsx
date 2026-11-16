@@ -64,7 +64,8 @@ function VerdictBadge({ verdict }: VerdictBadgeProps) {
 }
 
 export interface ExampleIoProps {
-  rows: Array<[label: string, value: string]>;
+  /** A string is shown in a monospace box; anything else (e.g. a file list) as is. */
+  rows: Array<[label: string, value: ReactNode]>;
 }
 
 // The task's example, label above a monospace box -- same as the lecturer's
@@ -75,9 +76,13 @@ function ExampleIo({ rows }: ExampleIoProps) {
       {rows.map(([label, value]) => (
         <div key={label}>
           <div className="mb-1.5 text-xs text-zinc-500">{label}</div>
-          <pre className="max-h-40 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-[13px] text-zinc-900">
-            {value}
-          </pre>
+          {typeof value === "string" ? (
+            <pre className="max-h-40 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-[13px] text-zinc-900">
+              {value}
+            </pre>
+          ) : (
+            value
+          )}
         </div>
       ))}
     </div>
@@ -843,6 +848,39 @@ export default function App() {
 
   const timeFraction = durationSeconds && secondsRemaining != null ? secondsRemaining / durationSeconds : 0;
   const exampleFiles = files.filter((f) => f.test === 0);
+  // The example gives nothing on standard input: its input is its files.
+  const inputFromFiles = exampleFiles.length > 0 && !(example?.stdin ?? "").trim();
+  // The example's files as rows that open them in the workspace.
+  const taskFileList = (
+    <ul className="grid gap-1" aria-label="Task files">
+      {exampleFiles.map((f) => {
+        const isOpen = openDataFiles.includes(f.name);
+        return (
+          <li key={f.name}>
+            <button
+              type="button"
+              onClick={() => workspaceRef.current?.openDataFile(f.name)}
+              className={cx(
+                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] ring-1 transition-colors",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
+                isOpen
+                  ? "bg-brand-50 text-brand-700 ring-brand-200"
+                  : "bg-zinc-50 text-zinc-800 ring-zinc-200 hover:bg-white hover:ring-zinc-300",
+              )}
+            >
+              <svg className="size-3.5 flex-none text-zinc-400" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M3 1.5h5l3 3v8H3z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                <path d="M8 1.5v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+              </svg>
+              <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium">{f.name}</span>
+              <span className="font-mono text-[11px] text-zinc-400">{formatBytes(f.size)}</span>
+              <span className="text-xs text-zinc-500">{isOpen ? "Open" : "View"}</span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
   const lowTime = secondsRemaining != null && timeFraction <= 0.15;
 
   return (
@@ -939,44 +977,27 @@ export default function App() {
                   <Eyebrow className="mb-3">Example</Eyebrow>
                   <ExampleIo
                     rows={[
-                      ["Input", example.stdin.trimEnd() || "(none)"],
+                      // File tasks: the example's input is its files, not standard input.
+                      inputFromFiles
+                        ? [exampleFiles.length === 1 ? "Input file" : "Input files", taskFileList]
+                        : ["Input", example.stdin.trimEnd() || "(none)"],
                       [outputFile ? `Expected ${outputFile}` : "Expected output", example.expected_stdout.trimEnd()],
                     ]}
                   />
+                  {inputFromFiles && (
+                    <p className="mt-2.5 text-[13px] leading-relaxed text-zinc-500">
+                      The graded tests use their own versions of {exampleFiles.length === 1 ? "this file" : "these files"},
+                      shown when time is up.
+                    </p>
+                  )}
                 </section>
               )}
 
-              {exampleFiles.length > 0 && (
+              {/* A task with both typed input and files: the files get their own section. */}
+              {exampleFiles.length > 0 && !inputFromFiles && (
                 <section aria-label="Task files">
                   <Eyebrow className="mb-2">Files</Eyebrow>
-                  <ul className="grid gap-1">
-                    {exampleFiles.map((f) => {
-                      const isOpen = openDataFiles.includes(f.name);
-                      return (
-                        <li key={f.name}>
-                          <button
-                            type="button"
-                            onClick={() => workspaceRef.current?.openDataFile(f.name)}
-                            className={cx(
-                              "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] ring-1 transition-colors",
-                              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
-                              isOpen
-                                ? "bg-brand-50 text-brand-700 ring-brand-200"
-                                : "bg-zinc-50 text-zinc-800 ring-zinc-200 hover:bg-white hover:ring-zinc-300",
-                            )}
-                          >
-                            <svg className="size-3.5 flex-none text-zinc-400" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                              <path d="M3 1.5h5l3 3v8H3z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                              <path d="M8 1.5v3h3" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                            </svg>
-                            <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium">{f.name}</span>
-                            <span className="font-mono text-[11px] text-zinc-400">{formatBytes(f.size)}</span>
-                            <span className="text-xs text-zinc-500">{isOpen ? "Open" : "View"}</span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  {taskFileList}
                   <p className="mt-2.5 text-[13px] leading-relaxed text-zinc-500">
                     Your program can open {exampleFiles.length === 1 ? "this file" : "these files"} by name, e.g.{" "}
                     <Code>open(&quot;{exampleFiles[0].name}&quot;)</Code>. The graded tests use their own versions, shown
