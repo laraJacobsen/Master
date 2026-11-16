@@ -231,6 +231,12 @@ so the prompt and validation are identical; only endpoint/model/auth/timeout dif
 for running off NTNU's network/VPN, or keeping student code on the machine. Not re-evaluated:
 every spot-check round so far used IDUN's gpt-oss-120b, and a small local model is expected
 to do worse (more fallbacks from invalid JSON or second-person phrasing, vaguer labels).
+
+2026-11-16, Label wording: a 3-7 word headline about what goes wrong, a colon, then one
+sentence on the code that causes it; no "snippets"/"reference solution"/"both students".
+Labels were already grounded, but read as code diffs ("Both snippets use a single %d ...,
+whereas the reference solution uses two") rather than something to say to the class.
+Grounding rules unchanged. Not yet through a spot-check round.
 """
 
 import difflib
@@ -338,7 +344,7 @@ WRONG_ANSWER_SUBCLUSTER_PROMPT = (
     "different variable names for the same thing. You may also be given the exercise's own "
     "reference (correct) solution -- it is for context only, never one of the snippets to "
     "describe.\n"
-    "Describe, in ONE short factual sentence, only the pattern that is visibly shared "
+    "Describe only the pattern that is visibly shared "
     "across ALL of the given snippets AND, when a reference solution is shown, is "
     "actually DIFFERENT from it -- e.g. a specific operator, an off-by-one style "
     "adjustment, a missing or extra call, a particular loop or condition shape. Code the "
@@ -355,8 +361,18 @@ WRONG_ANSWER_SUBCLUSTER_PROMPT = (
     "describe what it holds (e.g. 'the lowercased string').\n"
     "Write in third person, for the lecturer, about the students -- never 'you' or "
     "'your'.\n"
+    "Format: a headline of 3-7 words saying what goes wrong when the code runs, then a "
+    "colon, then ONE short sentence naming the concrete code that causes it. Write about "
+    "the code itself: never mention 'snippets', 'the reference solution', 'both students' "
+    "or 'all students' -- the lecturer sees this next to the code and doesn't need to be "
+    "told where it came from. Examples of the format:\n"
+    "  Last number left out of the total: the loop uses range(1, n), which stops before "
+    "n.\n"
+    "  Sorted the wrong way round: sorted() is called without reverse=True.\n"
+    "If there is no shared pattern, start with 'No shared pattern:' and say briefly how "
+    "the code differs.\n"
     "Respond with ONLY a JSON object with exactly this key:\n"
-    "  \"discussion_point\": the one-sentence factual note\n"
+    "  \"discussion_point\": the headline and sentence, as described above\n"
     "No other keys, no markdown fences, no explanation outside the JSON object."
 )
 
