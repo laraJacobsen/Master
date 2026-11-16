@@ -93,7 +93,8 @@ BUG_D_LOOP_CODE = (
 )
 
 _idun_state = {"available": True}
-idun_chat_calls = []  # request bodies sent to IDUN's /chat/completions, for the no-leakage assertion
+idun_chat_calls = []  # Label request bodies sent to IDUN's /chat/completions, for the no-leakage assertion
+idun_headline_calls = []  # the dashboard's title/action calls (aggregation.HEADLINE_PROMPT), kept apart
 
 
 def fake_post(url, params=None, json=None, headers=None, timeout=None):
@@ -106,18 +107,14 @@ def fake_post(url, params=None, json=None, headers=None, timeout=None):
     if url.endswith("/chat/completions"):
         if not _idun_state["available"]:
             raise ConnectionError("simulated IDUN outage")
-        idun_chat_calls.append(json)
-        resp.json.return_value = {
-            "choices": [
-                {
-                    "message": {
-                        "content": json_lib.dumps(
-                            {"discussion_point": "All snippets share the same overall structure."}
-                        )
-                    }
-                }
-            ]
-        }
+        from backend import aggregation
+        if json["messages"][0]["content"] == aggregation.HEADLINE_PROMPT:
+            idun_headline_calls.append(json)
+            answer = {"title": "Same overall structure", "action": "Trace one example on the board."}
+        else:
+            idun_chat_calls.append(json)
+            answer = {"discussion_point": "All snippets share the same overall structure."}
+        resp.json.return_value = {"choices": [{"message": {"content": json_lib.dumps(answer)}}]}
         return resp
 
     if json.get("language_id") == 89:
@@ -653,6 +650,8 @@ def _run_checks(client):
         for c in wrong_answer_clusters:
             assert c["count"] == 2, clusters
             assert c["discussion_point"] == "All snippets share the same overall structure.", clusters
+            assert c["title"] == "Same overall structure" and c["action"], clusters
+        assert idun_headline_calls, "the dashboard's title/action call never ran"
         print("wrong_answer sub-clustering separates two bug shapes  OK ->", wrong_answer_clusters)
 
         # The sub-cluster IDUN call sees the students' real code (since 2026-10-13 -- see
