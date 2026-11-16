@@ -49,6 +49,17 @@
   --animate-fade-in: fade-in 0.15s ease-out both;
   --animate-fade-in-up: fade-in-up 0.4s ease-out both;
   --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+  /* The live dashboard's purple band: a slow drift so it reads as "live". */
+  --animate-gradient-drift: gradient-drift 14s ease-in-out infinite alternate;
+
+  @keyframes gradient-drift {
+    from {
+      background-position: 0% 50%;
+    }
+    to {
+      background-position: 100% 50%;
+    }
+  }
   --animate-shimmer: shimmer 1.6s ease-in-out infinite;
 
   @keyframes shimmer {

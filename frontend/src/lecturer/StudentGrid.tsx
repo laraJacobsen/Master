@@ -6,6 +6,7 @@ import { SubmissionDetail } from "./ExampleBlock";
 import { ActivityDot } from "./ClassProgress";
 import { SCORE_LINE, TILE_HOVER, TILE_TONE, VERDICT_BORDER } from "../shared/verdictStyles";
 import { Drawer } from "../shared/Drawer";
+import { readShowNames, saveShowNames } from "./studentNames";
 import { Badge } from "../shared/ui";
 import type { Tone } from "../shared/ui";
 import { cx } from "../shared/cx";
@@ -16,9 +17,6 @@ import { cx } from "../shared/cx";
 // tests passed. Clicking a tile opens their attempts and full code in a side
 // drawer -- code can be long, and the page shouldn't jump around for it.
 
-// Names are hidden by default (numbered instead) -- this dashboard can end
-// up on a shared screen. Remembered per browser so it doesn't reset every task.
-const NAMES_KEY = "lecturer.studentGrid.names";
 
 type Group = Verdict | "none";
 
@@ -32,14 +30,6 @@ const VERDICT_TONE: Record<Verdict, Tone> = {
   error: "danger",
 };
 
-function readShowNames(): boolean {
-  try {
-    return window.localStorage.getItem(NAMES_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 function groupOf(t: StudentTrack): Group {
   return t.best ? verdictOf(t.best) : "none";
 }
@@ -48,21 +38,24 @@ export interface StudentGridProps {
   subs: SubmissionRow[];
   // Null once the task isn't running -- activity would read "away" for everyone.
   activity: StudentActivity[] | null;
+  // Only these students (numbering still counts the whole class, so a
+  // student's number is the same in every grid on the page).
+  only?: Set<string>;
+  // Controlled names toggle -- the caller owns it and the header is hidden.
+  showNames?: boolean;
 }
 
-export function StudentGrid({ subs, activity }: StudentGridProps) {
-  const [showNames, setShowNames] = useState(readShowNames);
+export function StudentGrid({ subs, activity, only, showNames: showNamesProp }: StudentGridProps) {
+  const [ownShowNames, setShowNames] = useState(readShowNames);
+  const showNames = showNamesProp ?? ownShowNames;
+  const bare = showNamesProp !== undefined;
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedAttempt, setSelectedAttempt] = useState<number | null>(null);
   const close = useCallback(() => setSelected(null), []);
 
   function toggleNames() {
     setShowNames((prev) => {
-      try {
-        window.localStorage.setItem(NAMES_KEY, prev ? "0" : "1");
-      } catch {
-        // Storage blocked -- the toggle still works for this page view.
-      }
+      saveShowNames(!prev);
       return !prev;
     });
   }
@@ -72,7 +65,9 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
   const tracks = buildTracks(subs, activity);
   const number = new Map(tracks.map((t, i) => [t.name, String(i + 1).padStart(2, "0")]));
   const label = (t: StudentTrack) => (showNames ? t.name : `#${number.get(t.name)}`);
-  const ordered = GROUP_ORDER.flatMap((g) => tracks.filter((t) => groupOf(t) === g));
+  const ordered = GROUP_ORDER.flatMap((g) => tracks.filter((t) => groupOf(t) === g)).filter(
+    (t) => !only || only.has(t.name),
+  );
   const track = tracks.find((t) => t.name === selected) ?? null;
   const shownSub = track
     ? (track.attempts.find((s) => s.id === selectedAttempt) ?? track.attempts[track.attempts.length - 1] ?? null)
@@ -85,6 +80,7 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
 
   return (
     <section aria-label="Students">
+      {!bare && (
       <div className="mb-4 flex items-center gap-3">
         <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Class</h2>
         <span className="font-mono text-xs text-zinc-400">
@@ -101,8 +97,9 @@ export function StudentGrid({ subs, activity }: StudentGridProps) {
           </button>
         )}
       </div>
+      )}
 
-      {tracks.length === 0 ? (
+      {ordered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-300 px-6 py-12 text-center text-sm text-zinc-400">
           Students appear here as they join.
         </div>

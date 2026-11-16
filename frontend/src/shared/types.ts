@@ -221,6 +221,9 @@ export interface ActiveLectureResponse {
   live_question_id: string | null;
   // Whether "Next task" would start anything -- only sent while a lecture is active.
   has_next_task?: boolean;
+  // The live task's position: "Task 3 of 4" (null when nothing is live).
+  task_number?: number | null;
+  task_count?: number;
 }
 
 // GET /api/lecturer/stats/totals
@@ -289,6 +292,10 @@ export interface ClusterRow {
   example_submission_id: number;
   submission_ids: number[];
   discussion_point: string | null;
+  // AI rewrite of discussion_point for the dashboard: a short headline and one
+  // thing for the lecturer to do. Null when there's no point or the call failed.
+  title: string | null;
+  action: string | null;
   // Shown to the students by the lecturer -- sorted first, gets a discussion
   // point even with a single student, and its example is on the students'
   // waiting screen. See aggregation.raise_issue().
