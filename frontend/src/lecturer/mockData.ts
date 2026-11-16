@@ -110,7 +110,8 @@ function ts(minutesAgo: number): string {
   return new Date(Date.now() - minutesAgo * 60_000).toISOString().slice(0, 19).replace("T", " ");
 }
 
-export function buildMock() {
+// ended: the timer already ran out, to preview the "task ended" state.
+export function buildMock(ended = false) {
   const subs: SubmissionRow[] = [];
   let id = 1000;
   PLAN.forEach((attempts, i) => {
@@ -211,7 +212,7 @@ export function buildMock() {
     expected_students: 26,
     duration_seconds: 600,
     idle_nudge_seconds: 180,
-    started_at: ts(4),
+    started_at: ts(ended ? 11 : 4),
     output_file: null,
     starter_code: null,
   };

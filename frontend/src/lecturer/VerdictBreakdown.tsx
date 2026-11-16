@@ -17,8 +17,8 @@ export interface VerdictBreakdownProps {
   activity: StudentActivity[] | null;
 }
 
-// Each student's best result so far, by outcome category: a stacked bar and a
-// row per category. Every row opens to the students in it (collapsed by
+// Each student's best result so far, a row per outcome category (the bar
+// itself is up in the purple band). Every row opens to the students in it (collapsed by
 // default -- names can end up on the projector); a student opens their code.
 export function VerdictBreakdown({ tracks, subs, activity }: VerdictBreakdownProps) {
   const [openRows, setOpenRows] = useState<Set<Row>>(new Set());
@@ -54,8 +54,8 @@ export function VerdictBreakdown({ tracks, subs, activity }: VerdictBreakdownPro
     <Card className="flex flex-col">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-zinc-950">Verdict breakdown</h2>
-          <p className="mt-0.5 text-[13px] text-zinc-500">Automatic test results across submitted code</p>
+          <h2 className="text-lg font-semibold tracking-tight text-zinc-950">Students by outcome</h2>
+          <p className="mt-0.5 text-[13px] text-zinc-500">Open an outcome to see the students in it</p>
         </div>
         <div className="flex flex-none items-center gap-2">
           {openRows.size > 0 && (
@@ -74,24 +74,9 @@ export function VerdictBreakdown({ tracks, subs, activity }: VerdictBreakdownPro
         </div>
       </div>
 
-      {total === 0 ? (
+      {total === 0 && rows.length === 0 && (
         <div className="mt-5 rounded-lg border border-dashed border-zinc-300 px-5 py-8 text-center text-sm text-zinc-400">
           Waiting for the first submission
-        </div>
-      ) : (
-        <div
-          className="mt-5 flex h-3 gap-0.5 overflow-hidden rounded-full"
-          role="img"
-          aria-label={categories.map((c) => `${count(c)} ${CATEGORY_LABEL[c]}`).join(", ")}
-        >
-          {categories.map((c) => (
-            <span
-              key={c}
-              className={cx("min-w-1.5 basis-0 transition-[flex-grow] duration-500", CATEGORY_FILL[c])}
-              style={{ flexGrow: count(c) }}
-              title={`${count(c)} ${CATEGORY_LABEL[c]}`}
-            />
-          ))}
         </div>
       )}
 

@@ -39,6 +39,18 @@ export function categoryOf(execVerdict: string | null | undefined): Category {
   }
 }
 
+// Each student's best result, counted per category (students without a
+// submission yet are left out).
+export function categoryCounts(bests: Array<{ exec_verdict: string | null } | null>): Map<Category, number> {
+  const counts = new Map<Category, number>();
+  for (const b of bests) {
+    if (!b) continue;
+    const c = categoryOf(b.exec_verdict);
+    counts.set(c, (counts.get(c) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export const CATEGORY_LABEL: Record<Category, string> = {
   correct: "Correct",
   wrong_answer: "Wrong answer",
@@ -49,24 +61,28 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   other: "Other",
 };
 
-// Solid fill: bar segments and legend dots.
+// Only the verdict palette (shared/verdictStyles.ts): emerald = correct,
+// amber = wrong answer, red = the code didn't run properly -- told apart by
+// a hatch (syntax error) and a darker red (timeout), never by a new hue.
+// Rejected/other aren't about the code at all, so they stay neutral.
 export const CATEGORY_FILL: Record<Category, string> = {
   correct: "bg-emerald-600",
-  wrong_answer: "bg-amber-600",
-  syntax_error: "bg-violet-500",
+  wrong_answer: "bg-amber-400",
+  syntax_error:
+    "bg-[repeating-linear-gradient(135deg,var(--color-red-600)_0_2px,#fff_2px_4px)] shadow-[inset_0_0_0_1px_var(--color-red-600)]",
   runtime_error: "bg-red-600",
-  timeout: "bg-slate-500",
-  rejected: "bg-zinc-400",
-  other: "bg-zinc-400",
+  timeout: "bg-red-800",
+  rejected: "bg-zinc-300",
+  other: "bg-zinc-300",
 };
 
 // Tinted pill for a discussion point's category.
 export const CATEGORY_PILL: Record<Category, string> = {
   correct: "bg-emerald-50 text-emerald-800",
-  wrong_answer: "bg-amber-50 text-amber-800",
-  syntax_error: "bg-violet-50 text-violet-800",
+  wrong_answer: "bg-amber-50 text-amber-900",
+  syntax_error: "bg-red-50 text-red-800",
   runtime_error: "bg-red-50 text-red-800",
-  timeout: "bg-slate-100 text-slate-700",
+  timeout: "bg-red-50 text-red-900",
   rejected: "bg-zinc-100 text-zinc-700",
   other: "bg-zinc-100 text-zinc-700",
 };

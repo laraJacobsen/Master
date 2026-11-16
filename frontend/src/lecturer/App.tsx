@@ -26,7 +26,7 @@ import {
 import { ClassProgress } from "./ClassProgress";
 import { IssueList } from "./IssueList";
 import { clusterIds, issueKey } from "./issues";
-import { TaskHeader, TaskStatusCard } from "./TaskHeader";
+import { LiveHero } from "./TaskHeader";
 import { VerdictBreakdown } from "./VerdictBreakdown";
 import { buildTracks } from "./studentTracks";
 import { buildMock } from "./mockData";
@@ -218,7 +218,7 @@ export default function App() {
     if (LECTURE_ID || LOBBY_ID) return; // historical/lobby mode -- no live task polling, see effects above.
 
     if (MOCK) {
-      const m = buildMock();
+      const m = buildMock(new URLSearchParams(window.location.search).get("mock") === "ended");
       setPageTitle(m.question.title);
       setQuestion(m.question);
       setSubRows(m.subs);
@@ -530,6 +530,28 @@ export default function App() {
         onConfirm={handleFinishLecture}
         onCancel={() => setConfirmFinishOpen(false)}
       />
+      {QUESTION_ID && !LECTURE_ID && !lectureFinished && (
+        <LiveHero
+          title={pageTitle}
+          lectureLabel={lectureLabel}
+          taskNumber={taskNumber}
+          taskCount={taskCount}
+          question={question}
+          secondsRemaining={secondsRemaining}
+          joinCode={joinCode}
+          lastTask={lastTask}
+          advancing={advancing}
+          advanceMessage={advanceMessage}
+          onNextTask={handleNextTask}
+          onEndTaskNow={handleEndTaskNow}
+          onEndLecture={() => setConfirmFinishOpen(true)}
+          submitted={progress?.submitted ?? tracks.filter((t) => t.best).length}
+          expected={progress?.expected ?? null}
+          tracks={tracks}
+          showActivity={taskRunning}
+          contentId="live-content"
+        />
+      )}
       <Page width={QUESTION_ID && !LECTURE_ID ? "full" : "wide"}>
         {!(QUESTION_ID && !LECTURE_ID) && (
           <PageHeader
@@ -596,39 +618,15 @@ export default function App() {
               <h2 className="font-bold">Lecture finished</h2>
               <p className="mt-1">Students now see an end-of-lecture screen. The session summary is below.</p>
             </Callout>
-          ) : (
-            <>
-              <TaskHeader
-                title={pageTitle}
-                lectureLabel={lectureLabel}
-                taskNumber={taskNumber}
-                taskCount={taskCount}
-                question={question}
-                secondsRemaining={secondsRemaining}
-                joinCode={joinCode}
-                lastTask={lastTask}
-                advancing={advancing}
-                advanceMessage={advanceMessage}
-                onNextTask={handleNextTask}
-                onEndTaskNow={handleEndTaskNow}
-                onEndLecture={() => setConfirmFinishOpen(true)}
-              />
-              <TaskStatusCard
-                question={question}
-                secondsRemaining={secondsRemaining}
-                submitted={progress?.submitted ?? tracks.filter((t) => t.best).length}
-                expected={progress?.expected ?? null}
-                tracks={tracks}
-                showActivity={taskRunning}
-                lastTask={lastTask}
-              />
-            </>
-          )
+          ) : null
         )}
 
         {QUESTION_ID && !lectureFinished && !LECTURE_ID && (
           <>
-          <div className="mt-5 grid items-start gap-5 lg:grid-cols-2">
+          <div
+            id="live-content"
+            className="mt-8 grid scroll-mt-32 items-start gap-5 lg:grid-cols-2"
+          >
             <VerdictBreakdown tracks={tracks} subs={subRows} activity={taskRunning ? activity : null} />
             <section aria-label="Discussion points" className="min-w-0">
               {raiseError && <ErrorText className="mb-3">{raiseError}</ErrorText>}
