@@ -94,6 +94,9 @@ BUG_D_LOOP_CODE = (
 
 _idun_state = {"available": True}
 idun_chat_calls = []  # request bodies sent to IDUN's /chat/completions, for the no-leakage assertion
+# The headline call (title + action per discussion point, see aggregation.HEADLINE_PROMPT)
+# is kept apart, so the Label-call counts below stay about the Label call only.
+headline_calls = []
 
 
 def fake_post(url, params=None, json=None, headers=None, timeout=None):
@@ -106,6 +109,16 @@ def fake_post(url, params=None, json=None, headers=None, timeout=None):
     if url.endswith("/chat/completions"):
         if not _idun_state["available"]:
             raise ConnectionError("simulated IDUN outage")
+        from backend import aggregation as _agg
+
+        if json["messages"][0]["content"] == _agg.HEADLINE_PROMPT:
+            headline_calls.append(json)
+            resp.json.return_value = {
+                "choices": [
+                    {"message": {"content": json_lib.dumps({"title": "Mock headline", "action": "Show it on the board."})}}
+                ]
+            }
+            return resp
         idun_chat_calls.append(json)
         resp.json.return_value = {
             "choices": [
@@ -666,6 +679,16 @@ def _run_checks(client):
             assert leaked not in sent, (leaked, sent)
         assert "nums = input().split()" in sent, sent
         print("Sub-cluster IDUN call: real code, no names/comments  OK")
+
+        # The headline call only ever sees the category and the existing note: no
+        # code, no names. Every clustered issue with a point gets a title + action.
+        assert headline_calls, "expected headline calls for the discussion points"
+        sent = json_lib.dumps(headline_calls)
+        for leaked in ("Carol", "Dave", "Kasper", "Vilde", "input().split()", "bug_a_add_one"):
+            assert leaked not in sent, (leaked, sent)
+        for c in wrong_answer_clusters:
+            assert c["title"] == "Mock headline" and c["action"] == "Show it on the board.", c
+        print("Headline call: note only, adds title/action       OK")
 
         # Fallback path, tested directly against _subcluster_discussion_point() rather
         # than through another full HTTP round trip: whether a third real submission
