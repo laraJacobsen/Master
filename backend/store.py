@@ -543,7 +543,7 @@ def end_question_now(question_id: str) -> None:
     by shortening duration_seconds to the time already elapsed. Deliberately
     not close_question(): the question stays live, so it goes through the
     exact same "time's up" path as a timer that ran out on its own --
-    students' unsubmitted code gets auto-submitted, and "Show to students"
+    students' unsubmitted code gets auto-submitted, and "Show on full screen"
     examples reach their waiting screens. Moving on is still "Next task"."""
     row = get_question_row(question_id)
     if not row or row["status"] != "live" or not row.get("started_at"):
