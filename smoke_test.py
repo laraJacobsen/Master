@@ -93,10 +93,8 @@ BUG_D_LOOP_CODE = (
 )
 
 _idun_state = {"available": True}
-idun_chat_calls = []  # request bodies sent to IDUN's /chat/completions, for the no-leakage assertion
-# The headline call (title + action per discussion point, see aggregation.HEADLINE_PROMPT)
-# is kept apart, so the Label-call counts below stay about the Label call only.
-headline_calls = []
+idun_chat_calls = []  # Label request bodies sent to IDUN's /chat/completions, for the no-leakage assertion
+idun_headline_calls = []  # the dashboard's title/action calls (aggregation.HEADLINE_PROMPT), kept apart
 
 
 def fake_post(url, params=None, json=None, headers=None, timeout=None):
@@ -109,28 +107,14 @@ def fake_post(url, params=None, json=None, headers=None, timeout=None):
     if url.endswith("/chat/completions"):
         if not _idun_state["available"]:
             raise ConnectionError("simulated IDUN outage")
-        from backend import aggregation as _agg
-
-        if json["messages"][0]["content"] == _agg.HEADLINE_PROMPT:
-            headline_calls.append(json)
-            resp.json.return_value = {
-                "choices": [
-                    {"message": {"content": json_lib.dumps({"title": "Mock headline", "action": "Show it on the board."})}}
-                ]
-            }
-            return resp
-        idun_chat_calls.append(json)
-        resp.json.return_value = {
-            "choices": [
-                {
-                    "message": {
-                        "content": json_lib.dumps(
-                            {"discussion_point": "All snippets share the same overall structure."}
-                        )
-                    }
-                }
-            ]
-        }
+        from backend import aggregation
+        if json["messages"][0]["content"] == aggregation.HEADLINE_PROMPT:
+            idun_headline_calls.append(json)
+            answer = {"title": "Same overall structure", "action": "Trace one example on the board."}
+        else:
+            idun_chat_calls.append(json)
+            answer = {"discussion_point": "All snippets share the same overall structure."}
+        resp.json.return_value = {"choices": [{"message": {"content": json_lib.dumps(answer)}}]}
         return resp
 
     if json.get("language_id") == 89:
@@ -666,6 +650,12 @@ def _run_checks(client):
         for c in wrong_answer_clusters:
             assert c["count"] == 2, clusters
             assert c["discussion_point"] == "All snippets share the same overall structure.", clusters
+            assert c["title"] == "Same overall structure" and c["action"], clusters
+        assert idun_headline_calls, "the dashboard's title/action call never ran"
+        # It only ever sees the category and the existing note: no code, no names.
+        sent = json_lib.dumps(idun_headline_calls)
+        for leaked in ("Carol", "Dave", "Kasper", "Vilde", "input().split()", "bug_a_add_one"):
+            assert leaked not in sent, (leaked, sent)
         print("wrong_answer sub-clustering separates two bug shapes  OK ->", wrong_answer_clusters)
 
         # The sub-cluster IDUN call sees the students' real code (since 2026-10-13 -- see
@@ -679,16 +669,6 @@ def _run_checks(client):
             assert leaked not in sent, (leaked, sent)
         assert "nums = input().split()" in sent, sent
         print("Sub-cluster IDUN call: real code, no names/comments  OK")
-
-        # The headline call only ever sees the category and the existing note: no
-        # code, no names. Every clustered issue with a point gets a title + action.
-        assert headline_calls, "expected headline calls for the discussion points"
-        sent = json_lib.dumps(headline_calls)
-        for leaked in ("Carol", "Dave", "Kasper", "Vilde", "input().split()", "bug_a_add_one"):
-            assert leaked not in sent, (leaked, sent)
-        for c in wrong_answer_clusters:
-            assert c["title"] == "Mock headline" and c["action"] == "Show it on the board.", c
-        print("Headline call: note only, adds title/action       OK")
 
         # Fallback path, tested directly against _subcluster_discussion_point() rather
         # than through another full HTTP round trip: whether a third real submission
