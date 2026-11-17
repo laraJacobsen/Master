@@ -514,21 +514,20 @@ export default function App() {
   }
 
   // "Show on screen" in a student's code drawer -- see api_lecturer_show_submission.
+  // Only one attempt is up at a time: showing this one takes down whatever
+  // was showing, a raised discussion point included.
   async function toggleSubmissionShown(sub: SubmissionRow) {
     const next = !shownSubIds.has(sub.id);
     if (MOCK) {
-      setShownSubIds((prev) => {
-        const ids = new Set(prev);
-        if (next) ids.add(sub.id);
-        else ids.delete(sub.id);
-        return ids;
-      });
+      setShownSubIds(next ? new Set([sub.id]) : new Set());
+      if (next) setClusters((prev) => prev.map((x) => ({ ...x, raised: false })));
       return;
     }
     setShowingSubId(sub.id);
     setShowResultsError(null);
     try {
       setShownSubIds(new Set(await showSubmission(sub.id, next)));
+      if (next && QUESTION_ID) setClusters(await fetchClusters(QUESTION_ID));
     } catch (e) {
       setShowResultsError(e instanceof Error ? e.message : "Could not update the shown code.");
     } finally {
@@ -539,14 +538,17 @@ export default function App() {
   async function toggleRaised(c: ClusterRow) {
     if (!QUESTION_ID) return;
     const key = issueKey(c);
+    // One at a time, as in toggleSubmissionShown().
     if (MOCK) {
-      setClusters((prev) => prev.map((x) => (issueKey(x) === key ? { ...x, raised: !x.raised } : x)));
+      setClusters((prev) => prev.map((x) => ({ ...x, raised: issueKey(x) === key ? !x.raised : false })));
+      if (!c.raised) setShownSubIds(new Set());
       return;
     }
     setRaisingKey(key);
     setRaiseError(null);
     try {
       setClusters(await raiseIssue(QUESTION_ID, c, !c.raised));
+      if (!c.raised) setShownSubIds(new Set(await fetchShownSubmissions(QUESTION_ID)));
     } catch (e) {
       setRaiseError(e instanceof Error ? e.message : "Could not update this issue.");
     } finally {

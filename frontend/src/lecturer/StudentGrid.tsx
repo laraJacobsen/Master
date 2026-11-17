@@ -260,10 +260,10 @@ function ShowCodeButton({ sub, control }: ShowCodeButtonProps) {
         taskRunning
           ? shown
             ? "Take this attempt out of the queue"
-            : "Queue this attempt: it goes on the projector and students' screens, without the name, when the task ends"
+            : "Queue this attempt instead of anything queued: it goes on the projector and students' screens, without the name, when the task ends"
           : shown
             ? "Stop showing this attempt on the projector and students' screens"
-            : "Show this attempt on the projector and students' screens now, without the name"
+            : "Show this attempt on the projector and students' screens now, without the name, replacing what's there"
       }
       className={cx(
         "inline-flex h-8 flex-none items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors",

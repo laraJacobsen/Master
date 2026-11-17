@@ -1067,9 +1067,10 @@ def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids:
 
 
 def shown_examples(question_id: str) -> list:
-    """What the class is being shown for this question, in the order picked:
-    raised discussion points' examples (raise_issue()) and single submissions
-    the lecturer picked from a student's attempts (store.set_submission_shown(),
+    """What the class is being shown for this question -- at most one attempt
+    (showing one replaces the last, see store.add_raised_issue()): a raised
+    discussion point's example (raise_issue()) or a single submission the
+    lecturer picked from a student's attempts (store.set_submission_shown(),
     correct ones included). As the students see them: code with comments
     stripped (the one free-text field in a submission, see _strip_comments()),
     whether it passed every test, and the first test it failed. No student

@@ -757,6 +757,10 @@ def _run_checks(client):
         # correct one included. Reaches the students' examples, raises no
         # discussion point, and unshowing takes it back down.
         correct_sub = next(row for row in store_mod.all_submissions("sum-ints") if row["verdict"] == "correct")
+        # Only one attempt is up at a time: showing a single attempt replaces a
+        # raised discussion point, and raising one replaces a single attempt.
+        client.post("/api/lecturer/clusters/raise", json=raise_body)
+        assert len(agg_mod.shown_examples("sum-ints")) == 1
         r = client.post(f"/api/lecturer/submissions/{correct_sub['id']}/show", json={"shown": True})
         assert r.status_code == 200 and r.json() == [correct_sub["id"]], r.text
         assert client.get("/api/lecturer/questions/sum-ints/shown_submissions").json() == [correct_sub["id"]]
@@ -765,6 +769,11 @@ def _run_checks(client):
         assert correct_sub["student_name"] not in json_lib.dumps(shown), shown
         clusters = client.get("/api/lecturer/clusters", params={"question_id": "sum-ints"}).json()
         assert not any(c["raised"] for c in clusters), "a single shown submission must not raise a discussion point"
+        client.post("/api/lecturer/clusters/raise", json=raise_body)
+        assert client.get("/api/lecturer/questions/sum-ints/shown_submissions").json() == [], "raising replaces the single attempt"
+        shown = agg_mod.shown_examples("sum-ints")
+        assert len(shown) == 1 and shown[0]["correct"] is False, shown
+        client.post(f"/api/lecturer/submissions/{correct_sub['id']}/show", json={"shown": True})
         r = client.post(f"/api/lecturer/submissions/{correct_sub['id']}/show", json={"shown": False})
         assert r.json() == [] and agg_mod.shown_examples("sum-ints") == [], r.text
         assert client.post("/api/lecturer/submissions/999999/show", json={"shown": True}).status_code == 404

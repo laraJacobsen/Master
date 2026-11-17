@@ -195,10 +195,10 @@ function IssueRow({
                     taskRunning
                       ? c.raised
                         ? "Take this out of the queue"
-                        : "Queue this example: it goes on the projector and students' screens when the task ends"
+                        : "Queue this example instead of anything queued: it goes on the projector and students' screens when the task ends"
                       : c.raised
                         ? "Stop showing this on the projector and students' screens"
-                        : "Show this example on the projector and students' screens now"
+                        : "Show this example on the projector and students' screens now, replacing what's there"
                   }
                   className={cx(
                     "ml-auto inline-flex h-8 flex-none items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors",

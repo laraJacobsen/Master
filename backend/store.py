@@ -1129,22 +1129,18 @@ def raised_issue_rows(question_id: str) -> list:
 
 
 def add_raised_issue(question_id: str, exec_verdict: str, error_type, students: set, submission_id: int) -> None:
-    """Raising the exact same issue again (same students) just updates its
-    example, keeping its place in the order."""
+    """Replaces whatever the class was being shown for this question: only one
+    attempt is up at a time (requested 2026-11-17 -- two at once each got half
+    the projector and came out too small to read)."""
     students_json = json.dumps(sorted(students))
     with _lock:
         conn = _connect()
-        cur = conn.execute(
-            "UPDATE raised_issues SET submission_id = ? WHERE question_id = ? AND exec_verdict = ? "
-            "AND error_type IS ? AND students = ? AND single = 0",
-            (submission_id, question_id, exec_verdict, error_type, students_json),
+        conn.execute("DELETE FROM raised_issues WHERE question_id = ?", (question_id,))
+        conn.execute(
+            "INSERT INTO raised_issues (question_id, exec_verdict, error_type, students, submission_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (question_id, exec_verdict, error_type, students_json, submission_id),
         )
-        if cur.rowcount == 0:
-            conn.execute(
-                "INSERT INTO raised_issues (question_id, exec_verdict, error_type, students, submission_id) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (question_id, exec_verdict, error_type, students_json, submission_id),
-            )
         conn.commit()
         conn.close()
 
@@ -1192,12 +1188,14 @@ def shown_submission_ids(question_id: str, single_only: bool = False) -> list:
 def set_submission_shown(submission: dict, shown: bool) -> None:
     """Shows (or stops showing) one student's submission to the class -- the
     live dashboard's "Show on screen" in a student's code drawer. Any verdict,
-    so the lecturer can put up a correct solution too."""
+    so the lecturer can put up a correct solution too. Showing replaces
+    whatever was up for the question (one at a time, see add_raised_issue())."""
     with _lock:
         conn = _connect()
-        conn.execute(
-            "DELETE FROM raised_issues WHERE single = 1 AND submission_id = ?", (submission["id"],)
-        )
+        if shown:
+            conn.execute("DELETE FROM raised_issues WHERE question_id = ?", (submission["question_id"],))
+        else:
+            conn.execute("DELETE FROM raised_issues WHERE single = 1 AND submission_id = ?", (submission["id"],))
         if shown:
             conn.execute(
                 "INSERT INTO raised_issues (question_id, exec_verdict, error_type, students, submission_id, single) "
