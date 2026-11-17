@@ -51,6 +51,19 @@
   --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
   /* The live dashboard's purple band: a slow drift so it reads as "live". */
   --animate-gradient-drift: gradient-drift 14s ease-in-out infinite alternate;
+  /* ...and once its task has ended: darker, slower, with a breathing glow. */
+  --animate-gradient-drift-slow: gradient-drift 24s ease-in-out infinite alternate;
+  --animate-breathe: breathe 6s ease-in-out infinite;
+
+  @keyframes breathe {
+    0%,
+    100% {
+      opacity: 0.35;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
 
   @keyframes gradient-drift {
     from {

@@ -128,13 +128,19 @@ export function LiveHero(props: LiveHeroProps) {
   );
   const nextButton = (size: "md" | "lg") =>
     !lastTask && (
-      <Button size={size} onClick={onNextTask} disabled={advancing} className={running ? ON_ACCENT_BUTTON : undefined}>
+      <Button size={size} onClick={onNextTask} disabled={advancing} className={onBand ? ON_ACCENT_BUTTON : undefined}>
         Next task
         <span aria-hidden="true">&rarr;</span>
       </Button>
     );
 
-  const muted = running ? "text-white/75" : "text-zinc-500";
+  // White text on the band both while running (purple) and once ended (deep purple).
+  const onBand = running || ended;
+  const muted = onBand ? "text-white/75" : "text-zinc-500";
+  const RUNNING_BG =
+    "animate-gradient-drift bg-linear-to-br from-brand-500 via-violet-500 to-brand-600 bg-size-[200%_200%] text-white motion-reduce:animate-none";
+  const ENDED_BG =
+    "animate-gradient-drift-slow bg-linear-to-br from-brand-900 via-brand-950 to-violet-950 bg-size-[200%_200%] text-white motion-reduce:animate-none";
 
   return (
     <>
@@ -142,27 +148,31 @@ export function LiveHero(props: LiveHeroProps) {
         aria-label="Task status"
         className={cx(
           "relative isolate overflow-hidden",
-          running
-            ? "animate-gradient-drift bg-linear-to-br from-brand-500 via-violet-500 to-brand-600 bg-size-[200%_200%] text-white motion-reduce:animate-none"
-            : "border-b border-zinc-200 bg-white text-zinc-950",
+          running ? RUNNING_BG : ended ? ENDED_BG : "border-b border-zinc-200 bg-white text-zinc-950",
         )}
       >
-        {running && (
-          // Soft light from the top right -- depth without decoration.
+        {onBand && (
+          // Soft light from the top right -- depth without decoration. Once the
+          // task has ended it slowly breathes, so the band still reads as alive.
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(40rem_20rem_at_100%_0%,rgb(255_255_255/0.2),transparent_70%)]"
+            className={cx(
+              "pointer-events-none absolute inset-0 -z-10",
+              running
+                ? "bg-[radial-gradient(40rem_20rem_at_100%_0%,rgb(255_255_255/0.2),transparent_70%)]"
+                : "animate-breathe bg-[radial-gradient(48rem_24rem_at_85%_0%,rgb(139_92_246/0.45),transparent_70%)] motion-reduce:animate-none",
+            )}
           />
         )}
         <div className="mx-auto w-full max-w-[112rem] px-5 pt-10 pb-6 sm:px-8 sm:pt-14">
           {ended && (
-            <div className="mb-6 flex flex-wrap items-center gap-x-3.5 gap-y-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-              <span className="grid size-8 place-items-center rounded-lg bg-white text-zinc-900 shadow-card" aria-hidden="true">
+            <div className="mb-6 flex flex-wrap items-center gap-x-3.5 gap-y-2 rounded-xl border border-white/15 bg-white/10 px-4 py-3">
+              <span className="grid size-8 place-items-center rounded-lg bg-white/15 text-white" aria-hidden="true">
                 <span className="size-2.5 rounded-[2px] bg-current" />
               </span>
               <div>
                 <p className="font-bold tracking-tight">Task ended</p>
-                <p className="text-[13px] text-zinc-500">
+                <p className="text-[13px] text-white/70">
                   Students are waiting and the queued examples are on screen.{" "}
                   {lastTask ? "End the session from the ··· menu" : "Start the next task"} when you're done.
                 </p>
@@ -181,7 +191,7 @@ export function LiveHero(props: LiveHeroProps) {
             </div>
           </div>
           {advanceMessage && (
-            <p className={cx("mt-3 text-[13px] font-medium", running ? "text-white" : "text-red-600")}>{advanceMessage}</p>
+            <p className={cx("mt-3 text-[13px] font-medium", onBand ? "text-white" : "text-red-600")}>{advanceMessage}</p>
           )}
 
           <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:items-end">
@@ -202,7 +212,7 @@ export function LiveHero(props: LiveHeroProps) {
                 <p className="mt-2 flex items-baseline gap-1.5">
                   <span className="font-mono text-6xl leading-none font-semibold tracking-tight tabular-nums lg:text-7xl">{submitted}</span>
                   {expected != null && submitted <= expected && (
-                    <span className={cx("text-3xl tabular-nums", running ? "text-white/60" : "text-zinc-400")}>
+                    <span className={cx("text-3xl tabular-nums", onBand ? "text-white/60" : "text-zinc-400")}>
                       / {expected}
                     </span>
                   )}
@@ -221,19 +231,19 @@ export function LiveHero(props: LiveHeroProps) {
                   role="timer"
                   className={cx(
                     "mt-2 font-mono text-6xl leading-none font-semibold tracking-tight tabular-nums lg:text-7xl",
-                    ended && "text-zinc-400",
+                    ended && "text-white/50",
                   )}
                 >
                   {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
                 </div>
                 <div
-                  className={cx("mt-4 ml-auto h-1.5 w-40 overflow-hidden rounded-full", running ? "bg-white/25" : "bg-zinc-100")}
+                  className={cx("mt-4 ml-auto h-1.5 w-40 overflow-hidden rounded-full", onBand ? "bg-white/25" : "bg-zinc-100")}
                   aria-hidden="true"
                 >
                   <div
                     className={cx(
                       "ml-auto h-full rounded-full transition-[width] duration-1000 ease-linear",
-                      running ? "bg-white" : "bg-zinc-400",
+                      running ? "bg-white" : ended ? "bg-white/40" : "bg-zinc-400",
                     )}
                     style={{ width: `${timeFraction * 100}%` }}
                   />
@@ -298,13 +308,13 @@ export function LiveHero(props: LiveHeroProps) {
             </div>
           )}
 
-          <div ref={sentinel} className={cx("flex justify-center", running ? "mt-28" : "mt-8")}>
+          <div ref={sentinel} className={cx("flex justify-center", onBand ? "mt-28" : "mt-8")}>
             <a
               href={`#${contentId}`}
               className={cx(
                 "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors",
                 "focus-visible:outline-2 focus-visible:outline-offset-2",
-                running
+                onBand
                   ? "text-white/80 hover:bg-white/10 hover:text-white focus-visible:outline-white"
                   : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-brand-500",
               )}
@@ -327,22 +337,24 @@ export function LiveHero(props: LiveHeroProps) {
           compact ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-2 opacity-0",
           running
             ? "animate-gradient-drift bg-linear-to-r from-brand-500 via-violet-500 to-brand-600 bg-size-[200%_200%] text-white shadow-lg shadow-brand-500/20 motion-reduce:animate-none"
-            : "border-b border-zinc-200 bg-white/95 text-zinc-950 shadow-sm backdrop-blur-md",
+            : ended
+              ? "animate-gradient-drift-slow bg-linear-to-r from-brand-900 via-brand-950 to-violet-950 bg-size-[200%_200%] text-white shadow-lg shadow-brand-950/30 motion-reduce:animate-none"
+              : "border-b border-zinc-200 bg-white/95 text-zinc-950 shadow-sm backdrop-blur-md",
         )}
       >
         <div className="mx-auto flex h-14 w-full max-w-[112rem] items-center gap-5 px-5 sm:px-8">
           <p className="min-w-0 flex-1 truncate text-[15px] font-bold tracking-tight">
             {title}
-            {ended && <span className="ml-2 font-medium text-zinc-500">· Task ended</span>}
+            {ended && <span className="ml-2 font-medium text-white/60">· Task ended</span>}
           </p>
           <span className="hidden font-mono text-sm tabular-nums sm:inline">
             {submitted}
-            {expected != null && <span className={running ? "text-white/60" : "text-zinc-400"}>/{expected}</span>}
+            {expected != null && <span className={onBand ? "text-white/60" : "text-zinc-400"}>/{expected}</span>}
           </span>
           <div className="hidden w-40 md:block">
-            <VerdictBar tracks={tracks} expected={expected} thin onAccent={running} />
+            <VerdictBar tracks={tracks} expected={expected} thin onAccent={onBand} />
           </div>
-          <span className={cx("font-mono text-lg font-semibold tabular-nums", ended && "text-zinc-400")}>
+          <span className={cx("font-mono text-lg font-semibold tabular-nums", ended && "text-white/50")}>
             {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
           </span>
           {nextButton("md")}
