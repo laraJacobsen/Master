@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
-import type { LectureStatus, RunResponse, SharedExample } from "../shared/types";
+import type { LectureStatus, LiveQuestion, RunResponse, SharedExample } from "../shared/types";
 import { fetchActiveLecture, fetchLectureStatus, runCode } from "../shared/api";
 import { Editor, monaco } from "../shared/monaco";
 import { BrandMark, Button, Eyebrow } from "../shared/ui";
@@ -71,12 +71,18 @@ export default function App() {
   const examples = status?.shown_examples ?? [];
   const results = status?.shown_results ?? null;
 
+  // Time's up and something to go over: the screen is the shown code alone.
   const compact = timeUp && (examples.length > 0 || results != null);
+  // Which task "Show task" was opened for, so a popup left open doesn't come
+  // back by itself when the next task's examples go up.
+  const [taskOpenFor, setTaskOpenFor] = useState<string | null>(null);
 
   // Everything on the projector has to be readable from the back of the room
   // without anyone scrolling: the page is locked to the viewport and the
   // whole thing (text and code) shrinks until it fits. Re-fit from full size
-  // whenever what's on screen changes.
+  // whenever what's on screen changes. Once examples are up, the task itself
+  // leaves the screen (it's behind "Show task") so the code gets all the room,
+  // and only the code shrinks -- the buttons around it stay full size.
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const fitKey = JSON.stringify([
@@ -90,7 +96,7 @@ export default function App() {
     examples.map((ex) => ex.source_code),
     results,
   ]);
-  const scale = useFitScale(viewportRef, contentRef, fitKey);
+  const scale = useFitScale(viewportRef, contentRef, fitKey, !compact);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-zinc-50">
@@ -103,11 +109,17 @@ export default function App() {
               <strong className="font-mono font-bold tracking-[0.12em] text-zinc-950">{joinCode}</strong>
             </span>
           )}
+          {compact && question && <Button variant="secondary" onClick={() => setTaskOpenFor(question.id)}>Show task</Button>}
           <FullscreenButton />
         </div>
       </div>
+      {compact && question && taskOpenFor === question.id && (
+        <TaskPopup question={question} onClose={() => setTaskOpenFor(null)} />
+      )}
 
-      <div ref={viewportRef} className="min-h-0 flex-1 overflow-hidden">
+      {/* Scrolls only as a last resort: code too long to fit even at the
+          editor's smallest font (6px) is never cut off. */}
+      <div ref={viewportRef} className={cx("min-h-0 flex-1", compact ? "overflow-y-auto" : "overflow-hidden")}>
         {/* Only the centred status screens stretch to fill: with a task up, the
             box is the content's own height, so useFitScale can see spare room. */}
         <div ref={contentRef} className={cx("flex flex-col", !question && "min-h-full")}>
@@ -143,53 +155,43 @@ export default function App() {
 
           {question && (
             <main className="mx-auto flex w-full max-w-[1500px] flex-col gap-8 p-5 sm:p-10">
-              <section className="flex flex-col items-start justify-between gap-10 lg:flex-row">
-                <div className="min-w-0 flex-1">
-                  <h1
-                    className={cx(
-                      "font-bold tracking-tight text-zinc-950 [overflow-wrap:anywhere]",
-                      compact ? "mb-2 text-4xl" : "mb-4 text-6xl",
+              {!compact && (
+                <section className="flex flex-col items-start justify-between gap-10 lg:flex-row">
+                  <div className="min-w-0 flex-1">
+                    <h1 className="mb-4 text-6xl font-bold tracking-tight text-zinc-950 [overflow-wrap:anywhere]">
+                      {question.title}
+                    </h1>
+                    <p className="mb-8 text-[2rem] leading-snug whitespace-pre-wrap text-zinc-700 [overflow-wrap:anywhere]">
+                      {question.prompt}
+                    </p>
+                    {question.example && (
+                      <IoTable
+                        className="text-2xl"
+                        rows={[
+                          ["Example input", question.example.stdin.trimEnd() || "(none)"],
+                          ["Expected output", question.example.expected_stdout.trimEnd()],
+                        ]}
+                      />
                     )}
-                  >
-                    {question.title}
-                  </h1>
-                  <p
-                    className={cx(
-                      "leading-snug whitespace-pre-wrap text-zinc-700 [overflow-wrap:anywhere]",
-                      compact ? "text-2xl" : "mb-8 text-[2rem]",
-                    )}
-                  >
-                    {question.prompt}
-                  </p>
-                  {question.example && !compact && (
-                    <IoTable
-                      className="text-2xl"
-                      rows={[
-                        ["Example input", question.example.stdin.trimEnd() || "(none)"],
-                        ["Expected output", question.example.expected_stdout.trimEnd()],
-                      ]}
-                    />
-                  )}
-                </div>
-                <div
-                  className={cx(
-                    "flex-none rounded-xl bg-white text-center shadow-card",
-                    timeUp && "ring-1 ring-red-200",
-                    compact ? "min-w-44 px-6 py-3" : "min-w-64 px-8 py-5",
-                  )}
-                >
-                  <Eyebrow className={cx("text-sm", timeUp && "text-red-600")}>{timeUp ? "Time's up" : "Time left"}</Eyebrow>
+                  </div>
                   <div
                     className={cx(
-                      "font-mono leading-none font-bold tracking-tight tabular-nums",
-                      timeUp ? "text-red-600" : "text-zinc-950",
-                      compact ? "mt-2 text-5xl" : "mt-3 text-[5.5rem]",
+                      "min-w-64 flex-none rounded-xl bg-white px-8 py-5 text-center shadow-card",
+                      timeUp && "ring-1 ring-red-200",
                     )}
                   >
-                    {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
+                    <Eyebrow className={cx("text-sm", timeUp && "text-red-600")}>{timeUp ? "Time's up" : "Time left"}</Eyebrow>
+                    <div
+                      className={cx(
+                        "mt-3 font-mono text-[5.5rem] leading-none font-bold tracking-tight tabular-nums",
+                        timeUp ? "text-red-600" : "text-zinc-950",
+                      )}
+                    >
+                      {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
+                    </div>
                   </div>
-                </div>
-              </section>
+                </section>
+              )}
 
               {compact && results && (
                 <section>
@@ -204,8 +206,7 @@ export default function App() {
               )}
 
               {compact && examples.length > 0 && (
-                <section>
-                  <h2 className="mb-5 text-4xl font-bold tracking-tight">Let's look at this together</h2>
+                <section aria-label="Shown attempts">
                   <div className="grid gap-6">
                     {examples.map((ex, i) => (
                       <ExampleCard
@@ -241,11 +242,14 @@ const MIN_SCALE = 0.1;
 // match. Shrinks while the content overflows and grows back while there's
 // room (never back up to a scale already seen to overflow, so it settles
 // instead of flip-flopping as text rewraps). Starts again from full size when
-// `resetKey` or the window size changes.
+// `resetKey` or the window size changes. With `scaleRoot` off, the root font
+// stays at full size and only what reads the returned factor (the code
+// editors) shrinks.
 function useFitScale(
   viewportRef: RefObject<HTMLDivElement | null>,
   contentRef: RefObject<HTMLDivElement | null>,
   resetKey: string,
+  scaleRoot: boolean,
 ): number {
   const [scale, setScale] = useState(1);
   const [windowSize, setWindowSize] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
@@ -264,8 +268,8 @@ function useFitScale(
   }, [resetKey, windowSize]);
 
   useLayoutEffect(() => {
-    document.documentElement.style.fontSize = `${16 * scale}px`;
-  }, [scale]);
+    document.documentElement.style.fontSize = `${16 * (scaleRoot ? scale : 1)}px`;
+  }, [scale, scaleRoot]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -301,6 +305,68 @@ function useFitScale(
   }, [viewportRef, contentRef, scale, resetKey, windowSize]);
 
   return scale;
+}
+
+export interface TaskPopupProps {
+  question: LiveQuestion;
+  onClose: () => void;
+}
+
+// "Show task" while the shown code has the screen: the task on top of it.
+// Sized in px, not rem -- the page's rem is shrunk to fit the code
+// (useFitScale), and the task should stay readable however small that got.
+function TaskPopup({ question, onClose }: TaskPopupProps) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex animate-fade-in items-center justify-center bg-zinc-950/40 p-[32px] backdrop-blur-[2px]"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-popup-title"
+        className="max-h-full w-full max-w-[1200px] animate-fade-in-up overflow-y-auto rounded-xl border border-zinc-200 bg-white p-[48px] shadow-2xl shadow-zinc-950/10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-[20px] flex items-start justify-between gap-[24px]">
+          <h2
+            id="task-popup-title"
+            className="text-[48px] leading-tight font-bold tracking-tight text-zinc-950 [overflow-wrap:anywhere]"
+          >
+            {question.title}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            autoFocus
+            className="flex-none rounded-lg border border-zinc-200 bg-white px-[16px] py-[8px] text-[18px] font-medium text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+          >
+            Close
+          </button>
+        </div>
+        <p className="mb-[32px] text-[30px] leading-snug whitespace-pre-wrap text-zinc-700 [overflow-wrap:anywhere]">
+          {question.prompt}
+        </p>
+        {question.example && (
+          <IoTable
+            className="text-[24px]"
+            rows={[
+              ["Example input", question.example.stdin.trimEnd() || "(none)"],
+              ["Expected output", question.example.expected_stdout.trimEnd()],
+            ]}
+          />
+        )}
+      </div>
+    </div>
+  );
 }
 
 export interface ProjectorEmptyProps {
@@ -382,7 +448,19 @@ function ExampleCard({ example, label, language, questionId, scale }: ExampleCar
   const padding = Math.round(12 * scale);
   // The editor is always as tall as its (wrapped) content, so every line is
   // on screen and it never scrolls; useFitScale shrinks the page instead.
-  const [height, setHeight] = useState(() => example.source_code.split("\n").length * lineHeight + 2 * padding);
+  // Kept as a count of on-screen (wrapped) lines rather than pixels, so the
+  // height follows the fit scale at once -- before Monaco has loaded, and
+  // before it reports its new size. A pixel height lagging behind the scale
+  // reads as overflow to useFitScale, which then shrinks the code all the way
+  // down to its minimum.
+  const [visualLines, setVisualLines] = useState(() => example.source_code.split("\n").length);
+  const height = visualLines * lineHeight + 2 * padding;
+  const metricsRef = useRef({ lineHeight, padding });
+  metricsRef.current = { lineHeight, padding };
+  const measure = (contentHeight: number) => {
+    const m = metricsRef.current;
+    setVisualLines(Math.max(1, Math.round((contentHeight - 2 * m.padding) / m.lineHeight)));
+  };
   const [edited, setEdited] = useState(false);
   const [highlightCount, setHighlightCount] = useState(0);
   const [running, setRunning] = useState(false);
@@ -484,12 +562,12 @@ function ExampleCard({ example, label, language, questionId, scale }: ExampleCar
             defaultValue={example.source_code}
             onMount={(editor) => {
               editorRef.current = editor;
-              if (editor.getLayoutInfo().contentWidth > 100) setHeight(editor.getContentHeight());
+              if (editor.getLayoutInfo().contentWidth > 100) measure(editor.getContentHeight());
               editor.onDidContentSizeChange((e) => {
                 // Monaco's first layout can be a few px wide, which word-wraps
                 // every character onto its own line -- don't let that
                 // momentary height make the page shrink to fit it.
-                if (e.contentHeightChanged && editor.getLayoutInfo().contentWidth > 100) setHeight(e.contentHeight);
+                if (e.contentHeightChanged && editor.getLayoutInfo().contentWidth > 100) measure(e.contentHeight);
               });
               editor.addAction({
                 id: "projector-highlight",
