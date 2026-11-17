@@ -269,12 +269,12 @@ MIN_STUDENTS_FOR_DISCUSSION = 2
 # Issues the lecturer chose to show to the students on the live dashboard -- see
 # raise_issue(). A raised issue gets a discussion point even below
 # MIN_STUDENTS_FOR_DISCUSSION, sorts to the top, and its example is sent to the
-# students' waiting screen (shown_examples()). Keyed by (question_id,
-# exec_verdict, error_type, frozenset(student names in the issue when it was
-# raised)), so an issue stays raised as more students land in it; the value is
-# the submission id shown to students, in the order raised. In-memory, same as
-# the discussion-point caches below: a restart forgets them.
-_raised_issues = {}
+# students' waiting screen (shown_examples()). Each is stored as (question_id,
+# exec_verdict, error_type, student names in the issue when it was raised), so
+# an issue stays raised as more students land in it, plus the submission id
+# shown to students, in the order raised. Kept in SQLite (store.raised_issue_rows())
+# rather than in memory: a backend restart -- every `uvicorn --reload` -- used to
+# take the examples off the students' screens mid-lecture.
 
 # Keeps operators/brackets/literals as features instead of dropping them -- see
 # the 2026-09-16 follow-up in the module docstring.
@@ -1017,8 +1017,8 @@ def _cached_discussion_point(question_id, exec_verdict, error_type, student_coun
 
 def _is_raised(question_id, exec_verdict, error_type, students: set) -> bool:
     return any(
-        (q, v, e) == (question_id, exec_verdict, error_type) and flagged & students
-        for q, v, e, flagged in _raised_issues
+        (r["exec_verdict"], r["error_type"]) == (exec_verdict, error_type) and r["students"] & students
+        for r in store.raised_issue_rows(question_id)
     )
 
 
@@ -1055,11 +1055,15 @@ def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids:
     if not students:
         raise ValueError(f"no submissions found for ids {submission_ids!r}")
     if raised:
-        _raised_issues[(question_id, exec_verdict, error_type, frozenset(students))] = submission_ids[0]
+        store.add_raised_issue(question_id, exec_verdict, error_type, students, submission_ids[0])
     else:
-        for entry in list(_raised_issues):
-            if entry[:3] == (question_id, exec_verdict, error_type) and entry[3] & students:
-                del _raised_issues[entry]
+        store.delete_raised_issues(
+            [
+                r["id"]
+                for r in store.raised_issue_rows(question_id)
+                if (r["exec_verdict"], r["error_type"]) == (exec_verdict, error_type) and r["students"] & students
+            ]
+        )
 
 
 def shown_examples(question_id: str) -> list:
@@ -1068,10 +1072,8 @@ def shown_examples(question_id: str) -> list:
     in a submission, see _strip_comments()) and the first test it failed. No
     student name, no discussion point -- see raise_issue()."""
     examples = []
-    for (q, _v, _e, _students), sub_id in _raised_issues.items():
-        if q != question_id:
-            continue
-        row = store.get_submission(sub_id)
+    for raised in store.raised_issue_rows(question_id):
+        row = store.get_submission(raised["submission_id"])
         if not row:
             continue
         results = json.loads(row.get("raw_test_results") or "[]")

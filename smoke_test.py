@@ -725,6 +725,9 @@ def _run_checks(client):
         assert len(idun_chat_calls) == 3, "one new single-snippet Label call"
         assert "Lise" not in json_lib.dumps(idun_chat_calls[-1]), idun_chat_calls[-1]
         from backend import aggregation as agg_mod
+        # Stored in SQLite, not process memory: a backend restart (`--reload`) keeps it.
+        from backend import store as store_mod
+        assert [r["submission_id"] for r in store_mod.raised_issue_rows("sum-ints")] == [single["submission_ids"][0]]
         shown = agg_mod.shown_examples("sum-ints")
         assert len(shown) == 1 and shown[0]["source_code"].endswith("- 1)"), shown
         assert "Lise" not in json_lib.dumps(shown) and "bug_c" not in json_lib.dumps(shown), shown

@@ -221,6 +221,26 @@ def init_db():
             """
         )
 
+        # `raised_issues`: the issues the lecturer chose to show the class
+        # (aggregation.raise_issue()), in the order raised. Used to live in
+        # aggregation's memory, so any backend restart -- including every
+        # `uvicorn --reload` triggered by saving a .py file -- silently
+        # took the examples off the students' screens mid-lecture.
+        # `students` is the JSON list of student names in the issue when it
+        # was raised; `submission_id` is the example shown.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS raised_issues (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                question_id TEXT NOT NULL,
+                exec_verdict TEXT NOT NULL,
+                error_type TEXT,
+                students TEXT NOT NULL,
+                submission_id INTEGER NOT NULL
+            )
+            """
+        )
+
         existing_q_columns = {row["name"] for row in conn.execute("PRAGMA table_info(questions)")}
         if "lecture_seq" in existing_q_columns:
             # Migrating a DB from the lecture_seq/lecture_state scheme: one
@@ -1077,3 +1097,47 @@ def has_solved(question_id: str, student_name: str) -> bool:
         ).fetchone()
         conn.close()
         return row is not None
+
+
+def raised_issue_rows(question_id: str) -> list:
+    """The question's raised issues (see aggregation.raise_issue()), in the
+    order raised, each with `students` as a frozenset of names."""
+    with _lock:
+        conn = _connect()
+        rows = [
+            {**dict(r), "students": frozenset(json.loads(r["students"]))}
+            for r in conn.execute("SELECT * FROM raised_issues WHERE question_id = ? ORDER BY id", (question_id,))
+        ]
+        conn.close()
+        return rows
+
+
+def add_raised_issue(question_id: str, exec_verdict: str, error_type, students: set, submission_id: int) -> None:
+    """Raising the exact same issue again (same students) just updates its
+    example, keeping its place in the order."""
+    students_json = json.dumps(sorted(students))
+    with _lock:
+        conn = _connect()
+        cur = conn.execute(
+            "UPDATE raised_issues SET submission_id = ? WHERE question_id = ? AND exec_verdict = ? "
+            "AND error_type IS ? AND students = ?",
+            (submission_id, question_id, exec_verdict, error_type, students_json),
+        )
+        if cur.rowcount == 0:
+            conn.execute(
+                "INSERT INTO raised_issues (question_id, exec_verdict, error_type, students, submission_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (question_id, exec_verdict, error_type, students_json, submission_id),
+            )
+        conn.commit()
+        conn.close()
+
+
+def delete_raised_issues(ids: list) -> None:
+    if not ids:
+        return
+    with _lock:
+        conn = _connect()
+        conn.executemany("DELETE FROM raised_issues WHERE id = ?", [(i,) for i in ids])
+        conn.commit()
+        conn.close()
