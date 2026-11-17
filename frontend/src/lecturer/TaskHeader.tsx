@@ -126,8 +126,14 @@ export function LiveHero(props: LiveHeroProps) {
       }
     />
   );
+  // On the last task, ending the lecture takes Next task's place (it still
+  // asks to confirm, same as the menu's "End session...").
   const nextButton = (size: "md" | "lg") =>
-    !lastTask && (
+    lastTask ? (
+      <Button size={size} onClick={onEndLecture} disabled={advancing} className={onBand ? ON_ACCENT_BUTTON : undefined}>
+        End lecture
+      </Button>
+    ) : (
       <Button size={size} onClick={onNextTask} disabled={advancing} className={onBand ? ON_ACCENT_BUTTON : undefined}>
         Next task
         <span aria-hidden="true">&rarr;</span>
@@ -145,6 +151,7 @@ export function LiveHero(props: LiveHeroProps) {
   return (
     <>
       <section
+        id={onBand ? "live-band" : undefined}
         aria-label="Task status"
         className={cx(
           "relative isolate overflow-hidden",
@@ -164,7 +171,14 @@ export function LiveHero(props: LiveHeroProps) {
             )}
           />
         )}
-        <div className="mx-auto w-full max-w-[112rem] px-5 pt-10 pb-6 sm:px-8 sm:pt-14">
+        {/* On the band, the nav bar sits over its top (NavBar overlayBandId), so
+            the band's own padding starts 3.5rem (the bar's height) lower. */}
+        <div
+          className={cx(
+            "mx-auto w-full max-w-[112rem] px-5 pb-6 sm:px-8",
+            onBand ? "pt-24 sm:pt-28" : "pt-10 sm:pt-14",
+          )}
+        >
           {ended && (
             <div className="mb-6 flex flex-wrap items-center gap-x-3.5 gap-y-2 rounded-xl border border-white/15 bg-white/10 px-4 py-3">
               <span className="grid size-8 place-items-center rounded-lg bg-white/15 text-white" aria-hidden="true">
@@ -174,7 +188,7 @@ export function LiveHero(props: LiveHeroProps) {
                 <p className="font-bold tracking-tight">Task ended</p>
                 <p className="text-[13px] text-white/70">
                   Students are waiting and the queued examples are on screen.{" "}
-                  {lastTask ? "End the session from the ··· menu" : "Start the next task"} when you're done.
+                  {lastTask ? "End the lecture" : "Start the next task"} when you're done.
                 </p>
               </div>
             </div>

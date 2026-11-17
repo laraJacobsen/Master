@@ -33,13 +33,41 @@ function isCurrentPage(href: string): boolean {
 // home" link, so unlike the brand link, it must not render at all when it
 // would just point at the page already open -- a button that claims to do
 // something and then doesn't is worse than no button.
+// Full width on every page (same edges as the student page's bar and the
+// live dashboard), so the bar doesn't change width between pages.
 export interface NavBarProps {
-  /** Match a full-width page (the live dashboard). */
-  wide?: boolean;
+  /**
+   * The live dashboard's coloured band (lecturer/TaskHeader.tsx), by element
+   * id: the band runs up under the bar, and the bar is clear glass over it so
+   * the band's colour shows through. Once the band is scrolled out from under
+   * the bar, the bar goes back to its usual light glass.
+   */
+  overlayBandId?: string;
 }
 
-export function NavBar({ wide = false }: NavBarProps) {
+export function NavBar({ overlayBandId }: NavBarProps) {
+  const [overBand, setOverBand] = useState(false);
+  const onBand = overlayBandId != null && overBand;
   const [active, setActive] = useState<ActiveLectureResponse | null>(null);
+
+  useEffect(() => {
+    if (!overlayBandId) return;
+    const check = () => {
+      const band = document.getElementById(overlayBandId);
+      // 56px = this bar's height (h-14).
+      setOverBand(band != null && band.getBoundingClientRect().bottom > 56);
+    };
+    check();
+    window.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", check);
+    // The band mounts after the first data arrives -- catch it appearing.
+    const t = window.setInterval(check, 500);
+    return () => {
+      window.removeEventListener("scroll", check);
+      window.removeEventListener("resize", check);
+      window.clearInterval(t);
+    };
+  }, [overlayBandId]);
 
   useEffect(() => {
     fetchActiveLecture()
@@ -58,32 +86,56 @@ export function NavBar({ wide = false }: NavBarProps) {
   const showCta = !isCurrentPage(action.href) && action.label !== "Resume lobby";
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-zinc-200 bg-zinc-50/85 backdrop-blur-md">
-      <div className={cx("mx-auto flex h-14 items-center gap-6 px-5 sm:px-8", wide ? "max-w-[112rem]" : "max-w-7xl")}>
+    <nav
+      className={cx(
+        "sticky top-0 z-50 border-b backdrop-blur-md transition-colors duration-300",
+        // Pulls the band up under the bar.
+        overlayBandId && "-mb-14",
+        onBand ? "border-white/15 bg-white/10" : "border-zinc-200 bg-zinc-50/85",
+      )}
+    >
+      <div className="mx-auto flex h-14 max-w-[112rem] items-center gap-6 px-5 sm:px-8">
         <a
           href="index.html"
-          className="group flex items-center gap-2.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500"
+          className={cx(
+            "group flex items-center gap-2.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4",
+            onBand ? "focus-visible:outline-white" : "focus-visible:outline-brand-500",
+          )}
         >
           <span
-            className="grid size-7 place-items-center rounded-md bg-linear-to-br from-brand-500 to-violet-500 font-mono text-[11px] font-bold text-white transition-opacity group-hover:opacity-85"
+            className={cx(
+              "grid size-7 place-items-center rounded-md font-mono text-[11px] font-bold transition-opacity group-hover:opacity-85",
+              onBand ? "bg-white text-brand-700" : "bg-linear-to-br from-brand-500 to-violet-500 text-white",
+            )}
             aria-hidden="true"
           >
             IL
           </span>
-          <span className="hidden text-sm font-bold tracking-tight text-zinc-950 sm:inline">Interactive Lecture</span>
+          <span
+            className={cx("hidden text-sm font-bold tracking-tight sm:inline", onBand ? "text-white" : "text-zinc-950")}
+          >
+            Interactive Lecture
+          </span>
         </a>
         {/* Always shown, marked when current -- a nav link that vanishes on its
             own page makes the bar jump around between pages. */}
         <div className="flex items-center gap-1">
-          <NavLink href="index.html" current={onHome}>
+          <NavLink href="index.html" current={onHome} onBand={onBand}>
             Home
           </NavLink>
-          <NavLink href="history.html" current={onHistory}>
+          <NavLink href="history.html" current={onHistory} onBand={onBand}>
             History
           </NavLink>
         </div>
         {showCta && (
-          <LinkButton href={action.href} size="sm" className="ml-auto">
+          <LinkButton
+            href={action.href}
+            size="sm"
+            className={cx(
+              "ml-auto",
+              onBand && "bg-white text-brand-700 hover:bg-brand-50 active:bg-brand-100 focus-visible:outline-white",
+            )}
+          >
             {action.label}
           </LinkButton>
         )}
@@ -95,22 +147,30 @@ export function NavBar({ wide = false }: NavBarProps) {
 export interface NavLinkProps {
   href: string;
   current: boolean;
+  onBand: boolean;
   children: ReactNode;
 }
 
-function NavLink({ href, current, children }: NavLinkProps) {
+function NavLink({ href, current, onBand, children }: NavLinkProps) {
   return (
     <a
       href={href}
       aria-current={current ? "page" : undefined}
       className={cx(
         "relative rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors",
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
-        current ? "text-zinc-950" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900",
+        "focus-visible:outline-2 focus-visible:outline-offset-2",
+        onBand
+          ? cx("focus-visible:outline-white", current ? "text-white" : "text-white/70 hover:bg-white/10 hover:text-white")
+          : cx("focus-visible:outline-brand-500", current ? "text-zinc-950" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"),
       )}
     >
       {children}
-      {current && <span className="absolute inset-x-2.5 -bottom-[13px] h-0.5 rounded-full bg-brand-500" aria-hidden="true" />}
+      {current && (
+        <span
+          className={cx("absolute inset-x-2.5 -bottom-[13px] h-0.5 rounded-full", onBand ? "bg-white" : "bg-brand-500")}
+          aria-hidden="true"
+        />
+      )}
     </a>
   );
 }

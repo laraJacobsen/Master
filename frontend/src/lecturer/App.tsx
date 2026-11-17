@@ -553,7 +553,10 @@ export default function App() {
 
   return (
     <>
-      <NavBar wide={Boolean(QUESTION_ID && !LECTURE_ID)} />
+      <NavBar
+        // Glass over the live band (LiveHero), which only exists once the timer is known.
+        overlayBandId={QUESTION_ID && !LECTURE_ID && !lectureFinished && secondsRemaining != null ? "live-band" : undefined}
+      />
       <ConfirmDialog
         open={confirmFinishOpen}
         title="End the whole lecture?"
