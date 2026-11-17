@@ -527,8 +527,7 @@ export default function App() {
       .then((rows) => {
         setReviews(rows);
         setReviewError(false);
-        // Worst lecture open on arrival -- it's what the page is for.
-        setOpenId((prev) => prev ?? rows.find((r) => r.enough_data)?.lecture_id ?? null);
+        // Every lecture starts collapsed -- the lecturer opens what they want.
       })
       .catch(() => setReviewError(true));
   }
