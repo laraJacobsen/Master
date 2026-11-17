@@ -742,16 +742,6 @@ def _run_checks(client):
         assert r.status_code == 404, r.text
         print("Show on full screen: singleton raised, example queued  OK")
 
-        # "Show to students" on "Students by outcome": one best exec_verdict per
-        # student who submitted, no names, and the flag lives on the question row.
-        r = client.post("/api/lecturer/questions/sum-ints/show_results", json={"shown": True})
-        assert r.status_code == 200 and r.json()["results_shown"] is True, r.text
-        results = agg_mod.shown_results("sum-ints")
-        n_students = len({row["student_name"] for row in store_mod.all_submissions("sum-ints")})
-        assert len(results) == n_students and "Lise" not in json_lib.dumps(results), results
-        assert client.post("/api/lecturer/questions/sum-ints/show_results", json={"shown": False}).json()["results_shown"] is False
-        assert client.post("/api/lecturer/questions/nope/show_results", json={"shown": True}).status_code == 404
-        print("Show results: per-student best verdicts, no names   OK ->", results)
 
         # "Show on screen" in a student's code drawer: any single attempt, a
         # correct one included. Reaches the students' examples, raises no

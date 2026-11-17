@@ -36,7 +36,6 @@ from backend.aggregation import (
     lecture_review,
     raise_issue,
     shown_examples,
-    shown_results,
     session_summary,
     student_recap,
 )
@@ -146,10 +145,6 @@ class RaiseIssueRequest(BaseModel):
     error_type: str | None = None
     submission_ids: list[int]
     raised: bool = True
-
-
-class ShowResultsRequest(BaseModel):
-    shown: bool = True
 
 
 class ShowSubmissionRequest(BaseModel):
@@ -445,19 +440,6 @@ def api_lecturer_end_question_now(question_id: str):
     return store.get_question_row(question_id)
 
 
-@app.post("/api/lecturer/questions/{question_id}/show_results")
-def api_lecturer_show_results(question_id: str, req: ShowResultsRequest):
-    """The live dashboard's "Show to students" on "Students by outcome": puts
-    the class's outcome counts (no names) on the students' waiting screens and
-    the projector once time is up, next to any examples shown. Kept on the
-    question row so a backend restart doesn't take it down."""
-    question = store.get_question_row(question_id)
-    if not question:
-        raise HTTPException(status_code=404, detail="Not found")
-    store.set_results_shown(question_id, req.shown)
-    return store.get_question_row(question_id)
-
-
 @app.get("/api/lecturer/questions/{question_id}/shown_submissions")
 def api_lecturer_shown_submissions(question_id: str):
     """Ids of the single submissions the lecturer is showing the class (see
@@ -708,7 +690,7 @@ def api_lecture_status():
     # of silently carrying the old join over.
     lecture_id = current_lecture["id"] if current_lecture else None
     if not question:
-        return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": [], "shown_results": None}
+        return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": []}
 
     tests = test_files.without_contents(question["test_cases"])
     time_up = _seconds_remaining(question) <= 0
@@ -745,9 +727,6 @@ def api_lecture_status():
         # only once time is up, so no student sees anyone else's attempt while
         # they're still answering.
         "shown_examples": shown_examples(question["id"]) if time_up else [],
-        # The "Students by outcome" counts, if the lecturer is showing them
-        # (api_lecturer_show_results) -- same time's-up rule as the examples.
-        "shown_results": shown_results(question["id"]) if time_up and question.get("results_shown") else None,
     }
 
 

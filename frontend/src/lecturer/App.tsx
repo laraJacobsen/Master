@@ -22,7 +22,6 @@ import {
   finishLecture,
   nextTask,
   raiseIssue,
-  showResults,
   fetchShownSubmissions,
   showSubmission,
 } from "../shared/api";
@@ -105,11 +104,10 @@ export default function App() {
   const [fetchedSubs, setFetchedSubs] = useState<Record<number, SubmissionRow>>({});
   const [issueLoadError, setIssueLoadError] = useState(false);
   const [raisingKey, setRaisingKey] = useState<string | null>(null);
-  const [showingResults, setShowingResults] = useState(false);
   // Single submissions picked from a student's code drawer (any verdict).
   const [shownSubIds, setShownSubIds] = useState<Set<number>>(new Set());
   const [showingSubId, setShowingSubId] = useState<number | null>(null);
-  const [showResultsError, setShowResultsError] = useState<string | null>(null);
+  const [showCodeError, setShowCodeError] = useState<string | null>(null);
   const [raiseError, setRaiseError] = useState<string | null>(null);
 
   // The active lecture's Kahoot-style join code, shown in the Task control
@@ -494,25 +492,6 @@ export default function App() {
   // every student's waiting screen once time is up (see
   // aggregation.raise_issue()). Raising a wrong_answer issue waits on a live
   // Label call, hence the busy state.
-  // "Show to students" on "Students by outcome" -- see api_lecturer_show_results.
-  async function toggleResultsShown() {
-    if (!QUESTION_ID || !question) return;
-    const next = !question.results_shown;
-    if (MOCK) {
-      setQuestion((q) => q && { ...q, results_shown: next });
-      return;
-    }
-    setShowingResults(true);
-    setShowResultsError(null);
-    try {
-      setQuestion(await showResults(QUESTION_ID, next));
-    } catch (e) {
-      setShowResultsError(e instanceof Error ? e.message : "Could not update the shown results.");
-    } finally {
-      setShowingResults(false);
-    }
-  }
-
   // "Show on screen" in a student's code drawer -- see api_lecturer_show_submission.
   // Only one attempt is up at a time: showing this one takes down whatever
   // was showing, a raised discussion point included.
@@ -524,12 +503,12 @@ export default function App() {
       return;
     }
     setShowingSubId(sub.id);
-    setShowResultsError(null);
+    setShowCodeError(null);
     try {
       setShownSubIds(new Set(await showSubmission(sub.id, next)));
       if (next && QUESTION_ID) setClusters(await fetchClusters(QUESTION_ID));
     } catch (e) {
-      setShowResultsError(e instanceof Error ? e.message : "Could not update the shown code.");
+      setShowCodeError(e instanceof Error ? e.message : "Could not update the shown code.");
     } finally {
       setShowingSubId(null);
     }
@@ -687,15 +666,11 @@ export default function App() {
             className="mt-8 grid scroll-mt-32 items-start gap-5 lg:grid-cols-2"
           >
             <div className="min-w-0">
-            {showResultsError && <ErrorText className="mb-3">{showResultsError}</ErrorText>}
+            {showCodeError && <ErrorText className="mb-3">{showCodeError}</ErrorText>}
             <VerdictBreakdown
               tracks={tracks}
               subs={subRows}
               activity={taskRunning ? activity : null}
-              resultsShown={!!question?.results_shown}
-              taskRunning={taskRunning}
-              showBusy={showingResults}
-              onToggleShown={question ? toggleResultsShown : null}
               showCode={{
                 shownIds: shownSubIds,
                 busyId: showingSubId,

@@ -5,7 +5,6 @@ import { fetchActiveLecture, fetchLectureStatus, runCode } from "../shared/api";
 import { Editor, monaco } from "../shared/monaco";
 import { BrandMark, Button, Eyebrow } from "../shared/ui";
 import { cx } from "../shared/cx";
-import { ClassResults } from "../shared/ClassResults";
 
 // The lecturer's projector screen: whatever task is live, a big countdown,
 // and -- once time is up -- the attempts the lecturer picked with "Show on
@@ -69,10 +68,9 @@ export default function App() {
   const secondsRemaining = endMs != null ? Math.max(0, Math.ceil((endMs - now) / 1000)) : null;
   const timeUp = secondsRemaining === 0;
   const examples = status?.shown_examples ?? [];
-  const results = status?.shown_results ?? null;
 
   // Time's up and something to go over: the screen is the shown code alone.
-  const compact = timeUp && (examples.length > 0 || results != null);
+  const compact = timeUp && examples.length > 0;
   // Which task "Show task" was opened for, so a popup left open doesn't come
   // back by itself when the next task's examples go up.
   const [taskOpenFor, setTaskOpenFor] = useState<string | null>(null);
@@ -94,7 +92,6 @@ export default function App() {
     question?.example,
     compact,
     examples.map((ex) => ex.source_code),
-    results,
   ]);
   const scale = useFitScale(viewportRef, contentRef, fitKey, !compact);
 
@@ -190,18 +187,6 @@ export default function App() {
                       {secondsRemaining != null ? formatMMSS(secondsRemaining) : "--:--"}
                     </div>
                   </div>
-                </section>
-              )}
-
-              {compact && results && (
-                <section>
-                  <h2 className="mb-5 text-4xl font-bold tracking-tight">
-                    How the class did
-                    <span className="ml-4 text-2xl font-medium text-zinc-400">
-                      {results.length} student{results.length === 1 ? "" : "s"}
-                    </span>
-                  </h2>
-                  <ClassResults bestExecVerdicts={results} size="lg" />
                 </section>
               )}
 

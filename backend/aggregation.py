@@ -1105,30 +1105,6 @@ def shown_examples(question_id: str) -> list:
     return examples
 
 
-# Same ranking as the dashboard's "Students by outcome" (frontend
-# lecturer/studentTracks.ts isBetter()), so students see the lecturer's numbers.
-_VERDICT_RANK = {"error": 0, "incorrect": 1, "partially_correct": 2, "correct": 3}
-
-
-def shown_results(question_id: str) -> list:
-    """The "Students by outcome" counts as the class sees them once the
-    lecturer shows them: each student's best attempt's exec_verdict, sorted --
-    one entry per student who submitted, no names. The frontend maps these to
-    outcome categories (lecturer/categories.ts) exactly as the dashboard does."""
-    best = {}
-    for row in sorted(store.all_submissions(question_id), key=lambda r: r["id"]):
-        prev = best.get(row["student_name"])
-        rank = _VERDICT_RANK[row.get("verdict") or "error"]
-        if prev is None:
-            best[row["student_name"]] = row
-            continue
-        prev_rank = _VERDICT_RANK[prev.get("verdict") or "error"]
-        # Ties go to the later attempt, same as isBetter().
-        if rank > prev_rank or (rank == prev_rank and (row.get("tests_passed") or 0) >= (prev.get("tests_passed") or 0)):
-            best[row["student_name"]] = row
-    return sorted(r.get("exec_verdict") or "" for r in best.values())
-
-
 def cluster_submissions(question_id: str = None) -> list:
     """Returns clusters ranked by distinct-student count (largest first), each:
       exec_verdict, error_type, count (distinct students), example_submission_id,

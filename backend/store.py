@@ -126,10 +126,6 @@ def init_db():
         # "start from nothing".
         if "starter_code" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN starter_code TEXT")
-        # Whether the lecturer is showing the class the "Students by outcome"
-        # counts (set_results_shown(), api_lecturer_show_results in main.py).
-        if "results_shown" not in existing_q_columns:
-            conn.execute("ALTER TABLE questions ADD COLUMN results_shown INTEGER NOT NULL DEFAULT 0")
         # A question that was already `live` before started_at existed (e.g.
         # an existing checkout's seeded sum-ints) would otherwise have no
         # timer zero-point -- backfill it to "now" so its countdown starts
@@ -434,7 +430,6 @@ def _deserialize_question(row: dict) -> dict:
     q["test_cases"] = json.loads(q["test_cases"])
     q["extra_packages"] = json.loads(q["extra_packages"])
     q["validated"] = bool(q["validated"])
-    q["results_shown"] = bool(q.get("results_shown"))
     return q
 
 
@@ -1151,17 +1146,6 @@ def delete_raised_issues(ids: list) -> None:
     with _lock:
         conn = _connect()
         conn.executemany("DELETE FROM raised_issues WHERE id = ?", [(i,) for i in ids])
-        conn.commit()
-        conn.close()
-
-
-def set_results_shown(question_id: str, shown: bool) -> None:
-    """The live dashboard's "Show to students" on "Students by outcome".
-    Set directly rather than through update_question(), which locks a live
-    question's config -- this is lecture state, not config."""
-    with _lock:
-        conn = _connect()
-        conn.execute("UPDATE questions SET results_shown = ? WHERE id = ?", (1 if shown else 0, question_id))
         conn.commit()
         conn.close()
 

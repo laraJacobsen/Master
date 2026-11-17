@@ -233,15 +233,6 @@ export function showSubmission(submissionId: number, shown: boolean): Promise<nu
   }).then((res) => asJson(res));
 }
 
-// "Show to students" on the live dashboard's "Students by outcome".
-export function showResults(questionId: string, shown: boolean): Promise<QuestionRow> {
-  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/show_results`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ shown }),
-  }).then((res) => asJson(res));
-}
-
 export function finishLecture(currentQuestionId: string | null): Promise<LectureFinishResponse> {
   return apiFetch(`${API_BASE}/api/lecturer/lecture/finish`, {
     method: "POST",
