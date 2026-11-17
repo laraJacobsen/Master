@@ -42,6 +42,10 @@ import type { TrendPoint } from "../shared/TrendChart";
 // explain why some lectures aren't ranked (the backend decides which).
 const MIN_STUDENTS_FOR_REVIEW = 3;
 const TOPICS_SHOWN = 5;
+// Both lecture lists start short and grow on request -- a long term of
+// lectures shouldn't bury everything below them.
+const LIST_INITIAL = 5;
+const LIST_STEP = 10;
 // Time windows for the "Solved per lecture" chart: a calendar month, or a
 // semester -- Spring is January-July, Autumn August-December. Both can be
 // stepped back and forth with the arrows next to the toggle.
@@ -450,10 +454,54 @@ function IconUsers() {
   );
 }
 
+export interface ShowMoreProps {
+  shown: number;
+  total: number;
+  onChange: (shown: number) => void;
+}
+
+// "Show more" under a list cut to its first `shown` items, plus "Show fewer"
+// once it has grown past LIST_INITIAL. Renders nothing for a short list.
+function ShowMore({ shown, total, onChange }: ShowMoreProps) {
+  if (total <= LIST_INITIAL) return null;
+  const more = Math.min(LIST_STEP, total - shown);
+  const linkClass =
+    "rounded-md px-2 py-1 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500";
+  return (
+    <div className="mt-2 flex items-center justify-between gap-3 border-t border-zinc-200 pt-3">
+      <span className="text-[13px] text-zinc-500">
+        Showing {Math.min(shown, total)} of {total}
+      </span>
+      <div className="flex items-center gap-1">
+        {shown > LIST_INITIAL && (
+          <button
+            type="button"
+            className={cx(linkClass, "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900")}
+            onClick={() => onChange(LIST_INITIAL)}
+          >
+            Show fewer
+          </button>
+        )}
+        {more > 0 && (
+          <button
+            type="button"
+            className={cx(linkClass, "text-brand-600 hover:bg-brand-50 hover:text-brand-700")}
+            onClick={() => onChange(shown + more)}
+          >
+            Show {more} more
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [reviews, setReviews] = useState<LectureReview[] | null>(null);
   const [reviewError, setReviewError] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [rankedShown, setRankedShown] = useState(LIST_INITIAL);
+  const [historyShown, setHistoryShown] = useState(LIST_INITIAL);
 
   const [history, setHistory] = useState<LectureHistoryRow[] | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -465,6 +513,9 @@ export default function App() {
     const opening = openId !== id;
     setOpenId(opening ? id : null);
     if (opening) {
+      // A lecture past the cut-off: grow the list far enough to show it.
+      const index = ranked.findIndex((r) => r.lecture_id === id);
+      if (index >= rankedShown) setRankedShown(index + 1);
       requestAnimationFrame(() =>
         document.getElementById(`lecture-item-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
@@ -575,7 +626,7 @@ export default function App() {
                 <Card>
                   <SectionTitle className="mb-2">Lectures, worst first</SectionTitle>
                   <ol>
-                    {ranked.map((r, i) => (
+                    {ranked.slice(0, rankedShown).map((r, i) => (
                       <LectureItem
                         key={r.lecture_id}
                         review={r}
@@ -585,6 +636,7 @@ export default function App() {
                       />
                     ))}
                   </ol>
+                  <ShowMore shown={rankedShown} total={ranked.length} onChange={setRankedShown} />
                   {unranked > 0 && (
                     <p className="mt-4 border-t border-zinc-200 pt-4 text-[13px] text-zinc-500">
                       {plural(unranked, "lecture")} with under {MIN_STUDENTS_FOR_REVIEW} students not ranked.
@@ -628,7 +680,7 @@ export default function App() {
             {history && history.length === 0 && <p className="mt-3 text-sm text-zinc-500">No lectures yet.</p>}
             {history && history.length > 0 && (
               <ul className="mt-3">
-                {history.map((row) => (
+                {history.slice(0, historyShown).map((row) => (
                   <li
                     key={row.id}
                     className={cx(
@@ -659,6 +711,7 @@ export default function App() {
                 ))}
               </ul>
             )}
+            {history && <ShowMore shown={historyShown} total={history.length} onChange={setHistoryShown} />}
           </Card>
         </div>
       </Page>
