@@ -25,6 +25,7 @@ import { Badge, BrandMark, Button, Callout, Card, Code, Eyebrow, Input, Label, S
 import { CodeBlock, FailingTestStrip } from "../shared/code";
 import { HERO_FILL, SCORE_LINE, TILE_TONE } from "../shared/verdictStyles";
 import { cx } from "../shared/cx";
+import { ClassResults } from "../shared/ClassResults";
 import type { Tone } from "../shared/ui";
 import type { WorkspaceHandle } from "./Workspace";
 // Monaco is most of this page's weight -- loaded only once a task is live,
@@ -248,6 +249,7 @@ export default function App() {
   // What the lecturer is going over with the class right now -- see the
   // "On your lecturer's screen" card below.
   const [shownExamples, setShownExamples] = useState<SharedExample[]>([]);
+  const [shownResults, setShownResults] = useState<string[] | null>(null);
   // Whether a task has gone live since this tab joined -- tells the waiting
   // screen's "lecture hasn't started yet" apart from "between tasks".
   const [hadTask, setHadTask] = useState(false);
@@ -382,6 +384,7 @@ export default function App() {
       return;
     }
     setShownExamples(status.shown_examples ?? []);
+    setShownResults(status.shown_results ?? null);
     if (status.finished) {
       // Lecture's over: this tab's join is used up. The finished screen stays
       // up, but a refresh (or a new lecture) goes back to the join screen.
@@ -793,6 +796,18 @@ export default function App() {
             <div className="mt-8 h-px w-full bg-zinc-200" aria-hidden="true" />
           </header>
 
+          {shownResults && (
+            <section className="animate-fade-in-up pt-10" aria-label="How the class did">
+              <div className="mb-5 flex flex-wrap items-baseline gap-3">
+                <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">How the class did</h2>
+                <span className="text-[13px] text-zinc-400">
+                  everyone's best attempt · {shownResults.length} student{shownResults.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <ClassResults bestExecVerdicts={shownResults} className="max-w-3xl" />
+            </section>
+          )}
+
           {(shownExamples.length > 0 || showFiles) && (
             <div
               className={cx(
@@ -814,6 +829,14 @@ export default function App() {
                     {shownExamples.map((ex, i) => (
                       <div key={i} className="min-w-0">
                         {shownExamples.length > 1 && <Eyebrow className="mb-2">Example {i + 1}</Eyebrow>}
+                        {ex.correct && (
+                          <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-emerald-700">
+                            <svg className="size-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                              <path d="M2.5 6.2l2.3 2.3L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            Passes every test
+                          </p>
+                        )}
                         {ex.failing_test && (
                           <FailingTestStrip
                             className="mb-2"

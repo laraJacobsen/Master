@@ -1,7 +1,7 @@
 import type { ClusterRow, SubmissionRow } from "../shared/types";
 import { ExampleBlock } from "./ExampleBlock";
 import { groupByShape, groupKey } from "./codeGroups";
-import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_PILL, categoryOf } from "./categories";
+import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_PILL, categoryOf } from "../shared/categories";
 import { Card } from "../shared/ui";
 import { cx } from "../shared/cx";
 import { issueKey } from "./issues";

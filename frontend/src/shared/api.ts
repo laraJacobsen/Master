@@ -216,6 +216,32 @@ export function endQuestionNow(questionId: string): Promise<QuestionRow> {
   }).then((res) => asJson(res));
 }
 
+// Ids of the single submissions the lecturer is showing the class.
+export function fetchShownSubmissions(questionId: string): Promise<number[]> {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/shown_submissions`).then((res) =>
+    asJson(res),
+  );
+}
+
+// "Show on screen" in a student's code drawer: any attempt, correct ones
+// included. Returns the question's shown single-submission ids.
+export function showSubmission(submissionId: number, shown: boolean): Promise<number[]> {
+  return apiFetch(`${API_BASE}/api/lecturer/submissions/${submissionId}/show`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ shown }),
+  }).then((res) => asJson(res));
+}
+
+// "Show to students" on the live dashboard's "Students by outcome".
+export function showResults(questionId: string, shown: boolean): Promise<QuestionRow> {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/show_results`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ shown }),
+  }).then((res) => asJson(res));
+}
+
 export function finishLecture(currentQuestionId: string | null): Promise<LectureFinishResponse> {
   return apiFetch(`${API_BASE}/api/lecturer/lecture/finish`, {
     method: "POST",

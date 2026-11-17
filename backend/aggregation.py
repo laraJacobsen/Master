@@ -1067,13 +1067,20 @@ def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids:
 
 
 def shown_examples(question_id: str) -> list:
-    """The examples the lecturer raised for this question, in the order raised, as
-    the students see them: code with comments stripped (the one free-text field
-    in a submission, see _strip_comments()) and the first test it failed. No
-    student name, no discussion point -- see raise_issue()."""
+    """What the class is being shown for this question, in the order picked:
+    raised discussion points' examples (raise_issue()) and single submissions
+    the lecturer picked from a student's attempts (store.set_submission_shown(),
+    correct ones included). As the students see them: code with comments
+    stripped (the one free-text field in a submission, see _strip_comments()),
+    whether it passed every test, and the first test it failed. No student
+    name, no discussion point -- see raise_issue()."""
     examples = []
-    for raised in store.raised_issue_rows(question_id):
-        row = store.get_submission(raised["submission_id"])
+    seen = set()
+    for sub_id in store.shown_submission_ids(question_id):
+        if sub_id in seen:
+            continue
+        seen.add(sub_id)
+        row = store.get_submission(sub_id)
         if not row:
             continue
         results = json.loads(row.get("raw_test_results") or "[]")
@@ -1081,6 +1088,7 @@ def shown_examples(question_id: str) -> list:
         examples.append(
             {
                 "source_code": _strip_comments(row["source_code"]),
+                "correct": row.get("verdict") == "correct",
                 "failing_test": (
                     {
                         "stdin": failing.get("stdin", ""),
@@ -1094,6 +1102,30 @@ def shown_examples(question_id: str) -> list:
             }
         )
     return examples
+
+
+# Same ranking as the dashboard's "Students by outcome" (frontend
+# lecturer/studentTracks.ts isBetter()), so students see the lecturer's numbers.
+_VERDICT_RANK = {"error": 0, "incorrect": 1, "partially_correct": 2, "correct": 3}
+
+
+def shown_results(question_id: str) -> list:
+    """The "Students by outcome" counts as the class sees them once the
+    lecturer shows them: each student's best attempt's exec_verdict, sorted --
+    one entry per student who submitted, no names. The frontend maps these to
+    outcome categories (lecturer/categories.ts) exactly as the dashboard does."""
+    best = {}
+    for row in sorted(store.all_submissions(question_id), key=lambda r: r["id"]):
+        prev = best.get(row["student_name"])
+        rank = _VERDICT_RANK[row.get("verdict") or "error"]
+        if prev is None:
+            best[row["student_name"]] = row
+            continue
+        prev_rank = _VERDICT_RANK[prev.get("verdict") or "error"]
+        # Ties go to the later attempt, same as isBetter().
+        if rank > prev_rank or (rank == prev_rank and (row.get("tests_passed") or 0) >= (prev.get("tests_passed") or 0)):
+            best[row["student_name"]] = row
+    return sorted(r.get("exec_verdict") or "" for r in best.values())
 
 
 def cluster_submissions(question_id: str = None) -> list:

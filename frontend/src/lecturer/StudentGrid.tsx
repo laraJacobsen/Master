@@ -34,6 +34,16 @@ function groupOf(t: StudentTrack): Group {
   return t.best ? verdictOf(t.best) : "none";
 }
 
+// "Show on screen" for a single attempt in the code drawer: puts it (no name)
+// on the students' waiting screens and the projector -- any verdict, so a
+// correct solution can go up too. Queued while the task runs, like examples.
+export interface ShowCodeControl {
+  shownIds: Set<number>;
+  busyId: number | null;
+  taskRunning: boolean;
+  onToggle: (sub: SubmissionRow) => void;
+}
+
 export interface StudentGridProps {
   subs: SubmissionRow[];
   // Null once the task isn't running -- activity would read "away" for everyone.
@@ -43,9 +53,10 @@ export interface StudentGridProps {
   only?: Set<string>;
   // Controlled names toggle -- the caller owns it and the header is hidden.
   showNames?: boolean;
+  showCode?: ShowCodeControl;
 }
 
-export function StudentGrid({ subs, activity, only, showNames: showNamesProp }: StudentGridProps) {
+export function StudentGrid({ subs, activity, only, showNames: showNamesProp, showCode }: StudentGridProps) {
   const [ownShowNames, setShowNames] = useState(readShowNames);
   const showNames = showNamesProp ?? ownShowNames;
   const bare = showNamesProp !== undefined;
@@ -215,7 +226,10 @@ export function StudentGrid({ subs, activity, only, showNames: showNamesProp }: 
       >
         {shownSub ? (
           <>
-            <p className="mb-3 text-xs text-zinc-500">{attemptTitle(shownSub)}</p>
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <p className="min-w-0 flex-1 text-xs text-zinc-500">{attemptTitle(shownSub)}</p>
+              {showCode && <ShowCodeButton sub={shownSub} control={showCode} />}
+            </div>
             <SubmissionDetail sub={shownSub} clamp={false} />
           </>
         ) : (
@@ -223,5 +237,56 @@ export function StudentGrid({ subs, activity, only, showNames: showNamesProp }: 
         )}
       </Drawer>
     </section>
+  );
+}
+
+export interface ShowCodeButtonProps {
+  sub: SubmissionRow;
+  control: ShowCodeControl;
+}
+
+// Same look and states as a discussion point's "Show on screen" (IssueList.tsx).
+function ShowCodeButton({ sub, control }: ShowCodeButtonProps) {
+  const shown = control.shownIds.has(sub.id);
+  const busy = control.busyId === sub.id;
+  const { taskRunning } = control;
+  return (
+    <button
+      type="button"
+      aria-pressed={shown}
+      disabled={busy}
+      onClick={() => control.onToggle(sub)}
+      title={
+        taskRunning
+          ? shown
+            ? "Take this attempt out of the queue"
+            : "Queue this attempt: it goes on the projector and students' screens, without the name, when the task ends"
+          : shown
+            ? "Stop showing this attempt on the projector and students' screens"
+            : "Show this attempt on the projector and students' screens now, without the name"
+      }
+      className={cx(
+        "inline-flex h-8 flex-none items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-wait",
+        shown
+          ? "border-brand-500 bg-brand-500 text-white hover:bg-brand-600"
+          : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100 disabled:text-zinc-400",
+      )}
+    >
+      {busy ? (
+        shown ? "Removing..." : taskRunning ? "Queueing..." : "Sharing..."
+      ) : shown ? (
+        <>
+          <svg className="size-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M2.5 6.2l2.3 2.3L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {taskRunning ? "Queued" : "Showing"}
+        </>
+      ) : taskRunning ? (
+        "Add to queue"
+      ) : (
+        "Show on screen"
+      )}
+    </button>
   );
 }

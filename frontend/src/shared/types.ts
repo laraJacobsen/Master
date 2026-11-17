@@ -72,12 +72,17 @@ export interface LectureStatus {
   // Examples the lecturer is showing the class -- only sent once the task's
   // time is up. See aggregation.raise_issue() / shown_examples().
   shown_examples: SharedExample[];
+  // "Students by outcome", if the lecturer is showing it: each student's best
+  // attempt's exec_verdict, no names. Null when not shown or time isn't up.
+  shown_results: string[] | null;
 }
 
 // One anonymized submission the lecturer put on every student's screen:
 // code (comments stripped) and the first test it failed, no name.
 export interface SharedExample {
   source_code: string;
+  // Passed every test -- the lecturer can show a correct solution too.
+  correct?: boolean;
   failing_test: {
     stdin: string;
     expected_stdout: string;
@@ -123,6 +128,8 @@ export interface QuestionRow {
   output_file: string | null;
   // null = the built-in default starter (shared/starterCode.ts).
   starter_code: string | null;
+  // The live dashboard's "Show to students" on "Students by outcome".
+  results_shown?: boolean;
 }
 
 export interface QuestionPayload {

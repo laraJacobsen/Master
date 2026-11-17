@@ -5,6 +5,7 @@ import { fetchActiveLecture, fetchLectureStatus, runCode } from "../shared/api";
 import { Editor, monaco } from "../shared/monaco";
 import { BrandMark, Button, Eyebrow } from "../shared/ui";
 import { cx } from "../shared/cx";
+import { ClassResults } from "../shared/ClassResults";
 
 // The lecturer's projector screen: whatever task is live, a big countdown,
 // and -- once time is up -- the attempts the lecturer picked with "Show on
@@ -68,8 +69,9 @@ export default function App() {
   const secondsRemaining = endMs != null ? Math.max(0, Math.ceil((endMs - now) / 1000)) : null;
   const timeUp = secondsRemaining === 0;
   const examples = status?.shown_examples ?? [];
+  const results = status?.shown_results ?? null;
 
-  const compact = timeUp && examples.length > 0;
+  const compact = timeUp && (examples.length > 0 || results != null);
 
   // Everything on the projector has to be readable from the back of the room
   // without anyone scrolling: the page is locked to the viewport and the
@@ -86,6 +88,7 @@ export default function App() {
     question?.example,
     compact,
     examples.map((ex) => ex.source_code),
+    results,
   ]);
   const scale = useFitScale(viewportRef, contentRef, fitKey);
 
@@ -188,7 +191,19 @@ export default function App() {
                 </div>
               </section>
 
-              {compact && (
+              {compact && results && (
+                <section>
+                  <h2 className="mb-5 text-4xl font-bold tracking-tight">
+                    How the class did
+                    <span className="ml-4 text-2xl font-medium text-zinc-400">
+                      {results.length} student{results.length === 1 ? "" : "s"}
+                    </span>
+                  </h2>
+                  <ClassResults bestExecVerdicts={results} size="lg" />
+                </section>
+              )}
+
+              {compact && examples.length > 0 && (
                 <section>
                   <h2 className="mb-5 text-4xl font-bold tracking-tight">Let's look at this together</h2>
                   <div className="grid gap-6">
@@ -445,6 +460,7 @@ function ExampleCard({ example, label, language, questionId, scale }: ExampleCar
     <div className="rounded-xl bg-white p-5 shadow-card">
       <div className="mb-4 flex items-center justify-between gap-4">
         {label && <span className="text-xl font-bold tracking-tight text-zinc-950">{label}</span>}
+        {example.correct && <span className="text-lg font-semibold text-emerald-600">✓ Passes every test</span>}
         <div className="ml-auto flex gap-2">
           <Button onClick={() => void runIt()} disabled={running} title="Run this code on the failing test's input (Ctrl+Enter)">
             {running ? "Running..." : "Run"}

@@ -2,9 +2,10 @@ import { useState } from "react";
 import type { StudentActivity, SubmissionRow } from "../shared/types";
 import type { StudentTrack } from "./studentTracks";
 import { StudentGrid } from "./StudentGrid";
+import type { ShowCodeControl } from "./StudentGrid";
 import { readShowNames, saveShowNames } from "./studentNames";
-import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_ORDER, categoryOf } from "./categories";
-import type { Category } from "./categories";
+import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_ORDER, categoryOf } from "../shared/categories";
+import type { Category } from "../shared/categories";
 import { Card } from "../shared/ui";
 import { cx } from "../shared/cx";
 
@@ -15,12 +16,30 @@ export interface VerdictBreakdownProps {
   subs: SubmissionRow[];
   // Null once the task isn't running.
   activity: StudentActivity[] | null;
+  // "Show to students": the counts (never names) go on the students' waiting
+  // screens and the projector -- queued while the task runs, like examples.
+  resultsShown: boolean;
+  taskRunning: boolean;
+  showBusy: boolean;
+  // Null hides the button.
+  onToggleShown: (() => void) | null;
+  // "Show on screen" for one student's attempt, in their code drawer.
+  showCode?: ShowCodeControl;
 }
 
 // Each student's best result so far, a row per outcome category (the bar
 // itself is up in the purple band). Every row opens to the students in it (collapsed by
 // default -- names can end up on the projector); a student opens their code.
-export function VerdictBreakdown({ tracks, subs, activity }: VerdictBreakdownProps) {
+export function VerdictBreakdown({
+  tracks,
+  subs,
+  activity,
+  resultsShown,
+  taskRunning,
+  showBusy,
+  onToggleShown,
+  showCode,
+}: VerdictBreakdownProps) {
   const [openRows, setOpenRows] = useState<Set<Row>>(new Set());
   const [showNames, setShowNames] = useState(readShowNames);
 
@@ -121,13 +140,68 @@ export function VerdictBreakdown({ tracks, subs, activity }: VerdictBreakdownPro
                 </button>
                 {open && (
                   <div className="animate-fade-in pt-1 pb-3 pl-5">
-                    <StudentGrid subs={subs} activity={activity} only={members.get(r)} showNames={showNames} />
+                    <StudentGrid
+                      subs={subs}
+                      activity={activity}
+                      only={members.get(r)}
+                      showNames={showNames}
+                      showCode={showCode}
+                    />
                   </div>
                 )}
               </li>
             );
           })}
         </ul>
+      )}
+
+      {onToggleShown && (
+        <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-zinc-100 pt-4">
+          <p className="min-w-0 flex-1 basis-48 text-[13px] text-zinc-500">
+            {resultsShown
+              ? taskRunning
+                ? "Queued: students see the counts when time's up."
+                : "Students and the projector see the counts, no names."
+              : "Share the counts with the class. Names stay hidden."}
+          </p>
+          <button
+            type="button"
+            aria-pressed={resultsShown}
+            disabled={showBusy}
+            onClick={onToggleShown}
+            title={
+              taskRunning
+                ? resultsShown
+                  ? "Take the results out of the queue"
+                  : "Queue the results: they go on the projector and students' screens when the task ends"
+                : resultsShown
+                  ? "Stop showing the results on the projector and students' screens"
+                  : "Show the results on the projector and students' screens now"
+            }
+            className={cx(
+              "ml-auto inline-flex h-8 flex-none items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-wait",
+              resultsShown
+                ? "border-brand-500 bg-brand-500 text-white hover:bg-brand-600"
+                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100 disabled:text-zinc-400",
+            )}
+          >
+            {showBusy ? (
+              resultsShown ? "Removing..." : taskRunning ? "Queueing..." : "Sharing..."
+            ) : resultsShown ? (
+              <>
+                <svg className="size-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M2.5 6.2l2.3 2.3L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                {taskRunning ? "Queued" : "Showing"}
+              </>
+            ) : taskRunning ? (
+              "Add to queue"
+            ) : (
+              "Show on screen"
+            )}
+          </button>
+        </div>
       )}
     </Card>
   );

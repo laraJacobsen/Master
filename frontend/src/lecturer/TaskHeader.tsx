@@ -5,7 +5,7 @@ import type { MenuEntry } from "../shared/Menu";
 import { Button, Eyebrow, formatMMSS } from "../shared/ui";
 import { ACTIVITY_LABEL, isSolved } from "./studentTracks";
 import type { StudentTrack } from "./studentTracks";
-import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_ORDER, categoryCounts } from "./categories";
+import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_ORDER, categoryCounts } from "../shared/categories";
 import { cx } from "../shared/cx";
 
 export interface LiveHeroProps {

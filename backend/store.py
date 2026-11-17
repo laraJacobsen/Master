@@ -126,6 +126,10 @@ def init_db():
         # "start from nothing".
         if "starter_code" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN starter_code TEXT")
+        # Whether the lecturer is showing the class the "Students by outcome"
+        # counts (set_results_shown(), api_lecturer_show_results in main.py).
+        if "results_shown" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN results_shown INTEGER NOT NULL DEFAULT 0")
         # A question that was already `live` before started_at existed (e.g.
         # an existing checkout's seeded sum-ints) would otherwise have no
         # timer zero-point -- backfill it to "now" so its countdown starts
@@ -240,6 +244,13 @@ def init_db():
             )
             """
         )
+        # `single`: 1 = one submission the lecturer picked from a student's own
+        # attempts (any verdict, correct ones included -- see
+        # set_submission_shown()), not a discussion point. Shown to the class
+        # the same way, but it doesn't mark any discussion point as raised.
+        existing_raised_columns = {row["name"] for row in conn.execute("PRAGMA table_info(raised_issues)")}
+        if "single" not in existing_raised_columns:
+            conn.execute("ALTER TABLE raised_issues ADD COLUMN single INTEGER NOT NULL DEFAULT 0")
 
         existing_q_columns = {row["name"] for row in conn.execute("PRAGMA table_info(questions)")}
         if "lecture_seq" in existing_q_columns:
@@ -423,6 +434,7 @@ def _deserialize_question(row: dict) -> dict:
     q["test_cases"] = json.loads(q["test_cases"])
     q["extra_packages"] = json.loads(q["extra_packages"])
     q["validated"] = bool(q["validated"])
+    q["results_shown"] = bool(q.get("results_shown"))
     return q
 
 
@@ -1100,13 +1112,17 @@ def has_solved(question_id: str, student_name: str) -> bool:
 
 
 def raised_issue_rows(question_id: str) -> list:
-    """The question's raised issues (see aggregation.raise_issue()), in the
-    order raised, each with `students` as a frozenset of names."""
+    """The question's raised discussion points (see aggregation.raise_issue()),
+    in the order raised, each with `students` as a frozenset of names. Single
+    submissions shown on their own (set_submission_shown()) are left out --
+    they don't raise a discussion point."""
     with _lock:
         conn = _connect()
         rows = [
             {**dict(r), "students": frozenset(json.loads(r["students"]))}
-            for r in conn.execute("SELECT * FROM raised_issues WHERE question_id = ? ORDER BY id", (question_id,))
+            for r in conn.execute(
+                "SELECT * FROM raised_issues WHERE question_id = ? AND single = 0 ORDER BY id", (question_id,)
+            )
         ]
         conn.close()
         return rows
@@ -1120,7 +1136,7 @@ def add_raised_issue(question_id: str, exec_verdict: str, error_type, students: 
         conn = _connect()
         cur = conn.execute(
             "UPDATE raised_issues SET submission_id = ? WHERE question_id = ? AND exec_verdict = ? "
-            "AND error_type IS ? AND students = ?",
+            "AND error_type IS ? AND students = ? AND single = 0",
             (submission_id, question_id, exec_verdict, error_type, students_json),
         )
         if cur.rowcount == 0:
@@ -1139,5 +1155,60 @@ def delete_raised_issues(ids: list) -> None:
     with _lock:
         conn = _connect()
         conn.executemany("DELETE FROM raised_issues WHERE id = ?", [(i,) for i in ids])
+        conn.commit()
+        conn.close()
+
+
+def set_results_shown(question_id: str, shown: bool) -> None:
+    """The live dashboard's "Show to students" on "Students by outcome".
+    Set directly rather than through update_question(), which locks a live
+    question's config -- this is lecture state, not config."""
+    with _lock:
+        conn = _connect()
+        conn.execute("UPDATE questions SET results_shown = ? WHERE id = ?", (1 if shown else 0, question_id))
+        conn.commit()
+        conn.close()
+
+
+def shown_submission_ids(question_id: str, single_only: bool = False) -> list:
+    """Every submission the class is being shown for this question, in the
+    order shown -- raised discussion points' examples and single submissions
+    alike (or only the latter). May repeat an id if both picked the same one."""
+    with _lock:
+        conn = _connect()
+        ids = [
+            r["submission_id"]
+            for r in conn.execute(
+                "SELECT submission_id FROM raised_issues WHERE question_id = ? "
+                + ("AND single = 1 " if single_only else "")
+                + "ORDER BY id",
+                (question_id,),
+            )
+        ]
+        conn.close()
+        return ids
+
+
+def set_submission_shown(submission: dict, shown: bool) -> None:
+    """Shows (or stops showing) one student's submission to the class -- the
+    live dashboard's "Show on screen" in a student's code drawer. Any verdict,
+    so the lecturer can put up a correct solution too."""
+    with _lock:
+        conn = _connect()
+        conn.execute(
+            "DELETE FROM raised_issues WHERE single = 1 AND submission_id = ?", (submission["id"],)
+        )
+        if shown:
+            conn.execute(
+                "INSERT INTO raised_issues (question_id, exec_verdict, error_type, students, submission_id, single) "
+                "VALUES (?, ?, ?, ?, ?, 1)",
+                (
+                    submission["question_id"],
+                    submission.get("exec_verdict") or "",
+                    submission.get("error_type"),
+                    json.dumps([submission["student_name"]]),
+                    submission["id"],
+                ),
+            )
         conn.commit()
         conn.close()

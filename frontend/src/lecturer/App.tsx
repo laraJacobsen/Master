@@ -22,6 +22,9 @@ import {
   finishLecture,
   nextTask,
   raiseIssue,
+  showResults,
+  fetchShownSubmissions,
+  showSubmission,
 } from "../shared/api";
 import { ClassProgress } from "./ClassProgress";
 import { IssueList } from "./IssueList";
@@ -102,6 +105,11 @@ export default function App() {
   const [fetchedSubs, setFetchedSubs] = useState<Record<number, SubmissionRow>>({});
   const [issueLoadError, setIssueLoadError] = useState(false);
   const [raisingKey, setRaisingKey] = useState<string | null>(null);
+  const [showingResults, setShowingResults] = useState(false);
+  // Single submissions picked from a student's code drawer (any verdict).
+  const [shownSubIds, setShownSubIds] = useState<Set<number>>(new Set());
+  const [showingSubId, setShowingSubId] = useState<number | null>(null);
+  const [showResultsError, setShowResultsError] = useState<string | null>(null);
   const [raiseError, setRaiseError] = useState<string | null>(null);
 
   // The active lecture's Kahoot-style join code, shown in the Task control
@@ -271,6 +279,13 @@ export default function App() {
         .catch(() => {
           // Backend not reachable yet -- stay quiet and retry on the next poll.
         });
+      if (QUESTION_ID) {
+        fetchShownSubmissions(QUESTION_ID)
+          .then((ids) => setShownSubIds(new Set(ids)))
+          .catch(() => {
+            // Same as above.
+          });
+      }
     };
     // Only meaningful for a single-question dashboard -- with no
     // ?question_id= (the old "show everything" view) there's no one
@@ -479,6 +494,48 @@ export default function App() {
   // every student's waiting screen once time is up (see
   // aggregation.raise_issue()). Raising a wrong_answer issue waits on a live
   // Label call, hence the busy state.
+  // "Show to students" on "Students by outcome" -- see api_lecturer_show_results.
+  async function toggleResultsShown() {
+    if (!QUESTION_ID || !question) return;
+    const next = !question.results_shown;
+    if (MOCK) {
+      setQuestion((q) => q && { ...q, results_shown: next });
+      return;
+    }
+    setShowingResults(true);
+    setShowResultsError(null);
+    try {
+      setQuestion(await showResults(QUESTION_ID, next));
+    } catch (e) {
+      setShowResultsError(e instanceof Error ? e.message : "Could not update the shown results.");
+    } finally {
+      setShowingResults(false);
+    }
+  }
+
+  // "Show on screen" in a student's code drawer -- see api_lecturer_show_submission.
+  async function toggleSubmissionShown(sub: SubmissionRow) {
+    const next = !shownSubIds.has(sub.id);
+    if (MOCK) {
+      setShownSubIds((prev) => {
+        const ids = new Set(prev);
+        if (next) ids.add(sub.id);
+        else ids.delete(sub.id);
+        return ids;
+      });
+      return;
+    }
+    setShowingSubId(sub.id);
+    setShowResultsError(null);
+    try {
+      setShownSubIds(new Set(await showSubmission(sub.id, next)));
+    } catch (e) {
+      setShowResultsError(e instanceof Error ? e.message : "Could not update the shown code.");
+    } finally {
+      setShowingSubId(null);
+    }
+  }
+
   async function toggleRaised(c: ClusterRow) {
     if (!QUESTION_ID) return;
     const key = issueKey(c);
@@ -627,7 +684,24 @@ export default function App() {
             id="live-content"
             className="mt-8 grid scroll-mt-32 items-start gap-5 lg:grid-cols-2"
           >
-            <VerdictBreakdown tracks={tracks} subs={subRows} activity={taskRunning ? activity : null} />
+            <div className="min-w-0">
+            {showResultsError && <ErrorText className="mb-3">{showResultsError}</ErrorText>}
+            <VerdictBreakdown
+              tracks={tracks}
+              subs={subRows}
+              activity={taskRunning ? activity : null}
+              resultsShown={!!question?.results_shown}
+              taskRunning={taskRunning}
+              showBusy={showingResults}
+              onToggleShown={question ? toggleResultsShown : null}
+              showCode={{
+                shownIds: shownSubIds,
+                busyId: showingSubId,
+                taskRunning,
+                onToggle: toggleSubmissionShown,
+              }}
+            />
+            </div>
             <section aria-label="Discussion points" className="min-w-0">
               {raiseError && <ErrorText className="mb-3">{raiseError}</ErrorText>}
               <IssueList

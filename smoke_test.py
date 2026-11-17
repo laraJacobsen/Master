@@ -742,6 +742,34 @@ def _run_checks(client):
         assert r.status_code == 404, r.text
         print("Show on full screen: singleton raised, example queued  OK")
 
+        # "Show to students" on "Students by outcome": one best exec_verdict per
+        # student who submitted, no names, and the flag lives on the question row.
+        r = client.post("/api/lecturer/questions/sum-ints/show_results", json={"shown": True})
+        assert r.status_code == 200 and r.json()["results_shown"] is True, r.text
+        results = agg_mod.shown_results("sum-ints")
+        n_students = len({row["student_name"] for row in store_mod.all_submissions("sum-ints")})
+        assert len(results) == n_students and "Lise" not in json_lib.dumps(results), results
+        assert client.post("/api/lecturer/questions/sum-ints/show_results", json={"shown": False}).json()["results_shown"] is False
+        assert client.post("/api/lecturer/questions/nope/show_results", json={"shown": True}).status_code == 404
+        print("Show results: per-student best verdicts, no names   OK ->", results)
+
+        # "Show on screen" in a student's code drawer: any single attempt, a
+        # correct one included. Reaches the students' examples, raises no
+        # discussion point, and unshowing takes it back down.
+        correct_sub = next(row for row in store_mod.all_submissions("sum-ints") if row["verdict"] == "correct")
+        r = client.post(f"/api/lecturer/submissions/{correct_sub['id']}/show", json={"shown": True})
+        assert r.status_code == 200 and r.json() == [correct_sub["id"]], r.text
+        assert client.get("/api/lecturer/questions/sum-ints/shown_submissions").json() == [correct_sub["id"]]
+        shown = agg_mod.shown_examples("sum-ints")
+        assert len(shown) == 1 and shown[0]["correct"] is True and shown[0]["failing_test"] is None, shown
+        assert correct_sub["student_name"] not in json_lib.dumps(shown), shown
+        clusters = client.get("/api/lecturer/clusters", params={"question_id": "sum-ints"}).json()
+        assert not any(c["raised"] for c in clusters), "a single shown submission must not raise a discussion point"
+        r = client.post(f"/api/lecturer/submissions/{correct_sub['id']}/show", json={"shown": False})
+        assert r.json() == [] and agg_mod.shown_examples("sum-ints") == [], r.text
+        assert client.post("/api/lecturer/submissions/999999/show", json={"shown": True}).status_code == 404
+        print("Show single submission (correct code)            OK")
+
         # Hard-coded output: printing the visible example's answer used to pass
         # that test ("partially correct"). The example isn't graded any more, and
         # a program that never reads its input is its own issue type.
