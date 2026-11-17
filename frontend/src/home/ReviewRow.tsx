@@ -4,7 +4,7 @@ import type { CarryForwardPoint, LectureReview, LectureReviewTask } from "../sha
 import { fetchLectureSummary } from "../shared/api";
 import { Card, SectionTitle, Skeleton, TextLink } from "../shared/ui";
 import { TrendChart } from "../shared/TrendChart";
-import { Delta, IssueLine, Meter } from "../shared/reviewUi";
+import { Delta, IssueLine, TopicItem } from "../shared/reviewUi";
 import { formatDate, parseDate, percent, plural, shortDate, topicsFrom } from "../shared/review";
 
 // The home page's second row: what a lecturer wants before walking into the
@@ -179,17 +179,9 @@ function TopicsCard({ ranked }: TopicsCardProps) {
       {topics.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500">Not enough lectures yet.</p>
       ) : (
-        <ol className="mt-2 divide-y divide-zinc-200">
+        <ol className="mt-3 divide-y divide-zinc-200">
           {topics.map((t) => (
-            <li key={t.title} className="grid gap-1.5 py-3.5 last:pb-0">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-sm font-semibold text-zinc-900">{t.title}</span>
-                <span className="font-mono text-[13px] font-semibold tabular-nums">{percent(t.rate)}</span>
-              </div>
-              <Meter rate={t.rate} size="sm" />
-              <span className="text-xs text-zinc-500">{plural(t.lectures, "lecture")}</span>
-              <IssueLine task={t.worst} className="line-clamp-2" />
-            </li>
+            <TopicItem key={t.title} topic={t} />
           ))}
         </ol>
       )}

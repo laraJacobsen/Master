@@ -17,7 +17,7 @@ import {
   TextLink,
 } from "../shared/ui";
 import { cx } from "../shared/cx";
-import { Delta, IssueLine, Meter } from "../shared/reviewUi";
+import { Delta, IssueLine, Meter, TopicItem } from "../shared/reviewUi";
 import {
   formatDate,
   mean,
@@ -648,15 +648,7 @@ export default function App() {
                   <SectionTitle className="mb-4">Topics to revisit</SectionTitle>
                   <ol className="grid divide-y divide-zinc-200">
                     {topics.slice(0, TOPICS_SHOWN).map((t) => (
-                      <li key={t.title} className="grid gap-1.5 py-4 first:pt-0 last:pb-0">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="text-sm font-semibold text-zinc-900">{t.title}</span>
-                          <span className="font-mono text-sm font-semibold tabular-nums">{percent(t.rate)}</span>
-                        </div>
-                        <Meter rate={t.rate} size="sm" />
-                        <span className="text-xs text-zinc-500">{plural(t.lectures, "lecture")}</span>
-                        <IssueLine task={t.worst} />
-                      </li>
+                      <TopicItem key={t.title} topic={t} />
                     ))}
                   </ol>
                 </Card>
