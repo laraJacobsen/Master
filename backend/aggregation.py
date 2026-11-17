@@ -33,7 +33,8 @@ to act on. That bucket gets sub-clustered by actual code similarity instead:
      Ollama, so this doesn't sit on the laptop-latency/memory ceiling measured in
      pedagogical-feedback-design-decision.md), but a narrowly scoped one: given 2-3
      representative snippets (comments stripped, never student names -- canonicalized
-     VARn form until 2026-10-13, see the entry at the end) from that one sub-cluster, and explicitly told to describe only the pattern
+     VARn form until 2026-10-13, see the entry at the end) from that one sub-cluster, 
+     and explicitly told to describe only the pattern
      visible in ALL of them, never invent a cause true of less than all. This is a
      different risk shape than the lecturer discussion-point call this project removed
      twice before (see pedagogical-feedback-design-decision.md) -- that one asked a model

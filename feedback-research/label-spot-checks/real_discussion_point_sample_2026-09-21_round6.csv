@@ -1,0 +1,549 @@
+id,exercise,student_count,same_group_as_round4_row,raw_code_snippets,snippets_shown_to_model,reference_solution_shown_to_model,discussion_point,label_fell_back_to_generic_y_n,title,action,is_grounded_y_n,is_lecturer_facing_y_n,is_actionable_y_n,headline_faithful_to_note_y_n,title_names_mistake_y_n,action_is_actionable_y_n,rater_note
+1,sum-ints,5,1,"nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)","nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) + 1)",print(sum(int(x) for x in input().split())),adds 1 to the sum before printing.,n,Off‑by‑one error in result,Show the correct sum calculation without the extra increment,y,y,y,y,y,y,
+2,sum-ints,2,2,"nums = input().split()
+print(sum(int(n) for n in nums) - 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) - 1)","nums = input().split()
+print(sum(int(n) for n in nums) - 1)
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums) - 1)",print(sum(int(x) for x in input().split())),The code subtracts 1 from the summed integers before printing.,n,Off‑by‑one error in sum,Show the subtraction step and ask why it changes the result,y,y,y,y,y,y,
+3,sum-ints,3,,"nums = input().split()
+print(sum(int(n) for n in nums[:-1]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))","nums = input().split()
+print(sum(int(n) for n in nums[:-1]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))
+
+---
+
+nums = input().split()
+print(sum(int(n) for n in nums[:-1]))",print(sum(int(x) for x in input().split())),"The code sums over nums[:-1], which excludes the last input value.",n,Missing last element in sum,Show the slice nums[:-1] on the board and discuss why the last element is omitted from the sum,y,y,y,y,y,y,
+4,sum-ints,2,4,"nums = input().split()
+print(int(nums[0]))
+
+---
+
+nums = input().split()
+print(int(nums[0]))","nums = input().split()
+print(int(nums[0]))
+
+---
+
+nums = input().split()
+print(int(nums[0]))",print(sum(int(x) for x in input().split())),"The code converts only the first split element to int and prints it, ignoring the remaining numbers.",n,Only first split element used,Show the full split result and demonstrate converting all elements to int,y,y,y,y,y,y,
+5,sum-ints,2,5,"nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)
+
+---
+
+nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)","nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)
+
+---
+
+nums = input().split()
+result = 1
+for n in nums:
+    result *= int(n)
+print(result)",print(sum(int(x) for x in input().split())),"result is initialized to 1 and updated with result *= int(n), so the numbers are multiplied rather than summed.",n,Multiplication used instead of addition,Trace the loop and highlight that result is multiplied rather than summed.,y,y,y,y,y,y,
+6,double-it,2,6,"print(int(input()) + 2)
+
+---
+
+print(int(input()) + 2)","print(int(input()) + 2)
+
+---
+
+print(int(input()) + 2)",print(int(input()) * 2),adds 2 to the input instead of multiplying it by 2,n,Incorrect arithmetic operation,Show the correct multiplication by 2 on the board,y,y,y,y,y,y,
+7,double-it,2,,"print(input()*2)
+
+---
+
+int = input()
+print(int*2)","print(input()*2)
+
+---
+
+int = input()
+print(int*2)",print(int(input()) * 2),The code multiplies the string returned by input() (or the variable holding it) by 2 instead of converting it to an integer first.,n,String multiplied instead of integer,Show how multiplying the input string concatenates it rather than performing arithmetic.,y,y,y,y,y,y,
+8,is_palindrome,2,8,"def is_palindrome(s):
+    t = s.replace("" "", """")  # forgot to lowercase
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.replace("" "", """")  # forgot to lowercase
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+","def is_palindrome(s):
+    t = s.replace("" "", """")
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+---
+
+def is_palindrome(s):
+    t = s.replace("" "", """")
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))","def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))","the code omits the .lower() call on the input string, so case differences are not ignored",n,Case-sensitive input handling,Show the class how to add a .lower() call to normalize the input case.,y,y,y,y,y,y,
+9,is_palindrome,2,9,"def is_palindrome(s):
+    t = s.lower()  # forgot to strip spaces
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.lower()  # forgot to strip spaces
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+","def is_palindrome(s):
+    t = s.lower()
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))
+
+---
+
+def is_palindrome(s):
+    t = s.lower()
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))","def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))","the .replace(' ', '') call is omitted, so spaces remain in the string before the palindrome comparison",n,Spaces not removed,Show the string before the palindrome comparison and point out that spaces were not removed,y,y,y,y,y,y,
+10,is_palindrome,2,10,"def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:  # off-by-one: should be n - i - 1
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+
+
+---
+
+def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:  # off-by-one: should be n - i - 1
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+","def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))
+
+---
+
+def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    n = len(t)
+    for i in range(n // 2):
+        if t[i] != t[n - i - 2]:
+            return False
+    return True
+
+s = input()
+print(is_palindrome(s))","def is_palindrome(s):
+    t = s.lower().replace("" "", """")
+    return t == t[::-1]
+
+s = input()
+print(is_palindrome(s))","The loop compares t[i] with t[n - i - 2] instead of t[n - i - 1], so the far‑end character is never checked.",n,Off‑by‑one index error in loop,Show the correct comparison of t[i] with t[n - i - 1] on the board,y,y,y,y,y,y,
+11,count_vowels,2,11,"def count_vowels(s):
+    vowels = ""aeiou""  # forgot to lowercase s first
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    vowels = ""aeiou""  # forgot to lowercase s first
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def count_vowels(s):
+    vowels = ""aeiou""
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+---
+
+def count_vowels(s):
+    vowels = ""aeiou""
+    count = 0
+    for ch in s:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","The code iterates over s directly without calling .lower(), so uppercase vowels are not counted.",n,Uppercase vowels not counted,Show the class how to call .lower() before iterating to count vowels.,y,y,y,y,y,y,
+12,count_vowels,2,13,"def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):  # off-by-one: skips the last character
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):  # off-by-one: skips the last character
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for i in range(len(t) - 1):
+        if t[i] in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","The loop uses range(len(t) - 1), which excludes the final character, so the last character is never examined.",n,Loop skips final character,Show the correct range that includes the last character,y,y,y,y,y,y,
+13,count_vowels,2,12,"def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""  # bug: y isn't a vowel
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""  # bug: y isn't a vowel
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+","def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))
+
+---
+
+def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiouy""
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","def count_vowels(s):
+    t = s.lower()
+    vowels = ""aeiou""
+    count = 0
+    for ch in t:
+        if ch in vowels:
+            count += 1
+    return count
+
+s = input()
+print(count_vowels(s))","The code uses ""aeiouy"" instead of ""aeiou"", so it counts ""y"" as a vowel.",n,Counting y as a vowel,"Show the vowel string used in the code and discuss how including ""y"" changes the result.",y,y,y,y,y,y,
+14,second_largest,2,14,"def second_largest(nums):
+    s = sorted(nums, reverse=True)  # no dedup: picks second position, not second distinct value
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    s = sorted(nums, reverse=True)  # no dedup: picks second position, not second distinct value
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def second_largest(nums):
+    s = sorted(nums, reverse=True)
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+---
+
+def second_largest(nums):
+    s = sorted(nums, reverse=True)
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","def second_largest(nums):
+    distinct = sorted(set(nums), reverse=True)
+    return distinct[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","sorted(nums, reverse=True) is used without converting to a set, so duplicate numbers are not removed before selecting the second element.",n,Second largest not unique,Show the class how converting the list to a set removes duplicates before picking the second element.,y,y,y,y,y,y,
+15,second_largest,2,15,"def second_largest(nums):
+    s = sorted(set(nums))  # ascending, not descending
+    return s[1]  # grabs second-smallest distinct instead of second-largest
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    s = sorted(set(nums))  # ascending, not descending
+    return s[1]  # grabs second-smallest distinct instead of second-largest
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def second_largest(nums):
+    s = sorted(set(nums))
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+---
+
+def second_largest(nums):
+    s = sorted(set(nums))
+    return s[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","def second_largest(nums):
+    distinct = sorted(set(nums), reverse=True)
+    return distinct[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","sorted() is called without reverse=True, so the list is sorted ascending rather than descending.",n,Ascending sort instead of descending,Show the correct use of reverse=True with sorted,y,y,y,y,y,y,
+16,second_largest,2,16,"def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:  # bug: should be n > second
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+
+---
+
+def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:  # bug: should be n > second
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+","def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))
+
+---
+
+def second_largest(nums):
+    largest = max(nums)
+    second = None
+    for n in nums:
+        if n != largest:
+            if second is None or n < second:
+                second = n
+    return second
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","def second_largest(nums):
+    distinct = sorted(set(nums), reverse=True)
+    return distinct[1]
+
+nums = [int(x) for x in input().split()]
+print(second_largest(nums))","The update uses 'n < second' instead of 'n > second', so the function returns the smallest non‑maximum value rather than the second largest.",n,Incorrect comparison direction,Show the correct 'n > second' condition and discuss why the current 'n < second' yields the smallest non‑maximum value.,y,y,y,y,y,y,

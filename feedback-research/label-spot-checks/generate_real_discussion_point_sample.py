@@ -7,7 +7,7 @@ This is NOT the ground-truth labeling sample (subcluster_ground_truth_sample.csv
 that one exists to score the CLUSTERING step against hand-labeled bug groups and
 never calls an LLM at all. This script exercises the LABEL step.
 
-ROUND 5 (this run, DATE_TAG below unchanged throughout on purpose -- see OUT
+ROUND 6 (this run, DATE_TAG below unchanged throughout on purpose -- see OUT
 filenames, which carry a round-specific suffix so no run ever overwrites an earlier
 round's already-recorded human ratings):
 
@@ -45,7 +45,7 @@ round's already-recorded human ratings):
   docstring). Clustering is unchanged, so the sub-clusters should match round 3's;
   only the labels differ. The placeholder-leak scan is gone with the placeholders.
   Rated 2026-10-15: all 16 rows grounded, lecturer-facing and actionable.
-- Round 5 (this run, _round5 suffix): tests the 2026-10-15 change in aggregation.py --
+- Round 5 (_round5 suffix): tests the 2026-10-15 change in aggregation.py --
   wrong_answer rows are grouped by output signature first (_group_wrong_answers()),
   and the Label call is also shown one failing test the whole group shares
   (_shared_failing_case()). Each row now carries raw_test_results from actually
@@ -64,6 +64,17 @@ round's already-recorded human ratings):
   longer shows the model a test; failing_test_shown_to_model would then be wrong.
   A control run should rename that column (e.g. shared_failing_test) and record
   whether the call actually received it.
+- Round 6 (this run, _round6 suffix, generated 2026-11-17): the Label prompt was
+  reworded on 2026-11-16 (commits 6c6e3ae, bd15a54: one sentence, no "both"/"all"/
+  "the students", no mention of snippets or the reference), after round 4's ratings,
+  so the Label text the dashboard shows had not been rated. Same data and grouping
+  as round 5; no failing test is sent (the failing_test column is gone). Each row
+  also carries the Headline call's title and action for that note
+  (aggregation._headline(), category "Wrong answer", as cluster_submissions()
+  sends it), rated in the same row, so note and headline are checked the way the
+  lecturer sees them together. The Headline call had never been rated before.
+  The IDUN gateway caches byte-identical requests (found 2026-11-17), so a new
+  prompt means fresh calls here; re-running unchanged would return cached text.
 
 Real data sources (no fabricated bugs anywhere):
 
@@ -151,17 +162,18 @@ from build_subcluster_ground_truth_io_table import run_code  # noqa: E402
 from run_signature_baseline import raw_test_results, tests_for  # noqa: E402
 
 from backend import aggregation as agg  # noqa: E402
+from backend import hints  # noqa: E402
 
 if not agg._llm_available():
     sys.exit("IDUN_API_KEY not set (checked env and .idun.env) -- cannot generate real labels.")
 
 OUT_DIR = Path(__file__).resolve().parent
 DATE_TAG = "2026-09-21"
-# _round5 suffix so this run can never overwrite an earlier round's files -- those
+# _round6 suffix so this run can never overwrite an earlier round's files -- those
 # already carry Lara's recorded spot-check ratings (is_grounded_y_n etc.).
-CSV_PATH = OUT_DIR / f"real_discussion_point_sample_{DATE_TAG}_round5.csv"
-MD_PATH = OUT_DIR / f"real_discussion_point_sample_{DATE_TAG}_round5.md"
-LATENCY_PATH = OUT_DIR / f"real_discussion_point_sample_latency_{DATE_TAG}_round5.md"
+CSV_PATH = OUT_DIR / f"real_discussion_point_sample_{DATE_TAG}_round6.csv"
+MD_PATH = OUT_DIR / f"real_discussion_point_sample_{DATE_TAG}_round6.md"
+LATENCY_PATH = OUT_DIR / f"real_discussion_point_sample_latency_{DATE_TAG}_round6.md"
 ROUND4_CSV_PATH = OUT_DIR / f"real_discussion_point_sample_{DATE_TAG}_round4.csv"
 
 # --- Source 1: sum-ints -- see module docstring for why placeholder names replace
@@ -319,7 +331,10 @@ def main():
                 raw_code_snippets.append(m["source_code"])
                 if len(raw_code_snippets) >= 3:
                     break
-            failing = agg._shared_failing_case(group)
+            # Same headline call cluster_submissions() makes for this row; a failed
+            # Label call leaves the generic line, which still gets a headline in production.
+            headline = agg._headline(agg._category_label("wrong_answer", None), discussion_point)
+            label_fell_back = discussion_point == hints.discussion_point_for_cluster("wrong_answer", None, student_count)
             csv_rows.append(
                 {
                     "id": row_id,
@@ -329,16 +344,17 @@ def main():
                     "raw_code_snippets": "\n\n---\n\n".join(raw_code_snippets),
                     "snippets_shown_to_model": "\n\n---\n\n".join(shown_snippets),
                     "reference_solution_shown_to_model": reference_shown,
-                    "failing_test_shown_to_model": (
-                        f"input: {failing['stdin']!r} | expected: {failing['expected_stdout']!r} | "
-                        f"they all printed: {failing['stdout']!r}"
-                        if failing else ""
-                    ),
                     "discussion_point": discussion_point,
+                    "label_fell_back_to_generic_y_n": "y" if label_fell_back else "n",
+                    "title": headline["title"] if headline else "",
+                    "action": headline["action"] if headline else "",
                     "is_grounded_y_n": "",
                     "is_lecturer_facing_y_n": "",
                     "is_actionable_y_n": "",
-                    "uses_test_correctly_y_n": "",
+                    "headline_faithful_to_note_y_n": "",
+                    "title_names_mistake_y_n": "",
+                    "action_is_actionable_y_n": "",
+                    "rater_note": "",
                 }
             )
 
@@ -350,28 +366,39 @@ def main():
             fieldnames=[
                 "id", "exercise", "student_count", "same_group_as_round4_row", "raw_code_snippets",
                 "snippets_shown_to_model", "reference_solution_shown_to_model",
-                "failing_test_shown_to_model", "discussion_point",
-                "is_grounded_y_n", "is_lecturer_facing_y_n", "is_actionable_y_n", "uses_test_correctly_y_n",
+                "discussion_point", "label_fell_back_to_generic_y_n", "title", "action",
+                "is_grounded_y_n", "is_lecturer_facing_y_n", "is_actionable_y_n",
+                "headline_faithful_to_note_y_n", "title_names_mistake_y_n", "action_is_actionable_y_n",
+                "rater_note",
             ],
         )
         writer.writeheader()
         writer.writerows(csv_rows)
 
     md_lines = [
-        "# Real discussion-point Label sample -- human/expert spot-check (ROUND 5)",
+        "# Real discussion-point Label + Headline sample -- human/expert spot-check (ROUND 6)",
         "",
-        f"Generated {time.strftime('%Y-%m-%d')} against the live IDUN endpoint. Same data as round 4. "
-        "Two changes: groups are formed by output signature first (so some groups differ from "
-        "round 4), and the Label call is also shown one failing test every student in the group "
-        "failed the same way (see generate_real_discussion_point_sample.py's module docstring).",
+        f"Generated {time.strftime('%Y-%m-%d')} against the live IDUN endpoint. Same data and "
+        "grouping as round 5, no failing test sent. What changed: the Label prompt as reworded "
+        "on 2026-11-16 (one sentence, no 'both'/'all'/'the students'), which is what the "
+        "dashboard runs today. New: each row also shows the Headline call's title and action "
+        "for that note -- the Headline call sees only the category and the note, never code.",
         "",
-        "For each row: does the discussion point only state something true of every snippet "
-        "shown (not a broader claim than the evidence supports), is it third-person/"
-        "lecturer-facing (never \"you\"/\"your\"), and does it say something a lecturer could "
-        "actually act on? New this round: when a failing test was shown, does the point claim "
-        "only what that test's input and outputs actually demonstrate (no generalizing from one "
-        "input, no cause the test doesn't show)? Mark n/a if no test was shown. Rate before "
-        "looking at round 4; the CSV's same_group_as_round4_row column is for comparing afterwards.",
+        "Note (as in earlier rounds): does it only state something true of every snippet "
+        "shown (is_grounded), is it third-person/lecturer-facing (never \"you\"/\"your\"), and "
+        "could a lecturer act on it (is_actionable)?",
+        "",
+        "Headline: do the title and action say only what the note says, with no new cause, code "
+        "detail or claim (headline_faithful_to_note)? Does the title name the actual mistake, not "
+        "just the category (title_names_mistake)? Is the action something a lecturer could do "
+        "in class right now (action_is_actionable)?",
+        "",
+        "Rate before looking at round 4; the CSV's same_group_as_round4_row column is for "
+        "comparing afterwards.",
+        "",
+        "**Pass rule (write this before rating, don't change it after):**",
+        "",
+        "> ",
         "",
     ]
     for row in csv_rows:
@@ -395,18 +422,25 @@ def main():
                 "```",
                 "",
             ]
-        if row["failing_test_shown_to_model"]:
+        if row["label_fell_back_to_generic_y_n"] == "y":
+            md_lines += ["**Label call failed** -- the note above is the generic fallback line.", ""]
+        if row["title"]:
             md_lines += [
-                "**Failing test shown to the model (every student in the group failed it this way):**",
+                "**Headline (generated from the note only):**",
                 "",
-                f"`{row['failing_test_shown_to_model']}`",
+                f"- Title: {row['title']}",
+                f"- Action: {row['action']}",
                 "",
             ]
+        else:
+            md_lines += ["**Headline call failed** -- the dashboard shows the note as the headline.", ""]
         md_lines += [
             "- is_grounded_y_n: ______",
             "- is_lecturer_facing_y_n: ______",
             "- is_actionable_y_n: ______",
-            "- uses_test_correctly_y_n: ______",
+            "- headline_faithful_to_note_y_n: ______",
+            "- title_names_mistake_y_n: ______",
+            "- action_is_actionable_y_n: ______",
             "",
         ]
     MD_PATH.write_text("\n".join(md_lines))
