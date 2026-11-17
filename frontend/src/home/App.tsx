@@ -189,20 +189,23 @@ export default function App() {
           <Card
             className={cx(
               "animate-fade-in-up p-6 sm:p-8",
-              // The lecture that's on right now: brand-purple gradient panel.
-              hasActive &&
+              // Brand-purple gradient panel, both for the lecture that's on right now and for
+              // starting a new one, so the primary action always sits in the same place/look.
+              !activeLoading &&
                 "relative isolate overflow-hidden bg-linear-to-br from-brand-500 via-brand-500 to-violet-500 text-white shadow-xl shadow-brand-500/25",
             )}
           >
+            {!activeLoading && (
+              // Soft light from the top right -- depth without decoration.
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(32rem_16rem_at_100%_0%,rgb(255_255_255/0.22),transparent_70%)]"
+              />
+            )}
             {activeLoading ? (
               <p className="text-sm text-zinc-500">Loading...</p>
             ) : hasActive ? (
               <>
-                {/* Soft light from the top right -- depth without decoration. */}
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(32rem_16rem_at_100%_0%,rgb(255_255_255/0.22),transparent_70%)]"
-                />
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-xl font-bold tracking-tight text-white">Lecture in progress</h2>
                   {active!.lecture!.lobby_opened_at ? (
@@ -265,10 +268,10 @@ export default function App() {
                   handleNewLecture();
                 }}
               >
-                <h2 className="text-xl font-bold tracking-tight text-zinc-950">Start a new lecture</h2>
-                <p className="mt-1 text-sm text-zinc-500">You can add questions before opening it to students.</p>
-                <div className="mt-6">
-                  <Label htmlFor="f-label" hint="optional">
+                <h2 className="text-xl font-bold tracking-tight text-white">Start a new lecture</h2>
+                <p className="mt-1 text-sm text-white/80">You can add questions before opening it to students.</p>
+                <div className="mt-6 rounded-lg border border-white/20 bg-white/10 px-5 py-4">
+                  <Label htmlFor="f-label" hint="optional" className="text-white [&>span]:text-white/70">
                     Name
                   </Label>
                   <Input
@@ -277,12 +280,20 @@ export default function App() {
                     placeholder="e.g. Week 3: Recursion"
                     value={label}
                     onChange={(e) => setLabel(e.target.value)}
+                    className="border-white/30 hover:border-white/50 focus:border-white focus:ring-white/30"
                   />
                 </div>
-                <Button type="submit" size="lg" className="mt-5" disabled={starting}>
-                  {starting ? "Starting..." : "New lecture"}
-                </Button>
-                {startError && <ErrorText className="mt-3">{startError}</ErrorText>}
+                <div className="mt-6 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="submit"
+                    size="lg"
+                    disabled={starting}
+                    className="bg-white text-brand-700 shadow-brand-900/20 hover:bg-brand-50 active:bg-brand-100 focus-visible:outline-white"
+                  >
+                    {starting ? "Starting..." : "New lecture"}
+                  </Button>
+                </div>
+                {startError && <ErrorText className="mt-3 text-white">{startError}</ErrorText>}
               </form>
             )}
           </Card>

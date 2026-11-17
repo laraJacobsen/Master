@@ -66,6 +66,7 @@ def judge_and_feedback(
     language: str = "python",
     attempt_number: int = 1,
     expected_function_name: str = None,
+    hint_ladder: list = None,
 ) -> dict:
     """Returns a dict: verdict, error_type, feedback, tests_passed, tests_total,
     hint_tier, hint_ceiling, exec_verdict, traceback.
@@ -74,6 +75,11 @@ def judge_and_feedback(
     source_code are unused now that grading has no model to give them to -- kept as
     parameters so main.py's call site doesn't need to change based on which grading
     strategy is in use.
+
+    hint_ladder is the task's own lecturer-approved wrong-answer hints (see
+    backend/hint_ladder.py). When set, a wrong answer gets those, escalating by
+    attempt, instead of feedback.py's generic ones. Crashes, syntax errors and
+    timeouts keep feedback.py's error-specific hints.
     """
     passed = sum(1 for r in test_results if r["passed"])
     total = len(test_results)
@@ -90,6 +96,10 @@ def judge_and_feedback(
         exec_verdict = "pass" if passed == total and total > 0 else "wrong_answer"
         error_type = None
         hint = {"hint_text": None, "hint_tier": None, "hint_ceiling": None}
+
+    if exec_verdict == "wrong_answer" and hint_ladder:
+        tier = min(attempt_number, len(hint_ladder))
+        hint = {"hint_text": hint_ladder[tier - 1], "hint_tier": tier, "hint_ceiling": len(hint_ladder)}
 
     result = {
         "verdict": _coarse_verdict(exec_verdict, passed, total),

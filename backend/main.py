@@ -40,6 +40,7 @@ from backend.aggregation import (
     student_recap,
 )
 from backend import test_files
+from backend.hint_ladder import clean_ladder, draft_hint_ladder
 from backend.ai_feedback import _traceback_for, judge_and_feedback
 from backend.judge0_client import Judge0Error, run_submission, run_test_cases
 from backend.questions import get_question, list_questions
@@ -105,6 +106,9 @@ class QuestionCreateRequest(BaseModel):
     # What students start with in their editor; None = the student page's
     # default for the language. See store.py's starter_code column.
     starter_code: str | None = None
+    # The task's own wrong-answer hints, attempt 1 first; None = generic hints.
+    # See backend/hint_ladder.py.
+    hint_ladder: list[str] | None = None
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -124,6 +128,9 @@ class QuestionUpdateRequest(BaseModel):
     idle_nudge_seconds: int | None = None
     output_file: str | None = None
     starter_code: str | None = None
+    # The task's own wrong-answer hints, attempt 1 first; None = generic hints.
+    # See backend/hint_ladder.py.
+    hint_ladder: list[str] | None = None
 
 
 class LectureAdvanceRequest(BaseModel):
@@ -131,6 +138,14 @@ class LectureAdvanceRequest(BaseModel):
     # close it out even if it somehow isn't the most-recently-started live
     # question (see api_lecturer_lecture_next/finish).
     current_question_id: str | None = None
+
+
+class HintDraftRequest(BaseModel):
+    # The form as it is now -- the draft doesn't need the question saved first.
+    prompt: str
+    language: str = "python"
+    reference_solution: str
+    starter_code: str | None = None
 
 
 class LectureCreateRequest(BaseModel):
@@ -182,6 +197,7 @@ def api_lecturer_create_question(req: QuestionCreateRequest):
     fields = req.model_dump()
     fields["test_cases"] = [tc.model_dump() for tc in req.test_cases]
     fields["output_file"] = (fields.get("output_file") or "").strip() or None
+    fields["hint_ladder"] = clean_ladder(fields.get("hint_ladder"))
     _check_test_files_or_400(fields["test_cases"], fields["output_file"])
     question_id = store.create_question(fields)
     return store.get_question_row(question_id)
@@ -233,6 +249,8 @@ def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
         fields["test_cases"] = [tc if isinstance(tc, dict) else tc.model_dump() for tc in req.test_cases]
     if "output_file" in fields:
         fields["output_file"] = (fields["output_file"] or "").strip() or None
+    if "hint_ladder" in fields:
+        fields["hint_ladder"] = clean_ladder(fields["hint_ladder"])
     if "test_cases" in fields or "output_file" in fields:
         _check_test_files_or_400(
             fields.get("test_cases", row["test_cases"]), fields.get("output_file", row.get("output_file"))
@@ -250,6 +268,21 @@ def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
             fields["validated"] = 0
         store.update_question(question_id, fields)
     return store.get_question_row(question_id)
+
+
+@app.post("/api/lecturer/hints/draft")
+def api_lecturer_draft_hints(req: HintDraftRequest):
+    """Drafts the task's wrong-answer hint ladder for the lecturer to edit. Saves
+    nothing: the hints only reach students once the lecturer saves them with the
+    question (hint_ladder). A slow model call, so it runs off the event loop
+    like the other blocking calls here."""
+    if not req.prompt.strip() or not req.reference_solution.strip():
+        raise HTTPException(status_code=400, detail="Write the task text and a reference solution first.")
+    try:
+        hints = draft_hint_ladder(req.prompt, req.language, req.reference_solution, req.starter_code)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"hints": hints}
 
 
 @app.delete("/api/lecturer/questions/{question_id}")
@@ -974,6 +1007,7 @@ def _submit(req: SubmitRequest):
             _graded(test_results),
             language=question["language"],
             attempt_number=attempt_number,
+            hint_ladder=question.get("hint_ladder"),
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI feedback failed: {e}")

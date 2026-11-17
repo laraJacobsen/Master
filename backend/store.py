@@ -96,7 +96,8 @@ def init_db():
                 lecture_id INTEGER,
                 idle_nudge_seconds INTEGER NOT NULL DEFAULT 180,
                 output_file TEXT,
-                starter_code TEXT
+                starter_code TEXT,
+                hint_ladder TEXT
             )
             """
         )
@@ -126,6 +127,11 @@ def init_db():
         # "start from nothing".
         if "starter_code" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN starter_code TEXT")
+        # JSON list of the task's own wrong-answer hints, attempt 1 first,
+        # drafted by backend/hint_ladder.py and edited/approved by the lecturer
+        # in setup. NULL: wrong answers get feedback.py's generic hints.
+        if "hint_ladder" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN hint_ladder TEXT")
         # A question that was already `live` before started_at existed (e.g.
         # an existing checkout's seeded sum-ints) would otherwise have no
         # timer zero-point -- backfill it to "now" so its countdown starts
@@ -422,6 +428,8 @@ def _serialize_question(fields: dict) -> dict:
         row["test_cases"] = json.dumps(row["test_cases"])
     if "extra_packages" in row and not isinstance(row["extra_packages"], str):
         row["extra_packages"] = json.dumps(row["extra_packages"])
+    if row.get("hint_ladder") is not None and not isinstance(row["hint_ladder"], str):
+        row["hint_ladder"] = json.dumps(row["hint_ladder"])
     return row
 
 
@@ -430,6 +438,7 @@ def _deserialize_question(row: dict) -> dict:
     q["test_cases"] = json.loads(q["test_cases"])
     q["extra_packages"] = json.loads(q["extra_packages"])
     q["validated"] = bool(q["validated"])
+    q["hint_ladder"] = json.loads(q["hint_ladder"]) if q.get("hint_ladder") else None
     return q
 
 
@@ -450,8 +459,9 @@ def create_question(fields: dict) -> str:
             INSERT INTO questions
                 (id, title, prompt, language, test_cases, reference_solution,
                  cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
-                 expected_students, duration_seconds, idle_nudge_seconds, output_file, starter_code)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 expected_students, duration_seconds, idle_nudge_seconds, output_file, starter_code,
+                 hint_ladder)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 question_id,
@@ -469,6 +479,7 @@ def create_question(fields: dict) -> str:
                 row.get("idle_nudge_seconds", 180),
                 row.get("output_file"),
                 row.get("starter_code"),
+                row.get("hint_ladder"),
             ),
         )
         conn.commit()

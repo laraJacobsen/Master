@@ -125,6 +125,8 @@ export interface QuestionRow {
   output_file: string | null;
   // null = the built-in default starter (shared/starterCode.ts).
   starter_code: string | null;
+  // The task's own wrong-answer hints, attempt 1 first; null = generic hints.
+  hint_ladder: string[] | null;
 }
 
 export interface QuestionPayload {
@@ -143,6 +145,19 @@ export interface QuestionPayload {
   output_file?: string | null;
   // null = the built-in default starter (shared/starterCode.ts).
   starter_code?: string | null;
+  hint_ladder?: string[] | null;
+}
+
+// POST /api/lecturer/hints/draft
+export interface HintDraftRequest {
+  prompt: string;
+  language: string;
+  reference_solution: string;
+  starter_code: string | null;
+}
+
+export interface HintDraftResponse {
+  hints: string[];
 }
 
 // POST /api/lecturer/lecture/next

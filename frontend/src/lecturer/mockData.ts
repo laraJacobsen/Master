@@ -215,6 +215,7 @@ export function buildMock(ended = false) {
     started_at: ts(ended ? 11 : 4),
     output_file: null,
     starter_code: null,
+    hint_ladder: null,
   };
 
   const progress: ProgressResponse = {

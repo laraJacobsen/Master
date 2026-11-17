@@ -5,6 +5,7 @@ import {
   createQuestion,
   deleteLecture as deleteLectureApi,
   deleteQuestion as deleteQuestionApi,
+  draftHints,
   fetchActiveLecture,
   fetchQuestionList,
   openLobby as openLobbyApi,
@@ -168,6 +169,80 @@ function FilePickLabel({ children, inputLabel, multiple = false, onFiles }: File
   );
 }
 
+const HINT_ATTEMPT_LABELS = ["1st wrong answer", "2nd wrong answer", "3rd and later"];
+
+export interface HintLadderEditorProps {
+  /** null: no hints of the task's own, wrong answers get the generic ones. */
+  hints: string[] | null;
+  /** Why drafting isn't possible yet, or null when it is. */
+  draftBlockedReason: string | null;
+  drafting: boolean;
+  error: string | null;
+  onDraft: () => void;
+  onChange: (index: number, value: string) => void;
+  onRemove: () => void;
+}
+
+/** The task's own wrong-answer hints: drafted from the reference solution, then
+ * edited here. Students only see what's saved, never the raw draft call. */
+function HintLadderEditor({ hints, draftBlockedReason, drafting, error, onDraft, onChange, onRemove }: HintLadderEditorProps) {
+  const textLink =
+    "rounded-sm text-[13px] font-medium text-brand-600 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 " +
+    "focus-visible:outline-brand-500 disabled:pointer-events-none disabled:opacity-50";
+  return (
+    <section className="mt-10 border-t border-zinc-200 pt-8" aria-labelledby="hint-ladder-heading">
+      <h3 id="hint-ladder-heading" className="text-sm font-bold tracking-tight text-zinc-900">
+        Hints for wrong answers
+      </h3>
+      <p className="mt-1 max-w-prose text-[13px] leading-relaxed text-zinc-500">
+        {hints
+          ? "Students get one per wrong answer, each a step closer. Edit them so they guide without giving the answer away."
+          : "Without these, a wrong answer only gets a general hint. Drafts are written from the task text and your reference solution, and students only see them once you've read and saved them."}
+      </p>
+
+      {hints && (
+        <ol className="mt-4 grid gap-4">
+          {hints.map((hint, i) => (
+            <li key={i}>
+              <Label htmlFor={`f-hint-${i}`}>{HINT_ATTEMPT_LABELS[i] ?? `Hint ${i + 1}`}</Label>
+              <Textarea
+                id={`f-hint-${i}`}
+                className="min-h-16"
+                value={hint}
+                placeholder="Leave empty to skip this step."
+                onChange={(e) => onChange(i, e.target.value)}
+              />
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        {hints ? (
+          <>
+            <button type="button" className={textLink} onClick={onDraft} disabled={drafting || draftBlockedReason !== null}>
+              {drafting ? "Drafting..." : "Draft again"}
+            </button>
+            <button type="button" className={textLink} onClick={onRemove} disabled={drafting}>
+              Remove hints
+            </button>
+          </>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={onDraft} disabled={drafting || draftBlockedReason !== null}>
+            {drafting ? "Drafting hints..." : "Draft hints"}
+          </Button>
+        )}
+        {draftBlockedReason && !drafting && <span className="text-[13px] text-zinc-500">{draftBlockedReason}</span>}
+      </div>
+      {error && (
+        <p className="mt-2 text-[13px] text-red-700" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export interface CodeFileNoteProps {
   text: string;
   /** ok: loaded. warn: loaded, but looks like another language. bad: not loaded. */
@@ -215,6 +290,9 @@ export default function App() {
   // follows the language and the example's files (shared/starterCode.ts); a
   // string is the lecturer's own, kept exactly as typed ("" = start empty).
   const [starterCode, setStarterCode] = useState<string | null>(null);
+  const [hintLadder, setHintLadder] = useState<string[] | null>(null);
+  const [draftingHints, setDraftingHints] = useState(false);
+  const [hintError, setHintError] = useState<string | null>(null);
   // Graded on a file the program writes (outputFile) instead of what it prints.
   const [gradeFile, setGradeFile] = useState(false);
   const [outputFile, setOutputFile] = useState("result.txt");
@@ -467,6 +545,8 @@ export default function App() {
     setIdleNudgeMinutes("3");
     setReferenceSolution("");
     setStarterCode(null);
+    setHintLadder(null);
+    setHintError(null);
     setCodeFileNote(null);
     setGradeFile(false);
     setOutputFile("result.txt");
@@ -500,7 +580,11 @@ export default function App() {
     setIdleNudgeMinutes(String(q.idle_nudge_seconds / 60));
     setReferenceSolution(q.reference_solution || "");
     setStarterCode(q.starter_code ?? null);
-    if (!keepStep) setCodeFileNote(null);
+    setHintLadder(q.hint_ladder);
+    if (!keepStep) {
+      setCodeFileNote(null);
+      setHintError(null);
+    }
     setGradeFile(Boolean(q.output_file));
     setOutputFile(q.output_file || "result.txt");
     setTestCases(
@@ -635,6 +719,8 @@ export default function App() {
         .map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected, files: tc.files })),
       reference_solution: referenceSolution || null,
       starter_code: starterCode,
+      // Blank hints are dropped server-side; none left = generic hints.
+      hint_ladder: hintLadder,
       output_file: gradeFile ? outputFile.trim() || "result.txt" : null,
       cpu_time_limit_s: parseFloat(timeLimit),
       memory_limit_kb: Math.round(parseFloat(memoryLimit) * 1024),
@@ -737,6 +823,30 @@ export default function App() {
 
   // Step 2's one button: save, then run the reference solution against the
   // tests (the backend refuses to validate an unsaved question anyway).
+  // Drafts from the form as it is now -- the question needn't be saved first.
+  async function draftHintLadder() {
+    setDraftingHints(true);
+    setHintError(null);
+    try {
+      const { hints } = await draftHints({
+        prompt: prompt.trim(),
+        language,
+        reference_solution: referenceSolution,
+        starter_code: starterCode,
+      });
+      setHintLadder(hints);
+      markEdited();
+    } catch (e) {
+      setHintError(e instanceof Error ? `No draft: ${e.message}` : "No draft.");
+    } finally {
+      setDraftingHints(false);
+    }
+  }
+
+  function updateHint(index: number, value: string) {
+    setHintLadder((prev) => (prev ? prev.map((h, i) => (i === index ? value : h)) : prev));
+  }
+
   async function checkSolution() {
     const payload = formPayload();
     if (!payload.title || !payload.prompt) {
@@ -1336,6 +1446,24 @@ export default function App() {
                       {validationResult.starterProblem.message}
                     </div>
                   )}
+                  <HintLadderEditor
+                    hints={hintLadder}
+                    draftBlockedReason={
+                      !prompt.trim()
+                        ? "Needs the task text (step 1)."
+                        : !referenceSolution.trim()
+                          ? "Needs a reference solution."
+                          : null
+                    }
+                    drafting={draftingHints}
+                    error={hintError}
+                    onDraft={() => void draftHintLadder()}
+                    onChange={updateHint}
+                    onRemove={() => {
+                      setHintLadder(null);
+                      markEdited();
+                    }}
+                  />
                 </>
               )}
 

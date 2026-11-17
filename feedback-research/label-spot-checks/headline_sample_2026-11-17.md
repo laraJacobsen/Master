@@ -404,5 +404,5 @@ Rate in the companion CSV. Leave its automatic-flag columns until after rating.
 
 - is_faithful_to_note_y_n:y
 - title_names_mistake_y_n:y
-- is_lecturer_facing_y_n:y
-- is_actionable_y_n:y
+- is_lecturer_facing_y_n:
+- is_actionable_y_n:

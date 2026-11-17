@@ -3,6 +3,8 @@ import type {
   ActivityResponse,
   ApiErrorBody,
   ClusterRow,
+  HintDraftRequest,
+  HintDraftResponse,
   JoinedCountResponse,
   LectureFinishResponse,
   LectureHistoryRow,
@@ -74,6 +76,14 @@ export function updateQuestion(
 ): Promise<QuestionRow> {
   return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}`, {
     method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then((res) => asJson(res));
+}
+
+export function draftHints(payload: HintDraftRequest): Promise<HintDraftResponse> {
+  return apiFetch(`${API_BASE}/api/lecturer/hints/draft`, {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   }).then((res) => asJson(res));
