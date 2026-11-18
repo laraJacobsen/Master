@@ -100,7 +100,6 @@ export function LiveHero(props: LiveHeroProps) {
 
   const taskItems: MenuEntry[] = [
     ...(question ? [{ label: showTask ? "Hide task text" : "Show task text", onSelect: () => setShowTask((v) => !v) }] : []),
-    ...(running ? [{ label: "End task now", disabled: advancing, onSelect: onEndTaskNow }] : []),
   ];
   const menuItems: MenuEntry[] = [
     ...taskItems,
@@ -126,10 +125,16 @@ export function LiveHero(props: LiveHeroProps) {
       }
     />
   );
-  // On the last task, ending the lecture takes Next task's place (it still
-  // asks to confirm, same as the menu's "End session...").
+  // While students are still working, the main button ends the task early;
+  // only once it has ended does it move on. On the last task, ending the
+  // lecture takes Next task's place (it still asks to confirm, same as the
+  // menu's "End session...").
   const nextButton = (size: "md" | "lg") =>
-    lastTask ? (
+    running ? (
+      <Button size={size} onClick={onEndTaskNow} disabled={advancing} className={ON_ACCENT_BUTTON}>
+        End task early
+      </Button>
+    ) : lastTask ? (
       <Button size={size} onClick={onEndLecture} disabled={advancing} className={onBand ? ON_ACCENT_BUTTON : undefined}>
         End lecture
       </Button>
