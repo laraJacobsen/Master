@@ -19,6 +19,7 @@ import { Badge, Button, Card, Code, Input, Label, LinkButton, Page, PageHeader, 
 import { cx } from "../shared/cx";
 import { defaultStarterCode } from "../shared/starterCode";
 import type { Tone } from "../shared/ui";
+import sampleQuestions from "./sampleQuestions.json";
 
 // Lecture preparation. Top: the lecture itself and its one next action (open
 // the lobby, or go back to it / the live dashboard). Left: the questions in
@@ -416,105 +417,30 @@ export default function App() {
     }
   }
 
-  // Dev convenience only: real, correct-by-construction questions -- three
-  // Python, plus one each in C and Java
-  // (validated immediately so they're startable right away) so testing the
-  // whole lobby/start/submit flow doesn't require typing a question in by
-  // hand every time. Not something a real class needs -- just faster manual
-  // testing.
+  // Dev/demo convenience only: a mix of checked sample questions (Python on
+  // stdin, Python on data files -- one graded on a file it writes -- C and Java),
+  // validated immediately so they're startable right away. They come from
+  // mock_class.py (--write-samples), whose mock students know how to answer them.
   async function addTestQuestions() {
     setAddingTestQuestions(true);
     setStatus("Adding...");
-    const samples: {
-      title: string;
-      language?: string;
-      prompt: string;
-      test_cases: { stdin: string; expected: string }[];
-      reference_solution: string;
-    }[] = [
-      {
-        title: "Double It",
-        prompt: "Read one integer and print double it.",
-        test_cases: [
-          { stdin: "3\n", expected: "6" },
-          { stdin: "10\n", expected: "20" },
-        ],
-        reference_solution: "print(int(input()) * 2)",
-      },
-      {
-        title: "Sum Two",
-        prompt: "Read two integers on one line and print their sum.",
-        test_cases: [
-          { stdin: "3 4\n", expected: "7" },
-          { stdin: "10 -2\n", expected: "8" },
-        ],
-        reference_solution: "a, b = map(int, input().split()); print(a + b)",
-      },
-      {
-        title: "Reverse It",
-        prompt: "Read a line of text and print it reversed.",
-        test_cases: [
-          { stdin: "hello\n", expected: "olleh" },
-          { stdin: "abc\n", expected: "cba" },
-        ],
-        reference_solution: "print(input()[::-1])",
-      },
-      {
-        title: "Sum Two (C)",
-        language: "c",
-        prompt: "Read two integers on one line and print their sum.",
-        test_cases: [
-          { stdin: "3 4\n", expected: "7" },
-          { stdin: "10 -2\n", expected: "8" },
-        ],
-        reference_solution: [
-          "#include <stdio.h>",
-          "",
-          "int main(void) {",
-          "    int a, b;",
-          '    scanf("%d %d", &a, &b);',
-          '    printf("%d\\n", a + b);',
-          "    return 0;",
-          "}",
-          "",
-        ].join("\n"),
-      },
-      {
-        title: "Sum Two (Java)",
-        language: "java",
-        prompt: "Read two integers on one line and print their sum. Your class must be named Main.",
-        test_cases: [
-          { stdin: "3 4\n", expected: "7" },
-          { stdin: "10 -2\n", expected: "8" },
-        ],
-        reference_solution: [
-          "import java.util.Scanner;",
-          "",
-          "public class Main {",
-          "    public static void main(String[] args) {",
-          "        Scanner sc = new Scanner(System.in);",
-          "        int a = sc.nextInt(), b = sc.nextInt();",
-          "        System.out.println(a + b);",
-          "    }",
-          "}",
-          "",
-        ].join("\n"),
-      },
-    ];
+    const samples = sampleQuestions;
     try {
       for (const sample of samples) {
         const created = await createQuestion({
           title: sample.title,
           prompt: sample.prompt,
-          language: sample.language ?? "python",
-          test_cases: sample.test_cases.map((tc) => ({ stdin: tc.stdin, expected_stdout: tc.expected })),
+          language: sample.language,
+          test_cases: sample.test_cases,
           reference_solution: sample.reference_solution,
+          starter_code: sample.starter_code,
+          output_file: sample.output_file,
           cpu_time_limit_s: 5,
           memory_limit_kb: 128000,
           extra_packages: [],
           line_limit: 200,
           expected_students: null,
-          duration_seconds: 600,
+          duration_seconds: sample.duration_seconds,
           idle_nudge_seconds: 180,
         });
         await validateQuestionApi(created.id);
@@ -1077,7 +1003,7 @@ export default function App() {
               className="mx-auto mt-2 flex"
               onClick={addTestQuestions}
               disabled={addingTestQuestions}
-              title="Adds checked sample questions (Python, C, Java), for testing"
+              title="Adds checked sample questions (Python on input and on files, C, Java) that mock_class.py can answer"
             >
               {addingTestQuestions ? "Adding..." : "Add sample questions"}
             </Button>

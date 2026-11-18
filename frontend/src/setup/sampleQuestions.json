@@ -1,0 +1,254 @@
+[
+  {
+    "title": "Sum of integers",
+    "language": "python",
+    "prompt": "Read a line of space-separated integers and print their sum.",
+    "reference_solution": "print(sum(int(x) for x in input().split()))",
+    "starter_code": null,
+    "output_file": null,
+    "duration_seconds": 600,
+    "test_cases": [
+      {
+        "stdin": "1 2 3\n",
+        "expected_stdout": "6",
+        "files": []
+      },
+      {
+        "stdin": "10 20 30 40\n",
+        "expected_stdout": "100",
+        "files": []
+      },
+      {
+        "stdin": "-5 5\n",
+        "expected_stdout": "0",
+        "files": []
+      },
+      {
+        "stdin": "7\n",
+        "expected_stdout": "7",
+        "files": []
+      }
+    ]
+  },
+  {
+    "title": "Gradebook averages",
+    "language": "python",
+    "prompt": "grades.csv holds every score from this term, one per line, after a header line:\n\n    student,subject,score\n    Emma,maths,78\n\nA student can have many scores, in any order, across any subjects.\n\nPrint one line per student, sorted by name: the name and their average score with one decimal, e.g. \"Emma 81.5\". Then a last line \"class\" followed by the average of every score in the file, also with one decimal.\n\nYour starter code already reads the file: scores is a list of (student, subject, score), with the header skipped and each score as a number. Round the usual way with an f-string, e.g. f\"{avg:.1f}\".",
+    "reference_solution": "def read_scores(name=\"grades.csv\"):\n    \"\"\"Every score in the file as (student, subject, score).\n    The header line is skipped and score is an int.\"\"\"\n    rows = []\n    with open(name) as f:\n        next(f)  # the header line\n        for line in f:\n            if line.strip():\n                student, subject, score = line.strip().split(\",\")\n                rows.append((student, subject, int(score)))\n    return rows\n\n\nscores = read_scores()\n\nby_student = {}\nfor student, subject, score in scores:\n    by_student.setdefault(student, []).append(score)\nfor student in sorted(by_student):\n    marks = by_student[student]\n    print(f\"{student} {sum(marks) / len(marks):.1f}\")\nprint(f\"class {sum(score for _, _, score in scores) / len(scores):.1f}\")\n",
+    "starter_code": "def read_scores(name=\"grades.csv\"):\n    \"\"\"Every score in the file as (student, subject, score).\n    The header line is skipped and score is an int.\"\"\"\n    rows = []\n    with open(name) as f:\n        next(f)  # the header line\n        for line in f:\n            if line.strip():\n                student, subject, score = line.strip().split(\",\")\n                rows.append((student, subject, int(score)))\n    return rows\n\n\nscores = read_scores()\n\n",
+    "output_file": null,
+    "duration_seconds": 900,
+    "test_cases": [
+      {
+        "stdin": "",
+        "expected_stdout": "Ingrid 64.2\nLars 66.0\nPetter 91.0\nclass 68.6\n",
+        "files": [
+          {
+            "name": "grades.csv",
+            "content": "student,subject,score\nIngrid,databases,62\nPetter,programming,91\nLars,maths,70\nIngrid,maths,58\nIngrid,programming,38\nIngrid,statistics,99\nLars,programming,62\n"
+          }
+        ]
+      },
+      {
+        "stdin": "",
+        "expected_stdout": "Amalie 69.8\nBjørn 68.3\nDaniel 72.8\nHenrik 72.7\nNikolai 67.4\nOlivia 94.5\nclass 71.5\n",
+        "files": [
+          {
+            "name": "grades.csv",
+            "content": "student,subject,score\nAmalie,programming,84\nBjørn,maths,52\nHenrik,programming,62\nAmalie,databases,68\nBjørn,statistics,91\nHenrik,physics,73\nBjørn,databases,63\nDaniel,maths,45\nBjørn,statistics,57\nNikolai,statistics,41\nNikolai,databases,69\nBjørn,databases,66\nHenrik,physics,96\nNikolai,statistics,63\nNikolai,statistics,55\nNikolai,maths,78\nBjørn,statistics,51\nOlivia,databases,92\nAmalie,programming,42\nHenrik,databases,89\nOlivia,databases,97\nNikolai,programming,92\nNikolai,statistics,74\nHenrik,databases,76\nDaniel,statistics,100\nAmalie,physics,85\nDaniel,databases,75\nBjørn,maths,98\nDaniel,programming,71\nHenrik,databases,40\n"
+          }
+        ]
+      },
+      {
+        "stdin": "",
+        "expected_stdout": "Amalie 71.8\nBjørn 65.8\nCamilla 76.7\nGuro 72.1\nHenrik 64.7\nIngrid 77.0\nKaroline 73.5\nNikolai 64.9\nOlivia 39.0\nPetter 73.5\nclass 69.9\n",
+        "files": [
+          {
+            "name": "grades.csv",
+            "content": "student,subject,score\nAmalie,statistics,78\nGuro,maths,65\nCamilla,maths,93\nCamilla,databases,97\nAmalie,physics,83\nGuro,databases,76\nCamilla,physics,92\nBjørn,maths,57\nCamilla,programming,96\nGuro,databases,36\nBjørn,statistics,65\nBjørn,statistics,63\nBjørn,statistics,42\nOlivia,maths,41\nNikolai,programming,72\nBjørn,programming,78\nGuro,statistics,98\nIngrid,physics,66\nAmalie,statistics,84\nHenrik,statistics,42\nHenrik,programming,55\nAmalie,programming,60\nHenrik,statistics,61\nNikolai,databases,66\nPetter,programming,83\nIngrid,databases,50\nNikolai,maths,65\nNikolai,statistics,51\nIngrid,databases,77\nHenrik,physics,44\nOlivia,programming,37\nNikolai,databases,92\nNikolai,databases,55\nBjørn,programming,83\nHenrik,databases,86\nNikolai,databases,42\nAmalie,statistics,73\nPetter,maths,58\nBjørn,databases,53\nNikolai,programming,91\nGuro,programming,98\nBjørn,databases,58\nPetter,databases,54\nAmalie,statistics,68\nIngrid,statistics,94\nHenrik,physics,55\nIngrid,physics,89\nGuro,databases,60\nCamilla,programming,81\nKaroline,databases,92\nKaroline,programming,68\nHenrik,programming,77\nNikolai,statistics,57\nKaroline,maths,60\nCamilla,statistics,44\nCamilla,programming,79\nIngrid,databases,90\nHenrik,databases,52\nPetter,statistics,85\nIngrid,databases,91\nPetter,maths,86\nKaroline,databases,74\nBjørn,databases,93\nAmalie,physics,57\nHenrik,programming,95\nIngrid,maths,82\nIngrid,maths,70\nIngrid,programming,53\nPetter,programming,61\nPetter,databases,69\nCamilla,statistics,61\nNikolai,maths,48\nGuro,maths,72\nNikolai,physics,68\nAmalie,statistics,71\nHenrik,statistics,80\nNikolai,programming,72\nPetter,statistics,92\nCamilla,maths,47\nIngrid,maths,85\n"
+          }
+        ]
+      },
+      {
+        "stdin": "",
+        "expected_stdout": "Daniel 61.2\nclass 61.2\n",
+        "files": [
+          {
+            "name": "grades.csv",
+            "content": "student,subject,score\nDaniel,databases,59\nDaniel,databases,68\nDaniel,programming,36\nDaniel,statistics,82\n"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "title": "Palindrome check",
+    "language": "python",
+    "prompt": "Read a line and print True if it reads the same backwards, ignoring case and spaces, else False.",
+    "reference_solution": "s = input().lower().replace(\" \", \"\")\nprint(s == s[::-1])",
+    "starter_code": null,
+    "output_file": null,
+    "duration_seconds": 600,
+    "test_cases": [
+      {
+        "stdin": "Race car\n",
+        "expected_stdout": "True",
+        "files": []
+      },
+      {
+        "stdin": "hello\n",
+        "expected_stdout": "False",
+        "files": []
+      },
+      {
+        "stdin": "Was it a car or a cat I saw\n",
+        "expected_stdout": "True",
+        "files": []
+      },
+      {
+        "stdin": "ab\n",
+        "expected_stdout": "False",
+        "files": []
+      }
+    ]
+  },
+  {
+    "title": "Warehouse restock",
+    "language": "python",
+    "prompt": "A warehouse needs to know what to reorder. Two files:\n\nstock.csv -- what's on the shelves, after a header line:\n    item,quantity,minimum\n    bolts,40,25\n\norders.txt -- today's orders, one per line, as item;amount:\n    bolts;12\n\nTake every order off the stock (an item can be ordered many times). Then every item whose quantity is now below its minimum needs restocking up to twice its minimum: for those, write \"<item> <how many to order>\" to restock.txt, one per line, sorted by item name. Item names can contain spaces.\n\nIf nothing needs restocking, write the single line \"nothing to restock\".\n\nrestock.txt is what's checked, not what your program prints -- print as much as you like while you work.\n\nYour starter code already reads both files: stock is a dictionary {item: (quantity, minimum)} and orders is a list of (item, amount). It also gives you write_lines(\"restock.txt\", lines) to write a list of strings to the file, one per line.",
+    "reference_solution": "def read_stock(name=\"stock.csv\"):\n    \"\"\"What's on the shelves, as {item: (quantity, minimum)}. The header line is skipped.\"\"\"\n    stock = {}\n    with open(name) as f:\n        next(f)  # the header line\n        for line in f:\n            if line.strip():\n                item, quantity, minimum = line.strip().split(\",\")\n                stock[item] = (int(quantity), int(minimum))\n    return stock\n\n\ndef read_orders(name=\"orders.txt\"):\n    \"\"\"Today's orders as (item, amount), in the order they came in.\"\"\"\n    orders = []\n    with open(name) as f:\n        for line in f:\n            if line.strip():\n                item, amount = line.strip().split(\";\")\n                orders.append((item, int(amount)))\n    return orders\n\n\ndef write_lines(name, lines):\n    \"\"\"Writes each string in lines to the file, one per line.\"\"\"\n    with open(name, \"w\") as f:\n        for line in lines:\n            f.write(line + \"\\n\")\n\n\nstock = read_stock()\norders = read_orders()\n\nleft = {item: quantity for item, (quantity, minimum) in stock.items()}\nfor item, amount in orders:\n    left[item] -= amount\nlines = [f\"{item} {2 * stock[item][1] - left[item]}\" for item in sorted(stock) if left[item] < stock[item][1]]\nwrite_lines(\"restock.txt\", lines or [\"nothing to restock\"])\n",
+    "starter_code": "def read_stock(name=\"stock.csv\"):\n    \"\"\"What's on the shelves, as {item: (quantity, minimum)}. The header line is skipped.\"\"\"\n    stock = {}\n    with open(name) as f:\n        next(f)  # the header line\n        for line in f:\n            if line.strip():\n                item, quantity, minimum = line.strip().split(\",\")\n                stock[item] = (int(quantity), int(minimum))\n    return stock\n\n\ndef read_orders(name=\"orders.txt\"):\n    \"\"\"Today's orders as (item, amount), in the order they came in.\"\"\"\n    orders = []\n    with open(name) as f:\n        for line in f:\n            if line.strip():\n                item, amount = line.strip().split(\";\")\n                orders.append((item, int(amount)))\n    return orders\n\n\ndef write_lines(name, lines):\n    \"\"\"Writes each string in lines to the file, one per line.\"\"\"\n    with open(name, \"w\") as f:\n        for line in lines:\n            f.write(line + \"\\n\")\n\n\nstock = read_stock()\norders = read_orders()\n\n",
+    "output_file": "restock.txt",
+    "duration_seconds": 1200,
+    "test_cases": [
+      {
+        "stdin": "",
+        "expected_stdout": "bolts 31\ncable 18\nscrews 25\n",
+        "files": [
+          {
+            "name": "stock.csv",
+            "content": "item,quantity,minimum\nbolts,40,25\ncable,12,15\nscrews,60,20\ntape,30,10\n"
+          },
+          {
+            "name": "orders.txt",
+            "content": "bolts;12\nscrews;45\nbolts;9\ntape;4\n"
+          }
+        ]
+      },
+      {
+        "stdin": "",
+        "expected_stdout": "bolts 37\nbrackets 71\ncable 97\ndrill bits 44\nnails 36\nscrews 61\n",
+        "files": [
+          {
+            "name": "stock.csv",
+            "content": "item,quantity,minimum\nbolts,27,32\nbrackets,32,24\ncable,14,11\ndrill bits,46,17\nnails,11,16\nscrews,41,34\ntape,77,22\n"
+          },
+          {
+            "name": "orders.txt",
+            "content": "drill bits;9\nnails;15\ncable;15\ndrill bits;13\ncable;19\nscrews;14\nbrackets;6\ncable;22\ndrill bits;20\ntape;8\ncable;12\nbrackets;14\ntape;6\nbrackets;8\nscrews;20\ndrill bits;14\ncable;14\ncable;7\nbrackets;11\nbrackets;16\n"
+          }
+        ]
+      },
+      {
+        "stdin": "",
+        "expected_stdout": "bolts 142\nbrackets 44\ncable 61\ndrill bits 76\ngloves 35\nhinges 89\nnails 113\npaint 61\nscrews 76\ntape 57\n",
+        "files": [
+          {
+            "name": "stock.csv",
+            "content": "item,quantity,minimum\nbolts,30,28\nbrackets,52,22\ncable,53,21\ndrill bits,30,40\ngloves,32,15\nhinges,26,17\nnails,27,38\npaint,38,30\nscrews,38,31\ntape,45,33\nwashers,78,39\n"
+          },
+          {
+            "name": "orders.txt",
+            "content": "hinges;7\nhinges;15\nscrews;20\nhinges;15\ndrill bits;3\ncable;18\ndrill bits;20\nscrews;18\npaint;11\ntape;25\nhinges;19\ntape;8\ncable;8\ngloves;15\nbrackets;18\nnails;19\nscrews;14\npaint;5\nbrackets;11\nbrackets;13\nbolts;18\nbolts;10\nwashers;22\nhinges;1\ncable;13\nbolts;16\nbolts;6\ntape;2\ntape;1\nbolts;16\nbrackets;10\nnails;17\nbolts;11\nnails;18\nnails;10\ncable;14\ncable;19\nhinges;24\nbolts;1\nbolts;20\ngloves;22\nbolts;6\nbolts;12\ndrill bits;3\npaint;23\n"
+          }
+        ]
+      },
+      {
+        "stdin": "",
+        "expected_stdout": "tape 14\nwashers 20\n",
+        "files": [
+          {
+            "name": "stock.csv",
+            "content": "item,quantity,minimum\nbrackets,80,37\ntape,8,11\nwashers,12,16\n"
+          },
+          {
+            "name": "orders.txt",
+            "content": "\n"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "title": "Sum two numbers (C)",
+    "language": "c",
+    "prompt": "Read two integers on one line and print their sum.",
+    "reference_solution": "#include <stdio.h>\n\nint main(void) {\n    int a, b;\n    scanf(\"%d %d\", &a, &b);\n    printf(\"%d\\n\", a + b);\n    return 0;\n}\n",
+    "starter_code": null,
+    "output_file": null,
+    "duration_seconds": 600,
+    "test_cases": [
+      {
+        "stdin": "3 4\n",
+        "expected_stdout": "7",
+        "files": []
+      },
+      {
+        "stdin": "10 -2\n",
+        "expected_stdout": "8",
+        "files": []
+      },
+      {
+        "stdin": "-5 -6\n",
+        "expected_stdout": "-11",
+        "files": []
+      },
+      {
+        "stdin": "0 0\n",
+        "expected_stdout": "0",
+        "files": []
+      },
+      {
+        "stdin": "120 250\n",
+        "expected_stdout": "370",
+        "files": []
+      }
+    ]
+  },
+  {
+    "title": "Sum two numbers (Java)",
+    "language": "java",
+    "prompt": "Read two integers on one line and print their sum. Your class must be named Main.",
+    "reference_solution": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        int a = sc.nextInt();\n        int b = sc.nextInt();\n        System.out.println(a + b);\n    }\n}\n",
+    "starter_code": null,
+    "output_file": null,
+    "duration_seconds": 600,
+    "test_cases": [
+      {
+        "stdin": "3 4\n",
+        "expected_stdout": "7",
+        "files": []
+      },
+      {
+        "stdin": "10 -2\n",
+        "expected_stdout": "8",
+        "files": []
+      },
+      {
+        "stdin": "-5 -6\n",
+        "expected_stdout": "-11",
+        "files": []
+      },
+      {
+        "stdin": "0 0\n",
+        "expected_stdout": "0",
+        "files": []
+      },
+      {
+        "stdin": "120 250\n",
+        "expected_stdout": "370",
+        "files": []
+      }
+    ]
+  }
+]
