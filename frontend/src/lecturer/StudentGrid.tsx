@@ -7,7 +7,7 @@ import { SubmissionDetail } from "./ExampleBlock";
 import { ActivityDot } from "./ClassProgress";
 import { SCORE_LINE, TILE_HOVER, TILE_TONE, VERDICT_BORDER } from "../shared/verdictStyles";
 import { Drawer } from "../shared/Drawer";
-import { readShowNames, saveShowNames } from "./studentNames";
+import { readShowNames, saveShowNames, studentLabeler } from "./studentNames";
 import { Badge } from "../shared/ui";
 import type { Tone } from "../shared/ui";
 import { cx } from "../shared/cx";
@@ -55,15 +55,30 @@ export interface StudentGridProps {
   // Controlled names toggle -- the caller owns it and the header is hidden.
   showNames?: boolean;
   showCode?: ShowCodeControl;
+  // Controlled selection: the caller owns which student's code is open and
+  // renders the StudentDrawer itself. Needed when the grid can unmount under
+  // the lecturer (an outcome row empties as students submit) -- the open
+  // drawer must outlive it.
+  selected?: string | null;
+  onSelect?: (name: string) => void;
 }
 
-export function StudentGrid({ subs, activity, only, showNames: showNamesProp, showCode }: StudentGridProps) {
+export function StudentGrid({
+  subs,
+  activity,
+  only,
+  showNames: showNamesProp,
+  showCode,
+  selected: selectedProp,
+  onSelect,
+}: StudentGridProps) {
   const [ownShowNames, setShowNames] = useState(readShowNames);
   const showNames = showNamesProp ?? ownShowNames;
   const bare = showNamesProp !== undefined;
-  const [selected, setSelected] = useState<string | null>(null);
-  const [selectedAttempt, setSelectedAttempt] = useState<number | null>(null);
-  const close = useCallback(() => setSelected(null), []);
+  const [ownSelected, setOwnSelected] = useState<string | null>(null);
+  const controlled = onSelect !== undefined;
+  const selected = controlled ? (selectedProp ?? null) : ownSelected;
+  const close = useCallback(() => setOwnSelected(null), []);
 
   function toggleNames() {
     setShowNames((prev) => {
@@ -75,19 +90,14 @@ export function StudentGrid({ subs, activity, only, showNames: showNamesProp, sh
   // Alphabetical numbering, so a student's number (names hidden) only
   // changes when someone new joins, never when they move between groups.
   const tracks = buildTracks(subs, activity);
-  const number = new Map(tracks.map((t, i) => [t.name, String(i + 1).padStart(2, "0")]));
-  const label = (t: StudentTrack) => (showNames ? t.name : `#${number.get(t.name)}`);
+  const label = studentLabeler(tracks, showNames);
   const ordered = GROUP_ORDER.flatMap((g) => tracks.filter((t) => groupOf(t) === g)).filter(
     (t) => !only || only.has(t.name),
   );
-  const track = tracks.find((t) => t.name === selected) ?? null;
-  const shownSub = track
-    ? (track.attempts.find((s) => s.id === selectedAttempt) ?? track.attempts[track.attempts.length - 1] ?? null)
-    : null;
 
   function select(name: string) {
-    setSelected((prev) => (prev === name ? null : name));
-    setSelectedAttempt(null);
+    if (onSelect) onSelect(name);
+    else setOwnSelected((prev) => (prev === name ? null : name));
   }
 
   return (
@@ -160,69 +170,104 @@ export function StudentGrid({ subs, activity, only, showNames: showNamesProp, sh
         </ul>
       )}
 
-      <Drawer
-        open={track != null}
-        onClose={close}
-        title={track ? label(track) : ""}
-        meta={
-          track && (
-            <>
-              {track.best ? (
-                <Badge tone={VERDICT_TONE[verdictOf(track.best)]}>
-                  Best: {LABEL[verdictOf(track.best)]} · {track.best.tests_passed}/{track.best.tests_total}
-                </Badge>
-              ) : (
-                <Badge>No attempts yet</Badge>
-              )}
-              <span>
-                {track.attempts.length} attempt{track.attempts.length === 1 ? "" : "s"}
-              </span>
-              {activity && track.activity && !isSolved(track) && <span>{activityTitle(track.activity)}</span>}
-            </>
-          )
-        }
-        toolbar={
-          track &&
-          track.attempts.length > 1 && (
-            <div className="-mb-3 flex flex-wrap items-end gap-1" role="group" aria-label="Attempts">
-              <span className="mr-2 pb-2.5 text-xs text-zinc-500">Attempt</span>
-              {track.attempts.map((s) => {
-                const pressed = shownSub?.id === s.id;
-                return (
-                  <button
-                    type="button"
-                    key={s.id}
-                    aria-pressed={pressed}
-                    title={attemptTitle(s)}
-                    onClick={() => setSelectedAttempt(s.id)}
-                    className={cx(
-                      "min-w-9 border-b-2 px-2 pt-1 pb-2 font-mono text-sm transition-colors",
-                      "rounded-t-sm focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500",
-                      VERDICT_BORDER[verdictOf(s)],
-                      pressed ? "font-bold text-zinc-950 border-b-[3px]" : "text-zinc-400 opacity-60 hover:text-zinc-900 hover:opacity-100",
-                    )}
-                  >
-                    {s.attempt_number}
-                  </button>
-                );
-              })}
-            </div>
-          )
-        }
-      >
-        {shownSub ? (
-          <>
-            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-              <p className="min-w-0 flex-1 text-xs text-zinc-500">{attemptTitle(shownSub)}</p>
-              {showCode && <ShowCodeButton sub={shownSub} control={showCode} />}
-            </div>
-            <SubmissionDetail sub={shownSub} clamp={false} />
-          </>
-        ) : (
-          <p className="text-sm text-zinc-500">Nothing submitted yet.</p>
-        )}
-      </Drawer>
+      {!controlled && (
+        <StudentDrawer
+          key={selected ?? ""}
+          tracks={tracks}
+          selected={selected}
+          onClose={close}
+          label={label}
+          activity={activity}
+          showCode={showCode}
+        />
+      )}
     </section>
+  );
+}
+
+export interface StudentDrawerProps {
+  // Every student (not just one grid's), so the drawer keeps showing the
+  // student even after their new result moves them to another outcome.
+  tracks: StudentTrack[];
+  selected: string | null;
+  onClose: () => void;
+  label: (t: StudentTrack) => string;
+  activity: StudentActivity[] | null;
+  showCode?: ShowCodeControl;
+}
+
+// One student's attempts and full code. Key it by the selected student so the
+// chosen attempt resets when a different student is opened.
+export function StudentDrawer({ tracks, selected, onClose, label, activity, showCode }: StudentDrawerProps) {
+  const [selectedAttempt, setSelectedAttempt] = useState<number | null>(null);
+  const track = tracks.find((t) => t.name === selected) ?? null;
+  const shownSub = track
+    ? (track.attempts.find((s) => s.id === selectedAttempt) ?? track.attempts[track.attempts.length - 1] ?? null)
+    : null;
+
+  return (
+    <Drawer
+      open={track != null}
+      onClose={onClose}
+      title={track ? label(track) : ""}
+      meta={
+        track && (
+          <>
+            {track.best ? (
+              <Badge tone={VERDICT_TONE[verdictOf(track.best)]}>
+                Best: {LABEL[verdictOf(track.best)]} · {track.best.tests_passed}/{track.best.tests_total}
+              </Badge>
+            ) : (
+              <Badge>No attempts yet</Badge>
+            )}
+            <span>
+              {track.attempts.length} attempt{track.attempts.length === 1 ? "" : "s"}
+            </span>
+            {activity && track.activity && !isSolved(track) && <span>{activityTitle(track.activity)}</span>}
+          </>
+        )
+      }
+      toolbar={
+        track &&
+        track.attempts.length > 1 && (
+          <div className="-mb-3 flex flex-wrap items-end gap-1" role="group" aria-label="Attempts">
+            <span className="mr-2 pb-2.5 text-xs text-zinc-500">Attempt</span>
+            {track.attempts.map((s) => {
+              const pressed = shownSub?.id === s.id;
+              return (
+                <button
+                  type="button"
+                  key={s.id}
+                  aria-pressed={pressed}
+                  title={attemptTitle(s)}
+                  onClick={() => setSelectedAttempt(s.id)}
+                  className={cx(
+                    "min-w-9 border-b-2 px-2 pt-1 pb-2 font-mono text-sm transition-colors",
+                    "rounded-t-sm focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-500",
+                    VERDICT_BORDER[verdictOf(s)],
+                    pressed ? "font-bold text-zinc-950 border-b-[3px]" : "text-zinc-400 opacity-60 hover:text-zinc-900 hover:opacity-100",
+                  )}
+                >
+                  {s.attempt_number}
+                </button>
+              );
+            })}
+          </div>
+        )
+      }
+    >
+      {shownSub ? (
+        <>
+          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <p className="min-w-0 flex-1 text-xs text-zinc-500">{attemptTitle(shownSub)}</p>
+            {showCode && <ShowCodeButton sub={shownSub} control={showCode} />}
+          </div>
+          <SubmissionDetail sub={shownSub} clamp={false} />
+        </>
+      ) : (
+        <p className="text-sm text-zinc-500">Nothing submitted yet.</p>
+      )}
+    </Drawer>
   );
 }
 

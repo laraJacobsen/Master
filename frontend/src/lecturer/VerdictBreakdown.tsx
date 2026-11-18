@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { StudentActivity, SubmissionRow } from "../shared/types";
 import type { StudentTrack } from "./studentTracks";
-import { StudentGrid } from "./StudentGrid";
+import { StudentDrawer, StudentGrid } from "./StudentGrid";
+import { studentLabeler } from "./studentNames";
 import type { ShowCodeControl } from "./StudentGrid";
 import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_ORDER, categoryOf } from "../shared/categories";
 import type { Category } from "../shared/categories";
@@ -34,6 +35,12 @@ export function VerdictBreakdown({
   onToggleNames,
 }: VerdictBreakdownProps) {
   const [openRows, setOpenRows] = useState<Set<Row>>(new Set());
+  // Whose code is open in the drawer. Held here, not in each row's grid: a
+  // row unmounts when a submission empties it (e.g. the last "Not submitted
+  // yet" student submits), and the open drawer would close with it.
+  const [selected, setSelected] = useState<string | null>(null);
+  const closeDrawer = useCallback(() => setSelected(null), []);
+  const select = useCallback((name: string) => setSelected((prev) => (prev === name ? null : name)), []);
 
   const members = new Map<Row, Set<string>>();
   for (const t of tracks) {
@@ -131,6 +138,8 @@ export function VerdictBreakdown({
                       only={members.get(r)}
                       showNames={showNames}
                       showCode={showCode}
+                      selected={selected}
+                      onSelect={select}
                     />
                   </div>
                 )}
@@ -139,6 +148,16 @@ export function VerdictBreakdown({
           })}
         </ul>
       )}
+
+      <StudentDrawer
+        key={selected ?? ""}
+        tracks={tracks}
+        selected={selected}
+        onClose={closeDrawer}
+        label={studentLabeler(tracks, showNames)}
+        activity={activity}
+        showCode={showCode}
+      />
     </Card>
   );
 }
