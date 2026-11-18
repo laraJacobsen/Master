@@ -1171,6 +1171,16 @@ def _run_lecture_dashboard_checks(client):
     assert r.status_code == 200, r.text
     leftover_qid = r.json()["id"]
 
+    # "Next task" only moves the lecture on from its live task: from a finished
+    # task's page (here, an earlier one) it must not start the next draft.
+    from backend import store as store_mod
+    done_qid = next(q["id"] for q in client.get("/api/lecturer/questions").json()
+                    if q["status"] == "closed" and q.get("lecture_id") == seeded_lecture_id)
+    r = client.post("/api/lecturer/lecture/next", json={"current_question_id": done_qid})
+    assert r.status_code == 409, r.text
+    assert store_mod.get_question_row(leftover_qid)["status"] == "draft"
+    print("Next task from a finished task's page refused   OK")
+
     # Ending it generalizes straight to a lecture_id -- the home dashboard's
     # history-list link target, not just "whatever's most recent."
     r = client.post("/api/lecturer/lecture/finish", json={"current_question_id": None})
@@ -1178,6 +1188,13 @@ def _run_lecture_dashboard_checks(client):
     finished = r.json()
     assert finished == {"finished": True, "lecture_id": seeded_lecture_id}, finished
     print("POST /api/lecturer/lecture/finish returns lecture_id   OK")
+
+    # A past lecture's task page can't end (or advance) whatever lecture is active.
+    r = client.post("/api/lecturer/lecture/finish", json={"current_question_id": done_qid})
+    assert r.status_code == 409, r.text
+    r = client.post("/api/lecturer/lecture/next", json={"current_question_id": done_qid})
+    assert r.status_code == 409, r.text
+    print("Past lecture's task can't finish/advance the lecture   OK")
 
     r = client.get(f"/api/lecturer/lecture/summary?lecture_id={seeded_lecture_id}")
     assert r.status_code == 200, r.text

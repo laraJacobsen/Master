@@ -158,6 +158,10 @@ export default function App() {
   const [lectureLabel, setLectureLabel] = useState<string | null>(null);
   const [taskNumber, setTaskNumber] = useState<number | null>(null);
   const [taskCount, setTaskCount] = useState<number | null>(null);
+  // The active lecture and its live task, to tell whether this dashboard is
+  // on the live task. undefined = not known yet.
+  const [liveQuestionId, setLiveQuestionId] = useState<string | null | undefined>(undefined);
+  const [activeLectureId, setActiveLectureId] = useState<number | null>(null);
 
   // Powers the "Time remaining" banner and gates the Next task/Finish
   // lecture controls -- see api_lecture_next/finish in backend/main.py.
@@ -293,9 +297,12 @@ export default function App() {
           setLectureLabel(a.lecture?.display_label ?? null);
           setTaskNumber(a.task_number ?? null);
           setTaskCount(a.task_count ?? null);
+          setLiveQuestionId(a.live_question_id ?? null);
+          setActiveLectureId(a.lecture?.id ?? null);
         })
         .catch(() => {
-          // Not critical -- the card omits the code and keeps "Next task".
+          // Not critical -- the card omits the code; the lecture controls
+          // stay hidden until the live task is known.
         });
     };
 
@@ -736,6 +743,20 @@ export default function App() {
   }
 
   const lastTask = hasNextTask === false;
+  // Only the live task's dashboard drives the lecture (Next task, End task
+  // early, the screen queue). Any other task -- an earlier one, or one from a
+  // past lecture opened from its summary -- is results only: those controls
+  // act on whatever lecture is active now, not the one being looked at.
+  const isLiveTask = MOCK || (QUESTION_ID != null && liveQuestionId === QUESTION_ID);
+  const inActiveLecture = MOCK || (activeLectureId != null && question?.lecture_id === activeLectureId);
+  const pastLink =
+    isLiveTask || liveQuestionId === undefined
+      ? null
+      : inActiveLecture && liveQuestionId
+        ? { href: `lecturer.html?question_id=${encodeURIComponent(liveQuestionId)}`, label: "Go to the live task" }
+        : !inActiveLecture && question?.lecture_id != null
+          ? { href: `lecturer.html?lecture_id=${question.lecture_id}`, label: "Lecture summary" }
+          : null;
   const taskRunning = secondsRemaining != null && secondsRemaining > 0;
   // The class is looking at the screen queue: the timer ran out (or the task was closed).
   const timeUp = question != null && !taskRunning && (question.status !== "live" || secondsRemaining === 0);
@@ -773,12 +794,16 @@ export default function App() {
       {QUESTION_ID && !LECTURE_ID && !lectureFinished && (
         <LiveHero
           title={pageTitle}
-          lectureLabel={lectureLabel}
-          taskNumber={taskNumber}
-          taskCount={taskCount}
+          lectureLabel={isLiveTask ? lectureLabel : null}
+          taskNumber={isLiveTask ? taskNumber : null}
+          taskCount={isLiveTask ? taskCount : null}
           question={question}
           secondsRemaining={secondsRemaining}
-          joinCode={joinCode}
+          joinCode={isLiveTask ? joinCode : null}
+          controls={isLiveTask}
+          canEndLecture={isLiveTask || inActiveLecture}
+          pastTask={liveQuestionId !== undefined && !isLiveTask}
+          pastLink={pastLink}
           lastTask={lastTask}
           advancing={advancing}
           advanceMessage={advanceMessage}
@@ -867,7 +892,7 @@ export default function App() {
             id="live-content"
             className="mt-8 grid scroll-mt-32 items-start gap-5 lg:grid-cols-2"
           >
-            {screenQueue.length > 0 && (
+            {isLiveTask && screenQueue.length > 0 && (
               <div className="min-w-0 lg:col-span-2">
                 <ScreenQueuePanel
                   entries={screenQueue}
@@ -888,12 +913,16 @@ export default function App() {
               tracks={tracks}
               subs={subRows}
               activity={taskRunning ? activity : null}
-              showCode={{
-                shownIds: shownSubIds,
-                busyId: showingSubId,
-                taskRunning,
-                onToggle: toggleSubmissionShown,
-              }}
+              showCode={
+                isLiveTask
+                  ? {
+                      shownIds: shownSubIds,
+                      busyId: showingSubId,
+                      taskRunning,
+                      onToggle: toggleSubmissionShown,
+                    }
+                  : undefined
+              }
               showNames={showNames}
               onToggleNames={toggleNames}
             />
@@ -912,7 +941,7 @@ export default function App() {
                 }
                 loadError={issueLoadError}
                 raisingKey={raisingKey}
-                onToggleRaised={toggleRaised}
+                onToggleRaised={isLiveTask ? toggleRaised : null}
                 studentLabel={studentLabel}
                 namesShown={showNames}
               />

@@ -213,6 +213,7 @@ export function buildMock(ended = false) {
     duration_seconds: 600,
     idle_nudge_seconds: 180,
     started_at: ts(ended ? 11 : 4),
+    lecture_id: 1,
     output_file: null,
     starter_code: null,
     hint_ladder: null,

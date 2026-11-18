@@ -697,11 +697,18 @@ def api_lecturer_lecture_next(req: LectureAdvanceRequest):
     """Closes the dashboard's current question (if it's still live) and
     starts the next validated draft question, in creation order -- the
     "Next task" button. Returns {"started": null} when there's nothing left
-    to advance to, so the lecturer knows to use "Finish lecture" instead."""
+    to advance to, so the lecturer knows to use "Finish lecture" instead.
+
+    409s when the dashboard isn't on the live task (a past lecture's task,
+    or an earlier one in this lecture): "Next task" from there would start
+    the *active* lecture's next draft from a page about something else."""
     if req.current_question_id:
         current = store.get_question_row(req.current_question_id)
-        if current and current["status"] == "live":
-            store.close_question(req.current_question_id)
+        if not current:
+            raise HTTPException(status_code=404, detail="Not found")
+        if current["status"] != "live":
+            raise HTTPException(status_code=409, detail="This task has already finished, so it can't move the lecture on.")
+        store.close_question(req.current_question_id)
 
     next_question = store.next_draft_question()
     if not next_question:
@@ -720,13 +727,21 @@ def api_lecturer_lecture_finish(req: LectureAdvanceRequest):
     the active lecture -- the "Finish lecture"/"End session" button. Distinct
     from just running out of draft questions: the lecturer can end early
     even with drafts left unstarted. Returns the ended lecture's id so the
-    caller can link straight to its (now generalized) summary view."""
+    caller can link straight to its (now generalized) summary view.
+
+    409s when the dashboard's task belongs to a different lecture than the
+    active one -- ending the lecture from an old lecture's page would end
+    whatever lecture is running now."""
+    lecture = store.get_active_lecture()
     if req.current_question_id:
         current = store.get_question_row(req.current_question_id)
-        if current and current["status"] == "live":
+        if not current:
+            raise HTTPException(status_code=404, detail="Not found")
+        if not lecture or current.get("lecture_id") != lecture["id"]:
+            raise HTTPException(status_code=409, detail="This task is from a lecture that has already ended.")
+        if current["status"] == "live":
             store.close_question(req.current_question_id)
 
-    lecture = store.get_active_lecture()
     if lecture:
         store.end_lecture(lecture["id"])
     return {"finished": True, "lecture_id": lecture["id"] if lecture else None}

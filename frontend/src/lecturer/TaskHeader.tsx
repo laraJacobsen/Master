@@ -25,6 +25,14 @@ export interface LiveHeroProps {
   onEndTaskNow: () => void;
   // Opens the "end the whole lecture?" confirm.
   onEndLecture: () => void;
+  // This is the live task, so its buttons move the lecture on.
+  controls: boolean;
+  // The task belongs to the active lecture, so "End session..." ends the right one.
+  canEndLecture: boolean;
+  // Not the live task: an earlier one, or one from a past lecture.
+  pastTask: boolean;
+  // Where a past task's page points the lecturer instead.
+  pastLink: { href: string; label: string } | null;
   submitted: number;
   expected: number | null;
   tracks: StudentTrack[];
@@ -58,6 +66,10 @@ export function LiveHero(props: LiveHeroProps) {
     onNextTask,
     onEndTaskNow,
     onEndLecture,
+    controls,
+    canEndLecture,
+    pastTask,
+    pastLink,
     submitted,
     expected,
     tracks,
@@ -106,10 +118,11 @@ export function LiveHero(props: LiveHeroProps) {
     ...(taskItems.length ? ["separator" as const] : []),
     { label: "Projector view ↗", href: "present.html", newTab: true },
     { label: "Question setup", href: "setup.html" },
-    "separator",
     // Ends the whole lecture for everyone -- kept in here, not on the page,
     // so it isn't clicked by accident (and it still asks to confirm).
-    { label: "End session...", tone: "danger", disabled: advancing, onSelect: onEndLecture },
+    ...(canEndLecture
+      ? (["separator", { label: "End session...", tone: "danger", disabled: advancing, onSelect: onEndLecture }] as MenuEntry[])
+      : []),
   ];
   const menu = (
     <Menu
@@ -130,7 +143,7 @@ export function LiveHero(props: LiveHeroProps) {
   // lecture takes Next task's place (it still asks to confirm, same as the
   // menu's "End session...").
   const nextButton = (size: "md" | "lg") =>
-    running ? (
+    !controls ? null : running ? (
       <Button size={size} onClick={onEndTaskNow} disabled={advancing} className={ON_ACCENT_BUTTON}>
         End task early
       </Button>
@@ -184,7 +197,25 @@ export function LiveHero(props: LiveHeroProps) {
             onBand ? "pt-24 sm:pt-28" : "pt-10 sm:pt-14",
           )}
         >
-          {ended && (
+          {pastTask && (
+            <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-bold tracking-tight text-zinc-950">This task has finished</p>
+                <p className="text-[13px] text-zinc-500">
+                  You're looking at its results. The lecture is moved on from the live task, not from here.
+                </p>
+              </div>
+              {pastLink && (
+                <a
+                  href={pastLink.href}
+                  className="rounded-sm text-[13px] font-medium whitespace-nowrap text-zinc-900 underline decoration-brand-300 underline-offset-4 transition-colors hover:text-brand-700 hover:decoration-brand-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+                >
+                  {pastLink.label} &rarr;
+                </a>
+              )}
+            </div>
+          )}
+          {ended && controls && (
             <div className="mb-6 flex flex-wrap items-center gap-x-3.5 gap-y-2 rounded-xl border border-white/15 bg-white/10 px-4 py-3">
               <span className="grid size-8 place-items-center rounded-lg bg-white/15 text-white" aria-hidden="true">
                 <span className="size-2.5 rounded-[2px] bg-current" />

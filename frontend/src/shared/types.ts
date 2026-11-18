@@ -150,6 +150,8 @@ export interface QuestionRow {
   // Seconds without typing before the student gets an automatic nudge; 0 = off.
   idle_nudge_seconds: number;
   started_at: string | null;
+  // The lecture it ran in; null until it's started.
+  lecture_id: number | null;
   output_file: string | null;
   // null = the built-in default starter (shared/starterCode.ts).
   starter_code: string | null;
