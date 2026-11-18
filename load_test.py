@@ -75,11 +75,23 @@ submit_results = []  # (student, expected verdict, actual verdict or None)
 stop = threading.Event()
 
 
+# Each student's join token (POST /api/lecture/join) -- student calls send it
+# instead of a name, like the student page does.
+TOKENS = {}
+# The lecturer password, if the server has one (see backend/auth.py).
+LECTURER_HEADERS = {"X-Lecturer-Token": os.environ["LECTURER_PASSWORD"]} if os.environ.get("LECTURER_PASSWORD") else {}
+
+
+def as_student(name):
+    return {"X-Student-Token": TOKENS[name]}
+
+
 def call(name, method, path, **kwargs):
     """One timed request. Records latency on any response, a failure on a
     non-2xx or a transport error. Returns the parsed JSON or None."""
     t0 = time.monotonic()
     try:
+        kwargs["headers"] = {**LECTURER_HEADERS, **kwargs.get("headers", {})}
         r = requests.request(method, f"{BASE}{path}", timeout=180, **kwargs)
     except requests.RequestException as e:
         with _lock:
@@ -110,6 +122,7 @@ def start_backend(db_path):
 
 
 def api(method, path, **kwargs):
+    kwargs["headers"] = {**LECTURER_HEADERS, **kwargs.get("headers", {})}
     r = requests.request(method, f"{BASE}{path}", timeout=90, **kwargs)
     r.raise_for_status()
     return r.json()
@@ -153,7 +166,7 @@ def background_student(name, qid):
         call("status", "GET", "/api/lecture/status")
         if time.monotonic() >= next_beat:
             call("activity", "POST", "/api/lecture/activity",
-                 json={"student_name": name, "question_id": qid, "edited": True})
+                 json={"question_id": qid, "edited": True}, headers=as_student(name))
             next_beat += HEARTBEAT_S
         stop.wait(STATUS_POLL_S)
 
@@ -164,7 +177,7 @@ def student(name, qid, plan, first_submit_at):
         if i:
             time.sleep(random.uniform(3, 8))  # read the hint, fix, resubmit
         res = call("submit", "POST", "/api/submit",
-                   json={"student_name": name, "question_id": qid, "source_code": code})
+                   json={"question_id": qid, "source_code": code}, headers=as_student(name))
         with _lock:
             submit_results.append((name, expected, res["verdict"] if res else None))
 
@@ -240,7 +253,7 @@ def main():
         lecture, qid = setup_lecture(args.students)
         names = [f"Student{i:03d}" for i in range(1, args.students + 1)]
         for name in names:
-            api("POST", "/api/lecture/join", json={"code": lecture["join_code"], "student_name": name})
+            TOKENS[name] = api("POST", "/api/lecture/join", json={"code": lecture["join_code"], "student_name": name})["token"]
         print(f"Lecture #{lecture['id']}, question {qid!r}, {len(names)} students joined, mode={args.mode}")
         if args.watch:
             print(f"\n  Student page:  {BASE}/student.html   (join code {lecture['join_code']})")

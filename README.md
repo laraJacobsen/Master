@@ -22,6 +22,9 @@ a question can go live, and the "start" action that flips it live).
 
 ```
 backend/
+  auth.py              Lecturer login (LECTURER_PASSWORD): session cookie for the
+                        lecturer pages, X-Lecturer-Token header for scripts; checked
+                        for every /api/lecturer/* route by main.py's middleware
   judge0_client.py   Judge0 SYNC submission wrapper (reuses the pattern from
                       the earlier latency/scaling benchmark scripts); per-question
                       cpu_time_limit/memory_limit are passed through here and capped
@@ -150,9 +153,29 @@ cd frontend && npm install && npm run build && cd ..   # builds frontend/dist
 set -a; . ./.idun.env; set +a                    # loads IDUN_API_KEY (skip if you have no key)
 # export LLM_PROVIDER=ollama                     # or: local Ollama instead of IDUN
 export JUDGE0_BASE_URL=http://localhost:2358     # only if not the default
+export LECTURER_PASSWORD='...'                   # required once students can reach the server
 
 uvicorn backend.main:app --reload --port 8000
 ```
+
+With `LECTURER_PASSWORD` set, the lecturer pages (home, setup, live
+dashboard, history, projector) ask for it once and keep a 12-hour session
+cookie. Scripts that call the lecturer API send it as an `X-Lecturer-Token`
+header (the bundled scripts do this when the variable is set). Without it
+the lecturer side is open to anyone and the server logs a warning at
+startup: fine on your own machine, never with students on the network.
+
+For real use, also run without `--reload`, with a single worker (the label
+caches and the SQLite lock live in the process), behind HTTPS -- with
+`--proxy-headers` so the session cookie is marked Secure.
+
+Students don't log in: joining with the lecture code gives the browser a
+token for that lecture (kept in localStorage), and every student call sends
+it in an `X-Student-Token` header. The server takes the student's name from
+the token, so nobody can submit or read attempts under a classmate's name.
+A name is taken once per lecture (case-insensitively); the same browser
+rejoining gets its identity back, while a student on a *different* device
+has to join under a new name (e.g. with their last initial).
 
 (For frontend development with hot reload instead of a static build, run
 `npm run dev` in `frontend/` alongside the backend -- see `frontend/README.md`.)
@@ -324,12 +347,11 @@ Students fetch a file's content only when they open it.
   extras -- it doesn't stop a workaround like `__import__("os")`, and isn't
   meant to (this is a lecture-hall classroom tool, not a hostile sandbox
   boundary; Judge0 itself is the actual execution sandbox).
-- No auth -- anyone who can reach the URL can submit as any name, and anyone
-  who can reach `/setup.html` can author/start questions. The student page's
-  join code (see "Running it" above) is a Kahoot-style soft gate for casual
-  access, not real access control: `/api/submit` and every other endpoint
-  stay open regardless, and the code itself is a plain 6-digit number with
-  no rate limiting on guesses.
+- Access control is light (see "Running it"): one shared lecturer password,
+  and students identified by a per-lecture join token rather than an
+  account. The join code is a plain 6-digit number with no rate limiting
+  on guesses, so someone outside the class who guesses it can join under a
+  new name -- but can't act as anyone already in the lecture.
 - Lecturer page polls every 3 seconds rather than pushing updates (no
   websockets yet) -- fine for a lecture-sized class, revisit if this needs
   to feel more instant.

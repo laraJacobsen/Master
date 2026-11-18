@@ -24,6 +24,7 @@ Usage:
 """
 
 import argparse
+import os
 import random
 import sys
 import threading
@@ -119,8 +120,17 @@ def file_task(title, rng, duration=15 * 60):
 class Api:
     def __init__(self, base):
         self.base = base.rstrip("/")
+        # Each student's join token -- student calls send it (as_student) instead of a name.
+        self.tokens = {}
+        # The lecturer password, if the server has one (see backend/auth.py).
+        password = os.environ.get("LECTURER_PASSWORD")
+        self.headers = {"X-Lecturer-Token": password} if password else {}
+
+    def as_student(self, name):
+        return {"X-Student-Token": self.tokens[name]}
 
     def __call__(self, method, path, **kw):
+        kw["headers"] = {**self.headers, **kw.get("headers", {})}
         r = requests.request(method, self.base + path, timeout=120, **kw)
         if r.status_code != 200:
             raise RuntimeError(f"{method} {path} -> {r.status_code}: {r.text[:300]}")
@@ -174,7 +184,7 @@ def set_up(api, args, rng):
     code = api("GET", f'/api/lecturer/lectures/{lecture["id"]}')["join_code"]
     students = rng.sample(NAMES, args.students)
     for name in students:
-        api("POST", "/api/lecture/join", json={"code": code, "student_name": name})
+        api.tokens[name] = api("POST", "/api/lecture/join", json={"code": code, "student_name": name})["token"]
     print(f"Lobby open, {len(students)} students joined (code {code})")
     started = api("POST", "/api/lecturer/lecture/next", json={})["started"]
     print(f'Started task 1: {started["title"]}')
@@ -200,14 +210,14 @@ def work_on(api, task, qid, name, rng, spread, stop):
         if now - last_beat >= 10:
             last_beat = now
             try:
-                api("POST", "/api/lecture/activity", json={"student_name": name, "question_id": qid,
-                                                           "edited": bool(pending) and rng.random() < 0.8})
+                api("POST", "/api/lecture/activity", headers=api.as_student(name),
+                    json={"question_id": qid, "edited": bool(pending) and rng.random() < 0.8})
             except RuntimeError:
                 pass
         if pending and now >= pending[0][0]:
             _, code = pending.pop(0)
             try:
-                r = api("POST", "/api/submit", json={"student_name": name, "question_id": qid, "source_code": code})
+                r = api("POST", "/api/submit", headers=api.as_student(name), json={"question_id": qid, "source_code": code})
                 if r["verdict"] == "correct":
                     pending = []
             except RuntimeError as e:

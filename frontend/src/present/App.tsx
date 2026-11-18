@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import type { LectureStatus, LiveQuestion, RunResponse, SharedExample, TestCase } from "../shared/types";
-import { fetchActiveLecture, fetchLectureStatus, runCode, setScreenQueueCurrent } from "../shared/api";
+import { fetchActiveLecture, fetchLectureStatus, lecturerRunCode, setScreenQueueCurrent } from "../shared/api";
 import { Editor, monaco } from "../shared/monaco";
 import { BrandMark, Button, Eyebrow } from "../shared/ui";
 import { cx } from "../shared/cx";
@@ -543,8 +543,7 @@ function ExampleCard({ example, label, language, questionId, exampleTest }: Exam
     setRunError(null);
     try {
       setRun(
-        await runCode({
-          student_name: "Lecturer (projector)",
+        await lecturerRunCode({
           question_id: questionId,
           source_code: editor.getValue(),
           stdin: runTest?.stdin ?? "",

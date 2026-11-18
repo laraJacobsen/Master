@@ -206,6 +206,14 @@ def init_db():
             )
             """
         )
+        # The student's secret for this lecture, handed out on join (see
+        # join_student()): every student request carries it, and the server
+        # takes the student's name from it instead of trusting a typed name.
+        # NULL only on rows from before tokens existed -- the next join under
+        # that name claims the row.
+        if "token" not in {row["name"] for row in conn.execute("PRAGMA table_info(lecture_joins)")}:
+            conn.execute("ALTER TABLE lecture_joins ADD COLUMN token TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS lecture_joins_token ON lecture_joins (token)")
 
         # `student_activity`: one row per student per question, refreshed by
         # the student page's heartbeat (record_activity() below) -- backs the
@@ -722,20 +730,59 @@ def open_lobby(lecture_id: int) -> dict:
         return _serialize_lecture(dict(row)) if row else None
 
 
-def record_join(lecture_id: int, student_name: str) -> None:
-    """Records one distinct student joining the lobby -- the UNIQUE
-    (lecture_id, student_name) constraint on lecture_joins makes a
-    refresh/rejoin from the same student a no-op rather than double-counting
-    them in the lobby's live counter (joined_count() below)."""
+class NameTaken(ValueError):
+    """Another student in this lecture already joined under that name."""
+
+
+def join_student(lecture_id: int, student_name: str, token: str | None = None) -> dict:
+    """Records one student joining the lecture and returns their identity,
+    {"student_name", "token"}. The token is what every later student request
+    carries (see main.py's _student); the name is only for display.
+
+    One name per student per lecture, compared case-insensitively ("ola" and
+    "Ola" are the same student on the lecturer's dashboard): a name that's
+    already taken raises NameTaken -- unless `token` is that student's own
+    token, i.e. the same browser rejoining after a refresh or a closed tab,
+    which gets the same identity back (and the lobby counter doesn't grow).
+    A name from before tokens existed (token NULL) is claimed by whoever
+    joins under it next."""
     with _lock:
         conn = _connect()
-        conn.execute(
-            "INSERT INTO lecture_joins (lecture_id, student_name) VALUES (?, ?) "
-            "ON CONFLICT (lecture_id, student_name) DO NOTHING",
+        row = conn.execute(
+            "SELECT id, student_name, token FROM lecture_joins WHERE lecture_id = ? AND lower(student_name) = lower(?)",
             (lecture_id, student_name),
-        )
+        ).fetchone()
+        if row and row["token"] and not (token and secrets.compare_digest(row["token"], token)):
+            conn.close()
+            raise NameTaken(student_name)
+        if row and row["token"]:
+            conn.close()
+            return {"student_name": row["student_name"], "token": row["token"]}
+        new_token = secrets.token_urlsafe(24)
+        if row:
+            conn.execute("UPDATE lecture_joins SET token = ? WHERE id = ?", (new_token, row["id"]))
+            student_name = row["student_name"]
+        else:
+            conn.execute(
+                "INSERT INTO lecture_joins (lecture_id, student_name, token) VALUES (?, ?, ?)",
+                (lecture_id, student_name, new_token),
+            )
         conn.commit()
         conn.close()
+        return {"student_name": student_name, "token": new_token}
+
+
+def student_for_token(token: str):
+    """{"lecture_id", "student_name"} of the student holding this token, or None."""
+    if not token:
+        return None
+    with _lock:
+        conn = _connect()
+        row = conn.execute(
+            "SELECT lecture_id, student_name FROM lecture_joins WHERE token = ?", (token,)
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
 
 
 def joined_count(lecture_id: int) -> int:

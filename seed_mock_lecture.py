@@ -902,8 +902,10 @@ def main():
             rng = random.Random(SEED)
             lecture = ok(client.post("/api/lecturer/lectures", json={"label": LABEL}))
             ok(client.post(f"/api/lecturer/lectures/{lecture['id']}/open_lobby"))
+            tokens = {}  # each student's join token -- what their calls send
             for name in STUDENTS:
-                ok(client.post("/api/lecture/join", json={"code": lecture["join_code"], "student_name": name}))
+                joined = ok(client.post("/api/lecture/join", json={"code": lecture["join_code"], "student_name": name}))
+                tokens[name] = {"X-Student-Token": joined["token"]}
 
             qids = []
             for task in TASKS:
@@ -926,12 +928,12 @@ def main():
                 for name, codes in plan.items():
                     if codes or rng.random() < 0.5:  # silent students sometimes opened the editor
                         ok(client.post("/api/lecture/activity",
-                                       json={"student_name": name, "question_id": qid, "edited": True}))
+                                       json={"question_id": qid, "edited": True}, headers=tokens[name]))
                 auto = {c for b, k, c in task["wrong"] if k == "unfinished"}
 
                 def submit(name, code):
-                    ok(client.post("/api/submit", json={
-                        "student_name": name, "question_id": qid, "source_code": code}))
+                    ok(client.post("/api/submit", json={"question_id": qid, "source_code": code},
+                                   headers=tokens[name]))
 
                 for round_no in range(4):  # everyone's 1st attempt, then 2nd, ...
                     for name, codes in plan.items():

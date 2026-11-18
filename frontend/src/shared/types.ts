@@ -120,6 +120,10 @@ export interface SharedExample {
 export interface LectureJoinResponse {
   lecture_id: number;
   label: string;
+  // The name as the lecture knows it (a rejoin keeps the original spelling).
+  student_name: string;
+  // Sent with every student call from now on -- see setStudentToken in api.ts.
+  token: string;
 }
 
 // GET /api/lecturer/lectures/{id}/joined_count -- the lobby's live counter.

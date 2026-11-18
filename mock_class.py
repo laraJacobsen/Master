@@ -45,6 +45,7 @@ Options:
 
 import argparse
 import json
+import os
 import random
 import sys
 import threading
@@ -556,8 +557,17 @@ class ApiError(RuntimeError):
 class Api:
     def __init__(self, base):
         self.base = base.rstrip("/")
+        # Each student's join token -- student calls send it (as_student) instead of a name.
+        self.tokens = {}
+        # The lecturer password, if the server has one (see backend/auth.py).
+        password = os.environ.get("LECTURER_PASSWORD")
+        self.headers = {"X-Lecturer-Token": password} if password else {}
+
+    def as_student(self, name):
+        return {"X-Student-Token": self.tokens[name]}
 
     def __call__(self, method, path, **kw):
+        kw["headers"] = {**self.headers, **kw.get("headers", {})}
         r = requests.request(method, self.base + path, timeout=120, **kw)
         if r.status_code != 200:
             raise ApiError(method, path, r.status_code, r.text)
@@ -579,18 +589,21 @@ def student_works(api, qid, name, attempts, spread, rng, stop, results):
     start = time.monotonic()
     last_beat = -10.0
     while not stop.is_set():
+        if name not in api.tokens:  # still joining (join_students staggers the class)
+            stop.wait(1)
+            continue
         now = time.monotonic() - start
         if now - last_beat >= 10:
             last_beat = now
             try:
-                api("POST", "/api/lecture/activity", json={
-                    "student_name": name, "question_id": qid, "edited": bool(pending) and rng.random() < 0.8})
+                api("POST", "/api/lecture/activity", headers=api.as_student(name), json={
+                    "question_id": qid, "edited": bool(pending) and rng.random() < 0.8})
             except Exception:
                 pass
         if pending and now >= pending[0][0]:
             _, code = pending.pop(0)
             try:
-                r = api("POST", "/api/submit", json={"student_name": name, "question_id": qid, "source_code": code})
+                r = api("POST", "/api/submit", headers=api.as_student(name), json={"question_id": qid, "source_code": code})
                 detail = api("GET", f"/api/lecturer/submissions/{r['submission_id']}")
                 results.append((name, detail.get("exec_verdict") or r.get("verdict")))
             except ApiError as e:
@@ -608,7 +621,7 @@ def join_students(api, lecture, students, gap, rng):
     code = lecture["join_code"]
     for name in students:
         try:
-            api("POST", "/api/lecture/join", json={"code": code, "student_name": name})
+            api.tokens[name] = api("POST", "/api/lecture/join", json={"code": code, "student_name": name})["token"]
         except (ApiError, requests.RequestException) as e:
             log(f"  {name} couldn't join: {e}")
             return
@@ -648,6 +661,7 @@ def run(api, args, rng):
         if lecture and lecture_id != joined_lecture and lecture.get("lobby_opened_at"):
             if is_demo(lecture, args):
                 joined_lecture = lecture_id
+                api.tokens.clear()  # the last lecture's tokens don't work in this one
                 log(f'Lobby open for lecture #{lecture_id} (code {lecture["join_code"]}): students joining')
                 threading.Thread(target=join_students, daemon=True, args=(
                     api, lecture, students, args.join_gap, random.Random(rng.random()))).start()

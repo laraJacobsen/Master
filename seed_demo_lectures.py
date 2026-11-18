@@ -309,8 +309,10 @@ def main():
                 lecture = ok(client.post("/api/lecturer/lectures", json={"label": DEMO_PREFIX + spec["label"]}))
                 ok(client.post(f"/api/lecturer/lectures/{lecture['id']}/open_lobby"))
                 present = [s for s in STUDENTS if rng.random() > 0.08]  # a few absent each week
+                tokens = {}  # each student's join token -- what their submissions send
                 for name in present:
-                    ok(client.post("/api/lecture/join", json={"code": lecture["join_code"], "student_name": name}))
+                    joined = ok(client.post("/api/lecture/join", json={"code": lecture["join_code"], "student_name": name}))
+                    tokens[name] = {"X-Student-Token": joined["token"]}
 
                 question_ids = []
                 for key in spec["tasks"]:
@@ -335,8 +337,8 @@ def main():
                         if rng.random() < spec["skip_p"]:
                             continue
                         for code in attempts_for(rng, ex, spec["solve_p"]):
-                            ok(client.post("/api/submit", json={"student_name": name, "question_id": qid,
-                                                               "source_code": code}))
+                            ok(client.post("/api/submit", json={"question_id": qid, "source_code": code},
+                                           headers=tokens[name]))
                             n_subs += 1
                     ok(client.post(f"/api/lecturer/questions/{qid}/end_now"))
                 ok(client.post("/api/lecturer/lecture/finish", json={"current_question_id": current}))

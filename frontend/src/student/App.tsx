@@ -16,6 +16,7 @@ import {
   fetchStudentRecap,
   joinLecture as joinLectureApi,
   sendActivity,
+  setStudentToken,
   submitCode as submitCodeApi,
 } from "../shared/api";
 import { defaultStarterCode, isUntouched } from "../shared/starterCode";
@@ -112,11 +113,11 @@ const POLL_MS = 2000;
 // in backend/main.py), and the reply is where an idle nudge arrives.
 const HEARTBEAT_MS = 10000;
 
-// Kahoot-style entry gate (POST /api/lecture/join) -- a soft UX gate, not
-// real access control (/api/submit itself stays open either way, see the
-// "No auth" known simplification in README.md). Once entered, remembered
-// for the rest of this browser tab so a page refresh mid-lecture doesn't
-// force retyping it; a new tab (new lecture, most likely) asks again.
+// Kahoot-style entry gate (POST /api/lecture/join): the right code gets the
+// student a token, which every student call sends (setStudentToken) -- the
+// server takes the student's name from it. Once entered, remembered for the
+// rest of this browser tab so a page refresh mid-lecture doesn't force
+// retyping it; a new tab (new lecture, most likely) asks again.
 const JOIN_SESSION_KEY = "lecture_joined";
 // The name typed on the join screen -- carried forward so the later
 // answering screen's own name field is pre-filled instead of asking twice
@@ -129,9 +130,47 @@ const JOIN_NAME_KEY = "lecture_joined_name";
 // join screen).
 const JOIN_LECTURE_KEY = "lecture_joined_id";
 
+// This browser's join token, kept in localStorage (not the tab's
+// sessionStorage) so a closed-and-reopened tab can rejoin the same lecture
+// under the same name: the join sends it back, and the server only lets the
+// browser holding a name's token use that name again.
+const STUDENT_IDENTITY_KEY = "lecture_student_identity";
+
+interface StoredIdentity {
+  lectureId: number;
+  token: string;
+}
+
+function loadIdentity(): StoredIdentity | null {
+  try {
+    const raw = localStorage.getItem(STUDENT_IDENTITY_KEY);
+    const v = raw ? (JSON.parse(raw) as Partial<StoredIdentity>) : null;
+    return v && typeof v.lectureId === "number" && typeof v.token === "string"
+      ? { lectureId: v.lectureId, token: v.token }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveIdentity(identity: StoredIdentity): void {
+  try {
+    localStorage.setItem(STUDENT_IDENTITY_KEY, JSON.stringify(identity));
+  } catch {
+    // Best effort -- worst case a reopened tab has to join under a new name.
+  }
+}
+
+// The token for this tab's join, if both are still around -- set as the API
+// layer's student token before anything renders (see App's useState below).
+function tokenForThisSession(): string | null {
+  const identity = loadIdentity();
+  return identity && identity.lectureId === getJoinedLectureId() ? identity.token : null;
+}
+
 function hasJoinedThisSession(): boolean {
   try {
-    return sessionStorage.getItem(JOIN_SESSION_KEY) === "1";
+    return sessionStorage.getItem(JOIN_SESSION_KEY) === "1" && tokenForThisSession() !== null;
   } catch {
     return false;
   }
@@ -176,7 +215,11 @@ function markJoinedThisSession(studentName: string, lectureId: number): void {
 type Phase = "join" | "loading" | "answering" | "waiting" | "finished";
 
 export default function App() {
-  const [joined, setJoined] = useState(hasJoinedThisSession);
+  const [joined, setJoined] = useState(() => {
+    const restored = hasJoinedThisSession();
+    if (restored) setStudentToken(tokenForThisSession());
+    return restored;
+  });
   const [phase, setPhase] = useState<Phase>(() => (hasJoinedThisSession() ? "loading" : "join"));
   // Pre-filled with the name from this tab's last join, if any (e.g. coming
   // back via "Back to home" after a lecture ended).
@@ -291,13 +334,13 @@ export default function App() {
     setNudge(null);
   }
 
-  async function loadHistory(studentName: string, qId: string | null) {
-    if (!studentName || !qId) {
+  async function loadHistory(qId: string | null) {
+    if (!qId) {
       setHistory(null);
       return;
     }
     try {
-      const rows = await fetchMyAttempts(qId, studentName);
+      const rows = await fetchMyAttempts(qId);
       const mine = [...rows].sort((a, b) => a.attempt_number - b.attempt_number);
       setHistory(mine.length === 0 ? null : mine);
     } catch {
@@ -309,7 +352,7 @@ export default function App() {
   // both need the same status text, spinner, and result/error
   // handling, just triggered differently and with different validation
   // upstream of this call.
-  async function performSubmit(qId: string, trimmedName: string, trimmedCode: string) {
+  async function performSubmit(qId: string, trimmedCode: string) {
     setSubmitting(true);
     submittingRef.current = true;
     setStatusText("Running your tests...");
@@ -322,14 +365,13 @@ export default function App() {
 
     try {
       const data = await submitCodeApi({
-        student_name: trimmedName,
         question_id: qId,
         source_code: trimmedCode,
       });
       setResult(data);
       resultRef.current = data;
       window.requestAnimationFrame(() => hintRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
-      loadHistory(trimmedName, qId);
+      loadHistory(qId);
       // Solved it -- nothing left to do on this task, so off to the waiting
       // screen. A wrong answer stays on the editor with its hint so the
       // student can resubmit (that's what escalates the hint tier).
@@ -366,7 +408,7 @@ export default function App() {
     if (!trimmedName || isUntouched(trimmedCode, starterRef.current)) return; // render shows the neutral note
 
     setWasAutoSubmitted(true);
-    performSubmit(qId, trimmedName, trimmedCode);
+    performSubmit(qId, trimmedCode);
   }
 
   function applyStatus(status: LectureStatus) {
@@ -393,14 +435,11 @@ export default function App() {
       setPhase("finished");
       if (!recapFetchedRef.current) {
         recapFetchedRef.current = true;
-        const studentName = nameRef.current.trim();
-        if (studentName) {
-          fetchStudentRecap(studentName)
-            .then(setRecap)
-            .catch(() => {
-              // No recap to show -- the headline/closing message still stand on their own.
-            });
-        }
+        fetchStudentRecap()
+          .then(setRecap)
+          .catch(() => {
+            // No recap to show -- the headline/closing message still stand on their own.
+          });
       }
       return;
     }
@@ -461,7 +500,7 @@ export default function App() {
       setResult(null);
       resultRef.current = null;
       setErrorMessage(null);
-      loadHistory(nameRef.current.trim(), q.id);
+      loadHistory(q.id);
       setPhase(q.seconds_remaining > 0 ? "answering" : "waiting");
       return;
     }
@@ -499,11 +538,9 @@ export default function App() {
   useEffect(() => {
     if (phase !== "answering" || !questionId) return;
     const beat = () => {
-      const studentName = nameRef.current.trim();
-      if (!studentName) return;
       const edited = editedRef.current;
       editedRef.current = false;
-      sendActivity(studentName, questionId, edited)
+      sendActivity(questionId, edited)
         .then((r) => {
           if (r.nudge) setNudge(r.nudge);
         })
@@ -530,10 +567,13 @@ export default function App() {
     setJoining(true);
     setJoinError(null);
     try {
-      const joinedLecture = await joinLectureApi(code, trimmedName);
-      markJoinedThisSession(trimmedName, joinedLecture.lecture_id);
+      const joinedLecture = await joinLectureApi(code, trimmedName, loadIdentity()?.token ?? null);
+      saveIdentity({ lectureId: joinedLecture.lecture_id, token: joinedLecture.token });
+      setStudentToken(joinedLecture.token);
+      // The lecture's spelling of the name (a rejoin keeps the original one).
+      markJoinedThisSession(joinedLecture.student_name, joinedLecture.lecture_id);
       setJoinNotice(null);
-      updateName(trimmedName); // the name for the rest of this lecture (shown, not editable, while answering)
+      updateName(joinedLecture.student_name); // the name for the rest of this lecture (shown, not editable, while answering)
       setJoined(true);
       setPhase("loading");
     } catch (e) {
@@ -586,7 +626,7 @@ export default function App() {
       return;
     }
 
-    await performSubmit(questionId, trimmedName, trimmedCode);
+    await performSubmit(questionId, trimmedCode);
   }
 
   const joinedName = joined ? name.trim() : "";
@@ -1059,7 +1099,6 @@ export default function App() {
                 onOpenDataFilesChange={handleOpenDataFilesChange}
                 key={questionId}
                 questionId={questionId}
-                studentName={name.trim()}
                 language={language}
                 initialCode={initialCode}
                 draftKey={draftKey(questionId, name)}

@@ -12,6 +12,7 @@ afterward from the home dashboard if it's your real dev DB).
 Run: python3 simulate_lecture.py [base_url]   (default http://localhost:8000)
 """
 
+import os
 import sys
 
 import requests
@@ -19,10 +20,30 @@ import requests
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
 
 
+# The lecturer password, if the server has one (see backend/auth.py).
+LECTURER_HEADERS = {"X-Lecturer-Token": os.environ["LECTURER_PASSWORD"]} if os.environ.get("LECTURER_PASSWORD") else {}
+
+
 def api(method: str, path: str, **kwargs):
+    kwargs["headers"] = {**LECTURER_HEADERS, **kwargs.get("headers", {})}
     r = requests.request(method, f"{BASE}{path}", timeout=90, **kwargs)
     r.raise_for_status()
     return r.json()
+
+
+def join(lecture: dict, name: str) -> dict:
+    """Joins as `name` and returns the headers that student's calls send. A
+    reused lecture may already have the name from an earlier run (409): then
+    "Alice 2", "Alice 3", ..."""
+    for n in range(1, 20):
+        attempt = name if n == 1 else f"{name} {n}"
+        r = requests.post(
+            f"{BASE}/api/lecture/join", json={"code": lecture["join_code"], "student_name": attempt}, timeout=30
+        )
+        if r.status_code != 409:
+            r.raise_for_status()
+            return {"X-Student-Token": r.json()["token"]}
+    raise RuntimeError(f"Couldn't join as {name!r}: every variant of the name is taken")
 
 
 def main():
@@ -73,12 +94,14 @@ def main():
         ("Carol", "print(int(input()) + 2)"),  # wrong, shared bug
         ("Dave", "print(int(inpt()) * 2)"),  # NameError
     ]
+    students = {name: join(lecture, name) for name, _ in submissions}
     for name, code in submissions:
         print(f"Submitting as {name}...")
         res = api(
             "POST",
             "/api/submit",
-            json={"student_name": name, "question_id": q1["id"], "source_code": code},
+            json={"question_id": q1["id"], "source_code": code},
+            headers=students[name],
         )
         print(f"  -> {res['verdict']} ({res['tests_passed']}/{res['tests_total']})")
 
@@ -107,10 +130,10 @@ def main():
             "POST",
             "/api/submit",
             json={
-                "student_name": "Alice",
                 "question_id": started["id"],
                 "source_code": "a, b = map(int, input().split()); print(a + b)",
             },
+            headers=students["Alice"],
         )
         print("Submitted one correct answer for task 2")
 

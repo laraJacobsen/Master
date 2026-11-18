@@ -18,17 +18,18 @@ from the /root/prototype directory (see README.md).
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 
 import anyio
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from backend import store
+from backend import auth, store
 from backend.code_shape import with_shape
 from backend.aggregation import (
     carry_forward_discussion_points,
@@ -50,28 +51,95 @@ from backend.validation import pre_execution_check, reads_input, DEFAULT_LINE_LI
 
 app = FastAPI(title="Interactive Lecture Prototype")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# The pages are served by this app (and proxied by Vite in dev), so every call
+# is same-origin and needs no CORS. Other origins only if an operator lists
+# them (comma-separated) -- never "*", which let any website call the API.
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+# Reachable without being logged in: logging in, and asking whether you need to.
+_LECTURER_PUBLIC_PATHS = {"/api/lecturer/login", "/api/lecturer/logout", "/api/lecturer/session"}
+
+
+@app.middleware("http")
+async def lecturer_auth(request: Request, call_next):
+    """Every /api/lecturer/* route is the lecturer's only (see backend/auth.py):
+    it exposes students' code, reference solutions and hidden tests, and runs
+    the lecture. Checked here once, so a new lecturer route can't forget it."""
+    path = request.scope["path"]
+    if (
+        path.startswith("/api/lecturer/")
+        and path not in _LECTURER_PUBLIC_PATHS
+        and not auth.is_lecturer(request.cookies.get(auth.COOKIE_NAME), request.headers.get(auth.HEADER_NAME))
+    ):
+        return JSONResponse({"detail": "Log in as the lecturer first."}, status_code=401)
+    return await call_next(request)
 
 
 @app.on_event("startup")
 def startup():
     store.init_db()
+    if not auth.auth_required():
+        logging.getLogger("uvicorn.error").warning(
+            "LECTURER_PASSWORD is not set: the lecturer pages and API are open to anyone who can reach this "
+            "server. Fine for local development; set it before students can connect."
+        )
 
 
+class LecturerLoginRequest(BaseModel):
+    password: str
+
+
+@app.get("/api/lecturer/session")
+def api_lecturer_session(request: Request):
+    """What the lecturer pages check before showing anything: whether a login
+    is needed at all, and whether this browser has one."""
+    return {
+        "auth_required": auth.auth_required(),
+        "logged_in": auth.is_lecturer(request.cookies.get(auth.COOKIE_NAME), request.headers.get(auth.HEADER_NAME)),
+    }
+
+
+@app.post("/api/lecturer/login")
+async def api_lecturer_login(req: LecturerLoginRequest, request: Request, response: Response):
+    if not auth.auth_required():
+        return {"logged_in": True}
+    if not auth.password_matches(req.password):
+        await anyio.sleep(1)  # makes guessing slow, without holding a thread
+        raise HTTPException(status_code=401, detail="That password isn't right.")
+    response.set_cookie(
+        auth.COOKIE_NAME,
+        auth.new_session_cookie(),
+        max_age=auth.SESSION_SECONDS,
+        httponly=True,
+        samesite="strict",
+        # Behind an HTTPS proxy this needs uvicorn's --proxy-headers to see "https".
+        secure=request.url.scheme == "https",
+    )
+    return {"logged_in": True}
+
+
+@app.post("/api/lecturer/logout")
+def api_lecturer_logout(response: Response):
+    response.delete_cookie(auth.COOKIE_NAME)
+    return {"logged_in": False}
+
+
+# Student requests don't say who the student is: that comes from their join
+# token (the X-Student-Token header, see _student), never from a typed name.
 class SubmitRequest(BaseModel):
-    student_name: str
     question_id: str
     source_code: str
 
 
 class RunRequest(BaseModel):
     # "Run" on the student page: one ungraded run with stdin the student chose.
-    student_name: str
     question_id: str
     source_code: str
     stdin: str = ""
@@ -185,11 +253,13 @@ class ScreenQueueCurrentRequest(BaseModel):
 
 class LectureJoinRequest(BaseModel):
     code: str
-    student_name: str
+    student_name: str = Field(max_length=60)
+    # This browser's token from an earlier join of the same lecture, if any --
+    # lets a student rejoin under their own name (see store.join_student).
+    token: str | None = None
 
 
 class ActivityRequest(BaseModel):
-    student_name: str
     question_id: str
     # Whether the student typed anything since their previous heartbeat --
     # never the code itself.
@@ -764,15 +834,28 @@ def api_lecturer_lecture_summary(lecture_id: int | None = None):
     }
 
 
+def _student(x_student_token: str | None = Header(default=None)) -> dict:
+    """Who's asking, from the token their join handed out (see
+    api_lecture_join): {"lecture_id", "student_name"}. 401 without a valid one --
+    the student page sends the student back to the join screen."""
+    student = store.student_for_token(x_student_token) if x_student_token else None
+    if not student:
+        raise HTTPException(status_code=401, detail="You're not in this lecture. Join it again with the lecture code.")
+    return student
+
+
+def _check_student_question(student: dict, question: dict) -> None:
+    """A student's token only works for their own lecture's tasks."""
+    if question.get("lecture_id") != student["lecture_id"]:
+        raise HTTPException(status_code=403, detail="This task belongs to a different lecture.")
+
+
 @app.get("/api/lecture/recap")
-def api_lecture_recap(student_name: str):
+def api_lecture_recap(student: dict = Depends(_student)):
     """The STATE 2 student recap: this student's own attempted-vs-total and
-    per-task verdicts for the lecture that just ended. No class-wide
-    comparison -- see student_recap()'s docstring."""
-    lecture = store.current_lecture_row()
-    if not lecture:
-        return {"attempted": 0, "total": 0, "results": []}
-    return student_recap(lecture["id"], student_name)
+    per-task verdicts for the lecture they joined. No class-wide comparison --
+    see student_recap()'s docstring."""
+    return student_recap(student["lecture_id"], student["student_name"])
 
 
 def _seconds_remaining(question: dict) -> int:
@@ -878,13 +961,17 @@ def api_lecture_test_file(question_id: str, test_index: int, name: str):
 
 
 @app.get("/api/lecture/attempts")
-def api_lecture_attempts(question_id: str, student_name: str):
-    """One student's own attempts at a question, for the student page's
+def api_lecture_attempts(question_id: str, student: dict = Depends(_student)):
+    """The asking student's own attempts at a question, for the student page's
     "Your attempts" trail. Only what that trail shows: the student page used to
     read the lecturer's submissions feed for this, which handed every student
     every classmate's code and every hidden test's input, expected output and
     program output."""
-    name = student_name.strip()
+    question = store.get_question_row(question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail="Not found")
+    _check_student_question(student, question)
+    name = student["student_name"]
     return [
         {
             "id": row["id"],
@@ -903,17 +990,15 @@ def api_lecture_attempts(question_id: str, student_name: str):
 def api_lecture_join(req: LectureJoinRequest):
     """Kahoot-style entry gate for the student page (store.check_join_code's
     docstring) -- called once, before the student page starts polling
-    /api/lecture/status. This is a soft UX gate, not real access control:
-    /api/submit itself stays open, same as every other endpoint (see the
-    "No auth" known simplification in README.md) -- a wrong/missing code
-    here just means the student never sees the "enter the lecture" screen
-    clear, it doesn't block anything at the API level.
+    /api/lecture/status. The right code gets the student a token (see
+    store.join_student()) that every student request after this carries, so
+    submitting, running code and the heartbeat need the code too, and nobody
+    can act under a classmate's name. Also backs the lobby's live "N joined"
+    counter.
 
-    Also takes the student's name now (not just the code) and records the
-    join (store.record_join()) -- what backs the lobby's live "N joined"
-    counter. This is the same name the student would otherwise have typed
-    again on the answering screen a few minutes later; the student page
-    carries it forward instead of asking twice."""
+    A name already used in this lecture is refused (409), except for the
+    browser that holds its token -- a refresh or reopened tab rejoins as the
+    same student."""
     active = store.get_active_lecture()
     if not active:
         raise HTTPException(status_code=404, detail="No lecture is live right now.")
@@ -927,8 +1012,19 @@ def api_lecture_join(req: LectureJoinRequest):
     student_name = req.student_name.strip()
     if not student_name:
         raise HTTPException(status_code=400, detail="Enter your name.")
-    store.record_join(lecture["id"], student_name)
-    return {"lecture_id": lecture["id"], "label": lecture["display_label"]}
+    try:
+        identity = store.join_student(lecture["id"], student_name, req.token)
+    except store.NameTaken:
+        raise HTTPException(
+            status_code=409,
+            detail="Someone in this lecture already joined with that name. Add your last initial, e.g. \"Ola N.\".",
+        )
+    return {
+        "lecture_id": lecture["id"],
+        "label": lecture["display_label"],
+        "student_name": identity["student_name"],
+        "token": identity["token"],
+    }
 
 
 # The student page sends a heartbeat this often while a task is running (see
@@ -958,16 +1054,21 @@ def _seconds_since(sqlite_ts: str) -> float:
 
 
 @app.post("/api/lecture/activity")
-def api_lecture_activity(req: ActivityRequest):
+def api_lecture_activity(req: ActivityRequest, student: dict = Depends(_student)):
     """Heartbeat from the student editor while a task runs (see class-
     progress-visualization-decision.md). Records only whether the student
     typed since their last heartbeat, and answers with a nudge when they've
     been idle past the question's idle_nudge_seconds -- once per idle
     stretch (typing resets it), never after time's up, never once they've
     solved it."""
-    student_name = req.student_name.strip()
+    student_name = student["student_name"]
     question = store.get_question_row(req.question_id)
-    if not student_name or not question or question["status"] != "live" or _seconds_remaining(question) <= 0:
+    if (
+        not question
+        or question.get("lecture_id") != student["lecture_id"]
+        or question["status"] != "live"
+        or _seconds_remaining(question) <= 0
+    ):
         return {"nudge": None}
     row = store.record_activity(req.question_id, student_name, req.edited)
     threshold = question["idle_nudge_seconds"]
@@ -1018,23 +1119,24 @@ _submit_limiter = anyio.CapacityLimiter(MAX_CONCURRENT_SUBMITS)
 
 
 @app.post("/api/submit")
-async def api_submit(req: SubmitRequest):
-    return await anyio.to_thread.run_sync(_submit, req, limiter=_submit_limiter)
+async def api_submit(req: SubmitRequest, student: dict = Depends(_student)):
+    return await anyio.to_thread.run_sync(_submit, req, student, limiter=_submit_limiter)
 
 
-def _submit(req: SubmitRequest):
+def _submit(req: SubmitRequest, student: dict):
     question = get_question(req.question_id)
     if not question:
         raise HTTPException(status_code=404, detail=f"Unknown question_id: {req.question_id!r}")
     if question["status"] != "live":
         raise HTTPException(status_code=409, detail="This question isn't live (not started yet, or already closed).")
+    _check_student_question(student, question)
+    student_name = student["student_name"]
 
     # Submitting counts as working on it: reset the idle timer (and any nudge)
     # like typing does, so reading the feedback doesn't read as idle straight away.
-    # Name stripped the same way the heartbeat strips it, so it's the same row.
-    store.record_activity(req.question_id, req.student_name.strip(), edited=True)
+    store.record_activity(req.question_id, student_name, edited=True)
 
-    attempt_number = store.next_attempt_number(req.student_name, req.question_id)
+    attempt_number = store.next_attempt_number(student_name, req.question_id)
     tests_total = len(_graded(question["test_cases"]))
 
     rejection_reason = pre_execution_check(
@@ -1046,7 +1148,7 @@ def _submit(req: SubmitRequest):
         # real attempt, just tagged so it doesn't get mistaken for a graded one.
         sub_id = store.save_submission(
             {
-                "student_name": req.student_name,
+                "student_name": student_name,
                 "question_id": req.question_id,
                 "language": question["language"],
                 "source_code": req.source_code,
@@ -1139,7 +1241,7 @@ def _submit(req: SubmitRequest):
 
     sub_id = store.save_submission(
         {
-            "student_name": req.student_name,
+            "student_name": student_name,
             "question_id": req.question_id,
             "language": question["language"],
             "source_code": req.source_code,
@@ -1178,22 +1280,32 @@ MAX_RUN_STDIN_CHARS = 100_000
 
 
 @app.post("/api/run")
-async def api_run(req: RunRequest):
+async def api_run(req: RunRequest, student: dict = Depends(_student)):
     """The student page's Run button: runs the code once on the stdin the
     student typed, next to the example test's data files (which they can see
     anyway -- never a graded test's), and returns what it printed. Not graded,
     not stored, no AI feedback: it's for trying things before submitting, so
     the lecturer's dashboard and the attempt count only ever see real submits.
     Shares the submit limiter so a class hammering Run can't starve Judge0."""
-    return await anyio.to_thread.run_sync(_run, req, limiter=_submit_limiter)
+    return await anyio.to_thread.run_sync(_run, req, student, limiter=_submit_limiter)
 
 
-def _run(req: RunRequest):
+@app.post("/api/lecturer/run")
+async def api_lecturer_run(req: RunRequest):
+    """The projector's Run on a shown attempt: the same ungraded run as the
+    student page's, for the lecturer (no student token, any lecture's task)."""
+    return await anyio.to_thread.run_sync(_run, req, None, limiter=_submit_limiter)
+
+
+def _run(req: RunRequest, student: dict | None):
+    """student None: the lecturer's run (api_lecturer_run)."""
     question = get_question(req.question_id)
     if not question:
         raise HTTPException(status_code=404, detail=f"Unknown question_id: {req.question_id!r}")
     if question["status"] != "live":
         raise HTTPException(status_code=409, detail="This question isn't live (not started yet, or already closed).")
+    if student is not None:
+        _check_student_question(student, question)
     if len(req.stdin) > MAX_RUN_STDIN_CHARS:
         raise HTTPException(status_code=400, detail=f"The input is too long (max {MAX_RUN_STDIN_CHARS:,} characters).")
 

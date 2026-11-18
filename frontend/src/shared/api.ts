@@ -31,13 +31,53 @@ import type {
 
 const API_BASE = ""; // same origin as the page when served by the FastAPI backend
 
+// Fired when a lecturer call comes back 401 -- see LecturerGate.
+export const LECTURER_AUTH_EXPIRED_EVENT = "lecturer-auth-expired";
+
+// The student's join token (see POST /api/lecture/join): sent with every
+// student call, and it's how the server knows who the student is -- the
+// calls below never send a name. Set by the student page once joined.
+let studentToken: string | null = null;
+
+export function setStudentToken(token: string | null): void {
+  studentToken = token;
+}
+
+export interface LecturerSession {
+  auth_required: boolean;
+  logged_in: boolean;
+}
+
+export function fetchLecturerSession(): Promise<LecturerSession> {
+  return apiFetch(`${API_BASE}/api/lecturer/session`).then((res) => asJson(res));
+}
+
+export function lecturerLogin(password: string): Promise<{ logged_in: boolean }> {
+  return apiFetch(`${API_BASE}/api/lecturer/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  }).then((res) => asJson(res));
+}
+
 // fetch() only rejects when the server can't be reached at all (network down,
 // server stopped), with browser jargon like "Failed to fetch" -- shown as-is in
 // the pages' error lines, which is no use to a lecturer or student.
 function apiFetch(input: string, init?: RequestInit): Promise<Response> {
-  return fetch(input, init).catch(() => {
-    throw new Error("Couldn't reach the server. Check your connection and try again.");
-  });
+  const headers = new Headers(init?.headers);
+  if (studentToken && !input.includes("/api/lecturer/")) headers.set("X-Student-Token", studentToken);
+  return fetch(input, { ...init, headers })
+    .catch(() => {
+      throw new Error("Couldn't reach the server. Check your connection and try again.");
+    })
+    .then((res) => {
+      // The lecturer's session ran out (or was never there): LecturerGate shows
+      // the login dialog over the page, which stays as it was underneath.
+      if (res.status === 401 && input.includes("/api/lecturer/") && !input.endsWith("/api/lecturer/login")) {
+        window.dispatchEvent(new Event(LECTURER_AUTH_EXPIRED_EVENT));
+      }
+      return res;
+    });
 }
 
 async function asJson<T>(res: Response): Promise<T> {
@@ -109,7 +149,6 @@ export function deleteQuestion(questionId: string): Promise<{ deleted: boolean }
 }
 
 export function submitCode(payload: {
-  student_name: string;
   question_id: string;
   source_code: string;
 }): Promise<SubmitResponse> {
@@ -121,12 +160,20 @@ export function submitCode(payload: {
 }
 
 export function runCode(payload: {
-  student_name: string;
   question_id: string;
   source_code: string;
   stdin: string;
 }): Promise<RunResponse> {
   return apiFetch(`${API_BASE}/api/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then((res) => asJson(res));
+}
+
+// The projector's Run on a shown attempt -- same as runCode, as the lecturer.
+export function lecturerRunCode(payload: { question_id: string; source_code: string; stdin: string }): Promise<RunResponse> {
+  return apiFetch(`${API_BASE}/api/lecturer/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -139,8 +186,8 @@ export function fetchSubmissions(questionId?: string | null): Promise<Submission
 }
 
 // The student page's own attempts trail -- never the lecturer's submissions feed.
-export function fetchMyAttempts(questionId: string, studentName: string): Promise<StudentAttempt[]> {
-  const qs = `?question_id=${encodeURIComponent(questionId)}&student_name=${encodeURIComponent(studentName)}`;
+export function fetchMyAttempts(questionId: string): Promise<StudentAttempt[]> {
+  const qs = `?question_id=${encodeURIComponent(questionId)}`;
   return apiFetch(`${API_BASE}/api/lecture/attempts${qs}`).then((res) => asJson(res));
 }
 
@@ -196,21 +243,23 @@ export function fetchLectureStatus(): Promise<LectureStatus> {
   return apiFetch(`${API_BASE}/api/lecture/status`).then((res) => asJson(res));
 }
 
-export function joinLecture(code: string, studentName: string): Promise<LectureJoinResponse> {
+// `token`: this browser's token from an earlier join of the same lecture, so
+// rejoining keeps the student's name (anyone else gets "name taken").
+export function joinLecture(code: string, studentName: string, token: string | null): Promise<LectureJoinResponse> {
   return apiFetch(`${API_BASE}/api/lecture/join`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code, student_name: studentName }),
+    body: JSON.stringify({ code, student_name: studentName, token }),
   }).then((res) => asJson(res));
 }
 
 // Heartbeat from the student editor -- `edited` says whether they typed since
 // the previous one; the code itself is never sent here.
-export function sendActivity(studentName: string, questionId: string, edited: boolean): Promise<ActivityResponse> {
+export function sendActivity(questionId: string, edited: boolean): Promise<ActivityResponse> {
   return apiFetch(`${API_BASE}/api/lecture/activity`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ student_name: studentName, question_id: questionId, edited }),
+    body: JSON.stringify({ question_id: questionId, edited }),
   }).then((res) => asJson(res));
 }
 
@@ -296,8 +345,8 @@ export function fetchLectureSummary(lectureId?: number | null): Promise<LectureS
   return apiFetch(`${API_BASE}/api/lecturer/lecture/summary${qs}`).then((res) => asJson(res));
 }
 
-export function fetchStudentRecap(studentName: string): Promise<StudentRecap> {
-  return apiFetch(`${API_BASE}/api/lecture/recap?student_name=${encodeURIComponent(studentName)}`).then((res) =>
+export function fetchStudentRecap(): Promise<StudentRecap> {
+  return apiFetch(`${API_BASE}/api/lecture/recap`).then((res) =>
     asJson(res)
   );
 }

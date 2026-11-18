@@ -59,6 +59,9 @@ os.environ.setdefault("IDUN_API_KEY", "smoke-test-fake-key")
 # Pinned, so an LLM_PROVIDER=ollama left in the shell doesn't change what's tested;
 # the Ollama config is checked separately in _run_llm_provider_checks().
 os.environ["LLM_PROVIDER"] = "idun"
+# Lecturer auth off, whatever the shell has -- _run_lecturer_auth_checks turns
+# it on for its own checks only.
+os.environ.pop("LECTURER_PASSWORD", None)
 
 NAME_ERROR_MARKER = "num = inpt().split()"
 # Test-file programs (backend/test_files.py): fake_post sums numbers.txt from the
@@ -477,11 +480,100 @@ def main():
         # TestClient must be used as a context manager for startup events
         # (store.init_db()) to actually fire.
         with TestClient(app) as client:
+            _run_lecturer_auth_checks(client)
+            _issue_student_tokens(client)
             _run_checks(client)
             _run_test_file_checks(client)
             _run_output_file_checks(client)
 
     print("\nALL SMOKE TESTS PASSED")
+
+
+# Student calls that identify the student by their join token (X-Student-Token).
+_STUDENT_PATHS = ("/api/submit", "/api/run", "/api/lecture/activity", "/api/lecture/attempts", "/api/lecture/recap")
+
+
+def _issue_student_tokens(client):
+    """Lets the checks below keep saying who's submitting as "student_name":
+    a student call that has one is sent the way the student page sends it --
+    with that student's join token for the task's lecture, and no name. The
+    token comes from the student's real /api/lecture/join if the checks did
+    one, else from store.join_student() directly (what that endpoint calls).
+    The join rules themselves are checked in _run_lecture_dashboard_checks."""
+    from backend import store
+
+    tokens = {}  # (lecture_id, name) -> token
+    raw_post, raw_get = client.post, client.get
+
+    def token_for(name, question_id):
+        question = store.get_question_row(question_id) if question_id else None
+        lecture_id = (question or {}).get("lecture_id") or (store.current_lecture_row() or {}).get("id")
+        key = (lecture_id, name.strip())
+        if key not in tokens:
+            tokens[key] = store.join_student(lecture_id, name.strip())["token"]
+        return tokens[key]
+
+    def as_student(path, body, kwargs):
+        if path.startswith(_STUDENT_PATHS) and body and "student_name" in body:
+            body = dict(body)
+            name = body.pop("student_name")
+            kwargs["headers"] = {**kwargs.get("headers", {}), "X-Student-Token": token_for(name, body.get("question_id"))}
+        return body
+
+    def post(path, *args, json=None, **kwargs):
+        json = as_student(path, json, kwargs)
+        r = raw_post(path, *args, json=json, **kwargs)
+        if path == "/api/lecture/join" and r.status_code == 200:
+            tokens[(r.json()["lecture_id"], r.json()["student_name"])] = r.json()["token"]
+        return r
+
+    def get(path, *args, params=None, **kwargs):
+        return raw_get(path, *args, params=as_student(path, params, kwargs), **kwargs)
+
+    client.post, client.get = post, get
+    client.student_token = token_for
+
+
+def _run_lecturer_auth_checks(client):
+    """LECTURER_PASSWORD set: /api/lecturer/* needs the login cookie or the
+    X-Lecturer-Token header; student endpoints don't."""
+    from backend import auth
+
+    os.environ["LECTURER_PASSWORD"] = "correct horse"
+    try:
+        r = client.get("/api/lecturer/lectures/active")
+        assert r.status_code == 401, r.text
+        r = client.get("/api/lecturer/questions/sum-ints")  # has the reference solution
+        assert r.status_code == 401, r.text
+        assert client.get("/api/lecturer/session").json() == {"auth_required": True, "logged_in": False}
+        assert client.get("/api/lecture/status").status_code == 200
+
+        r = client.post("/api/lecturer/login", json={"password": "wrong"})
+        assert r.status_code == 401, r.text
+        r = client.post("/api/lecturer/login", json={"password": "correct horse"})
+        assert r.status_code == 200 and auth.COOKIE_NAME in r.cookies, r.text
+        assert client.get("/api/lecturer/lectures/active").status_code == 200
+        assert client.get("/api/lecturer/session").json()["logged_in"] is True
+        print("Lecturer login: 401 before, cookie session after   OK")
+
+        client.cookies.clear()
+        r = client.get("/api/lecturer/lectures/active", headers={auth.HEADER_NAME: "correct horse"})
+        assert r.status_code == 200, r.text
+        r = client.get("/api/lecturer/lectures/active", headers={auth.HEADER_NAME: "nope"})
+        assert r.status_code == 401, r.text
+        print("Lecturer token header for scripts   OK")
+
+        import time as time_mod
+        old = str(int(time_mod.time()) - auth.SESSION_SECONDS - 60)
+        for cookie in (f"{old}.{auth._sign(old, 'correct horse')}", "123.forged", "garbage"):
+            client.cookies.set(auth.COOKIE_NAME, cookie)
+            assert client.get("/api/lecturer/lectures/active").status_code == 401, cookie
+        client.cookies.clear()
+        print("Expired/forged lecturer cookies refused   OK")
+    finally:
+        os.environ.pop("LECTURER_PASSWORD", None)
+        client.cookies.clear()
+    assert client.get("/api/lecturer/lectures/active").status_code == 200  # auth off again
 
 
 def _run_checks(client):
@@ -1351,8 +1443,9 @@ def _run_lecture_dashboard_checks(client):
 
     # Kahoot-style join gate, now that the lobby's open: right code lets a
     # student in and is counted, wrong code doesn't, and it's
-    # case/whitespace-insensitive. A second join from the same name doesn't
-    # double-count (idempotent per store.record_join's docstring).
+    # case/whitespace-insensitive. A name can only be used once per lecture:
+    # rejoining needs that name's token (same browser), and doesn't
+    # double-count (see store.join_student's docstring).
     r = client.get(f"/api/lecturer/lectures/{new_lecture['id']}/joined_count")
     assert r.json() == {"joined": 0}, r.text
 
@@ -1360,10 +1453,18 @@ def _run_lecture_dashboard_checks(client):
         "/api/lecture/join", json={"code": f"  {new_lecture['join_code']}  ", "student_name": "Grace"}
     )
     assert r.status_code == 200 and r.json()["lecture_id"] == new_lecture["id"], r.text
+    grace_token = r.json()["token"]
+    assert grace_token and r.json()["student_name"] == "Grace", r.text
     r = client.post("/api/lecture/join", json={"code": "000000", "student_name": "Grace"})
     assert r.status_code == 403, r.text
-    r = client.post("/api/lecture/join", json={"code": new_lecture["join_code"], "student_name": "Grace"})
-    assert r.status_code == 200, r.text  # same student rejoining -- fine, not double-counted
+    r = client.post(
+        "/api/lecture/join", json={"code": new_lecture["join_code"], "student_name": "Grace", "token": grace_token}
+    )
+    assert r.status_code == 200 and r.json()["token"] == grace_token, r.text  # same browser rejoining
+    for name, token in (("Grace", None), ("grace ", None), ("Grace", "someone-elses-token")):
+        r = client.post("/api/lecture/join", json={"code": new_lecture["join_code"], "student_name": name, "token": token})
+        assert r.status_code == 409, (name, token, r.text)  # someone else taking Grace's name
+    print("Join name taken (any case) refused; rejoin with own token gets the same identity   OK")
     r = client.post("/api/lecture/join", json={"code": new_lecture["join_code"], "student_name": "Henry"})
     assert r.status_code == 200, r.text
 
@@ -1375,6 +1476,17 @@ def _run_lecture_dashboard_checks(client):
     assert r.status_code == 200, r.text
     assert r.json()["lecture_id"] == new_lecture["id"], r.json()
     print("Starting a question after the lobby opens   OK")
+
+    # Student calls need a valid token for this lecture -- a name alone does nothing.
+    body = {"question_id": qid, "source_code": "print(1)"}
+    assert client.post("/api/submit", json=body).status_code == 401
+    assert client.post("/api/submit", json=body, headers={"X-Student-Token": "made-up"}).status_code == 401
+    other_lecture_token = client.student_token("Zoe", "sum-ints")  # joined the seeded lecture
+    r = client.post("/api/submit", json=body, headers={"X-Student-Token": other_lecture_token})
+    assert r.status_code == 403, r.text
+    r = client.get("/api/lecture/attempts", params={"question_id": qid}, headers={"X-Student-Token": other_lecture_token})
+    assert r.status_code == 403, r.text
+    print("Student calls without a token, or with another lecture's, refused   OK")
 
     _run_activity_checks(client, qid)
 

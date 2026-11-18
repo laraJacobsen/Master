@@ -1,4 +1,4 @@
-import { mountApp } from "../shared/bootstrap";
+import { mountLecturerApp } from "../shared/bootstrap";
 import App from "./App";
 
-mountApp(App);
+mountLecturerApp(App);

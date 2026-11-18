@@ -304,7 +304,6 @@ function TerminalEntryView({ entry, language, onOpenOutput }: TerminalEntryViewP
 
 export interface WorkspaceProps {
   questionId: string;
-  studentName: string;
   language: string;
   initialCode: string;
   /** Pre-fills the Run input. */
@@ -335,7 +334,6 @@ export interface WorkspaceHandle {
 
 export function Workspace({
   questionId,
-  studentName,
   language,
   initialCode,
   exampleStdin,
@@ -531,7 +529,7 @@ export function Workspace({
     const patch = (p: Partial<Extract<TermEntry, { kind: "run" }>>) =>
       setEntries((e) => e.map((x) => (x.id === entryId && x.kind === "run" ? { ...x, ...p } : x)));
     try {
-      const res = await runCode({ student_name: studentName, question_id: questionId, source_code: codeRef.current, stdin });
+      const res = await runCode({ question_id: questionId, source_code: codeRef.current, stdin });
       let check: ExampleCheck | null = null;
       if (res.rejected === null) {
         if (res.output_file) setLastOutput(res.output_file_content ?? "");
