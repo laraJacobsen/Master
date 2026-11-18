@@ -253,6 +253,24 @@ def init_db():
         existing_raised_columns = {row["name"] for row in conn.execute("PRAGMA table_info(raised_issues)")}
         if "single" not in existing_raised_columns:
             conn.execute("ALTER TABLE raised_issues ADD COLUMN single INTEGER NOT NULL DEFAULT 0")
+        # `position`: the row's place in the question's screen queue -- the
+        # lecturer queues several things while the task runs, reorders them,
+        # and steps through them one at a time once it's over. Rows from before
+        # the queue keep the order they were raised in.
+        if "position" not in existing_raised_columns:
+            conn.execute("ALTER TABLE raised_issues ADD COLUMN position INTEGER")
+            conn.execute("UPDATE raised_issues SET position = id")
+        # Which queue entry is on the projector and students' screens right now,
+        # per question. No row (or one pointing at a removed entry) means the
+        # first in the queue -- see current_queue_entry_id().
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS screen_queue_state (
+                question_id TEXT PRIMARY KEY,
+                current_entry_id INTEGER
+            )
+            """
+        )
 
         existing_q_columns = {row["name"] for row in conn.execute("PRAGMA table_info(questions)")}
         if "lecture_seq" in existing_q_columns:
@@ -1119,36 +1137,162 @@ def has_solved(question_id: str, student_name: str) -> bool:
 
 def raised_issue_rows(question_id: str) -> list:
     """The question's raised discussion points (see aggregation.raise_issue()),
-    in the order raised, each with `students` as a frozenset of names. Single
+    in queue order, each with `students` as a frozenset of names. Single
     submissions shown on their own (set_submission_shown()) are left out --
     they don't raise a discussion point."""
+    return [r for r in queue_rows(question_id) if not r["single"]]
+
+
+def queue_rows(question_id: str) -> list:
+    """Everything queued for the class's screens on this question -- raised
+    discussion points and single submissions alike -- in queue order, each with
+    `students` as a frozenset of names."""
     with _lock:
         conn = _connect()
-        rows = [
-            {**dict(r), "students": frozenset(json.loads(r["students"]))}
-            for r in conn.execute(
-                "SELECT * FROM raised_issues WHERE question_id = ? AND single = 0 ORDER BY id", (question_id,)
-            )
-        ]
+        rows = _queue_rows(conn, question_id)
         conn.close()
         return rows
 
 
-def add_raised_issue(question_id: str, exec_verdict: str, error_type, students: set, submission_id: int) -> None:
-    """Replaces whatever the class was being shown for this question: only one
-    attempt is up at a time (requested 2026-11-17 -- two at once each got half
-    the projector and came out too small to read)."""
+def _queue_rows(conn, question_id: str) -> list:
+    return [
+        {**dict(r), "students": frozenset(json.loads(r["students"]))}
+        for r in conn.execute(
+            "SELECT * FROM raised_issues WHERE question_id = ? ORDER BY position, id", (question_id,)
+        )
+    ]
+
+
+def get_queue_entry(entry_id: int):
+    with _lock:
+        conn = _connect()
+        row = conn.execute("SELECT * FROM raised_issues WHERE id = ?", (entry_id,)).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+
+def _append_queue_entry(conn, question_id: str, exec_verdict: str, error_type, students_json: str, submission_id: int, single: int) -> int:
+    next_position = conn.execute(
+        "SELECT COALESCE(MAX(position), 0) + 1 FROM raised_issues WHERE question_id = ?", (question_id,)
+    ).fetchone()[0]
+    cur = conn.execute(
+        "INSERT INTO raised_issues (question_id, exec_verdict, error_type, students, submission_id, single, position) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (question_id, exec_verdict, error_type, students_json, submission_id, single, next_position),
+    )
+    return cur.lastrowid
+
+
+def _delete_queue_entries(conn, ids) -> None:
+    """Deletes queue entries, moving any question's on-screen pointer that
+    pointed at one of them to the entry after it (or, at the end of the queue,
+    the one before) -- so taking down what's on screen shows the next thing
+    instead of jumping back to the start."""
+    ids = set(ids)
+    if not ids:
+        return
+    question_ids = {
+        r["question_id"]
+        for r in conn.execute(
+            f"SELECT question_id FROM raised_issues WHERE id IN ({','.join('?' * len(ids))})", tuple(ids)
+        )
+    }
+    for question_id in question_ids:
+        order = [r["id"] for r in _queue_rows(conn, question_id)]
+        current = _current_entry_id(conn, question_id, order)
+        if current in ids:
+            i = order.index(current)
+            after = [e for e in order[i + 1 :] if e not in ids]
+            before = [e for e in order[:i] if e not in ids]
+            _set_current(conn, question_id, after[0] if after else (before[-1] if before else None))
+    conn.executemany("DELETE FROM raised_issues WHERE id = ?", [(i,) for i in ids])
+
+
+def _current_entry_id(conn, question_id: str, order: list):
+    row = conn.execute(
+        "SELECT current_entry_id FROM screen_queue_state WHERE question_id = ?", (question_id,)
+    ).fetchone()
+    stored = row["current_entry_id"] if row else None
+    if stored in order:
+        return stored
+    return order[0] if order else None
+
+
+def _set_current(conn, question_id: str, entry_id) -> None:
+    conn.execute(
+        "INSERT INTO screen_queue_state (question_id, current_entry_id) VALUES (?, ?) "
+        "ON CONFLICT(question_id) DO UPDATE SET current_entry_id = excluded.current_entry_id",
+        (question_id, entry_id),
+    )
+
+
+def current_queue_entry_id(question_id: str):
+    """The queue entry on screen for this question (the first one unless the
+    lecturer has moved on), or None if nothing is queued."""
+    with _lock:
+        conn = _connect()
+        order = [r["id"] for r in _queue_rows(conn, question_id)]
+        current = _current_entry_id(conn, question_id, order)
+        conn.close()
+        return current
+
+
+def set_current_queue_entry(question_id: str, entry_id: int) -> None:
+    with _lock:
+        conn = _connect()
+        _set_current(conn, question_id, entry_id)
+        conn.commit()
+        conn.close()
+
+
+def step_current_queue_entry(question_id: str, step: int) -> None:
+    """Moves what's on screen `step` places along the queue, stopping at either end."""
+    with _lock:
+        conn = _connect()
+        order = [r["id"] for r in _queue_rows(conn, question_id)]
+        current = _current_entry_id(conn, question_id, order)
+        if current is not None:
+            i = max(0, min(len(order) - 1, order.index(current) + step))
+            _set_current(conn, question_id, order[i])
+            conn.commit()
+        conn.close()
+
+
+def move_queue_entry(entry_id: int, index: int) -> None:
+    """Moves one entry to `index` (0-based, clamped) in its question's queue."""
+    with _lock:
+        conn = _connect()
+        row = conn.execute("SELECT question_id FROM raised_issues WHERE id = ?", (entry_id,)).fetchone()
+        if row:
+            order = [r["id"] for r in _queue_rows(conn, row["question_id"]) if r["id"] != entry_id]
+            order.insert(max(0, min(len(order), index)), entry_id)
+            conn.executemany(
+                "UPDATE raised_issues SET position = ? WHERE id = ?", [(i + 1, e) for i, e in enumerate(order)]
+            )
+            conn.commit()
+        conn.close()
+
+
+def delete_queue_entry(entry_id: int) -> None:
+    with _lock:
+        conn = _connect()
+        _delete_queue_entries(conn, [entry_id])
+        conn.commit()
+        conn.close()
+
+
+def add_raised_issue(question_id: str, exec_verdict: str, error_type, students: set, submission_id: int) -> int:
+    """Adds a raised discussion point to the end of the question's screen
+    queue and returns its entry id. Only one entry is on screen at a time
+    (requested 2026-11-17 -- two at once each got half the projector and came
+    out too small to read); the lecturer steps through the rest."""
     students_json = json.dumps(sorted(students))
     with _lock:
         conn = _connect()
-        conn.execute("DELETE FROM raised_issues WHERE question_id = ?", (question_id,))
-        conn.execute(
-            "INSERT INTO raised_issues (question_id, exec_verdict, error_type, students, submission_id) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (question_id, exec_verdict, error_type, students_json, submission_id),
-        )
+        entry_id = _append_queue_entry(conn, question_id, exec_verdict, error_type, students_json, submission_id, 0)
         conn.commit()
         conn.close()
+        return entry_id
 
 
 def delete_raised_issues(ids: list) -> None:
@@ -1156,52 +1300,47 @@ def delete_raised_issues(ids: list) -> None:
         return
     with _lock:
         conn = _connect()
-        conn.executemany("DELETE FROM raised_issues WHERE id = ?", [(i,) for i in ids])
+        _delete_queue_entries(conn, ids)
         conn.commit()
         conn.close()
 
 
 def shown_submission_ids(question_id: str, single_only: bool = False) -> list:
-    """Every submission the class is being shown for this question, in the
-    order shown -- raised discussion points' examples and single submissions
+    """Every submission queued for the class's screens on this question, in
+    queue order -- raised discussion points' examples and single submissions
     alike (or only the latter). May repeat an id if both picked the same one."""
+    return [r["submission_id"] for r in queue_rows(question_id) if r["single"] or not single_only]
+
+
+def set_submission_shown(submission: dict, shown: bool):
+    """Queues (or takes out of the queue) one student's submission for the
+    class's screens -- the live dashboard's "Show on screen" in a student's
+    code drawer. Any verdict, so the lecturer can put up a correct solution
+    too. Returns the entry id when queueing (the existing one if it was
+    already queued), else None."""
     with _lock:
         conn = _connect()
-        ids = [
-            r["submission_id"]
+        existing = [
+            r["id"]
             for r in conn.execute(
-                "SELECT submission_id FROM raised_issues WHERE question_id = ? "
-                + ("AND single = 1 " if single_only else "")
-                + "ORDER BY id",
-                (question_id,),
+                "SELECT id FROM raised_issues WHERE single = 1 AND submission_id = ?", (submission["id"],)
             )
         ]
-        conn.close()
-        return ids
-
-
-def set_submission_shown(submission: dict, shown: bool) -> None:
-    """Shows (or stops showing) one student's submission to the class -- the
-    live dashboard's "Show on screen" in a student's code drawer. Any verdict,
-    so the lecturer can put up a correct solution too. Showing replaces
-    whatever was up for the question (one at a time, see add_raised_issue())."""
-    with _lock:
-        conn = _connect()
-        if shown:
-            conn.execute("DELETE FROM raised_issues WHERE question_id = ?", (submission["question_id"],))
-        else:
-            conn.execute("DELETE FROM raised_issues WHERE single = 1 AND submission_id = ?", (submission["id"],))
-        if shown:
-            conn.execute(
-                "INSERT INTO raised_issues (question_id, exec_verdict, error_type, students, submission_id, single) "
-                "VALUES (?, ?, ?, ?, ?, 1)",
-                (
-                    submission["question_id"],
-                    submission.get("exec_verdict") or "",
-                    submission.get("error_type"),
-                    json.dumps([submission["student_name"]]),
-                    submission["id"],
-                ),
+        entry_id = None
+        if shown and existing:
+            entry_id = existing[0]
+        elif shown:
+            entry_id = _append_queue_entry(
+                conn,
+                submission["question_id"],
+                submission.get("exec_verdict") or "",
+                submission.get("error_type"),
+                json.dumps([submission["student_name"]]),
+                submission["id"],
+                1,
             )
+        elif existing:
+            _delete_queue_entries(conn, existing)
         conn.commit()
         conn.close()
+        return entry_id

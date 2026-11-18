@@ -290,11 +290,11 @@ function ShowCodeButton({ sub, control }: ShowCodeButtonProps) {
       title={
         taskRunning
           ? shown
-            ? "Take this attempt out of the queue"
-            : "Queue this attempt instead of anything queued: it goes on the projector and students' screens, without the name, when the task ends"
+            ? "Take this attempt out of the screen queue"
+            : "Add this attempt to the screen queue: it goes on the projector and students' screens, without the name, one at a time when the task ends"
           : shown
-            ? "Stop showing this attempt on the projector and students' screens"
-            : "Show this attempt on the projector and students' screens now, without the name, replacing what's there"
+            ? "Take this attempt out of the screen queue (and off the screens if it's showing)"
+            : "Add this attempt to the screen queue and show it on the projector and students' screens now, without the name"
       }
       className={cx(
         "inline-flex h-8 flex-none items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
@@ -311,7 +311,7 @@ function ShowCodeButton({ sub, control }: ShowCodeButtonProps) {
           <svg className="size-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M2.5 6.2l2.3 2.3L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          {taskRunning ? "Queued" : "Showing"}
+          Queued
         </>
       ) : taskRunning ? (
         "Add to queue"

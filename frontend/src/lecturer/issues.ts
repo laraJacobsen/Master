@@ -1,6 +1,6 @@
 import type { ClusterRow } from "../shared/types";
 
-export function issueTag(c: ClusterRow): string {
+export function issueTag(c: Pick<ClusterRow, "exec_verdict" | "error_type">): string {
   if (c.exec_verdict === "rejected") return "Rejected";
   if (c.exec_verdict === "pass") return "Passing";
   const verdict = (c.exec_verdict || "unknown").replace(/_/g, " ");

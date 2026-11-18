@@ -1,14 +1,15 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import type { LectureStatus, LiveQuestion, RunResponse, SharedExample } from "../shared/types";
-import { fetchActiveLecture, fetchLectureStatus, runCode } from "../shared/api";
+import { fetchActiveLecture, fetchLectureStatus, runCode, setScreenQueueCurrent } from "../shared/api";
 import { Editor, monaco } from "../shared/monaco";
 import { BrandMark, Button, Eyebrow } from "../shared/ui";
 import { cx } from "../shared/cx";
 
 // The lecturer's projector screen: whatever task is live, a big countdown,
-// and -- once time is up -- the attempts the lecturer picked with "Show on
-// full screen" on the live dashboard. It follows the lecture on its own (the
+// and -- once time is up -- the attempts the lecturer queued on the live
+// dashboard, one at a time, with Previous/Next to step through the queue
+// (here or on the dashboard). It follows the lecture on its own (the
 // same /api/lecture/status poll the student page uses, so it shows exactly
 // what students are allowed to see, when they're allowed to see it); the
 // lecturer drives everything from lecturer.html in another window.
@@ -31,6 +32,7 @@ export default function App() {
   const [endMs, setEndMs] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
+  const pollRef = useRef<() => void>(() => {});
   useEffect(() => {
     const poll = () => {
       fetchLectureStatus()
@@ -54,6 +56,7 @@ export default function App() {
           // The status poll above already reports an unreachable server.
         });
     };
+    pollRef.current = poll;
     poll();
     const t = window.setInterval(poll, POLL_MS);
     return () => window.clearInterval(t);
@@ -68,19 +71,38 @@ export default function App() {
   const secondsRemaining = endMs != null ? Math.max(0, Math.ceil((endMs - now) / 1000)) : null;
   const timeUp = secondsRemaining === 0;
   const examples = status?.shown_examples ?? [];
+  const position = status?.shown_position ?? null;
 
   // Time's up and something to go over: the screen is the shown code alone.
   const compact = timeUp && examples.length > 0;
+
+  // Previous/Next through the lecturer's screen queue. The server keeps which
+  // entry is up, so students' screens and the dashboard follow along.
+  const [stepping, setStepping] = useState(false);
+  const [stepError, setStepError] = useState<string | null>(null);
+  const canPrev = compact && !stepping && position != null && position.index > 0;
+  const canNext = compact && !stepping && position != null && position.index < position.total - 1;
+  const step = (by: number) => {
+    if (!question) return;
+    setStepping(true);
+    setStepError(null);
+    setScreenQueueCurrent(question.id, { step: by })
+      .then(() => pollRef.current())
+      .catch((e: Error) => setStepError(e.message))
+      .finally(() => setStepping(false));
+  };
+  const stepRef = useRef({ step, canPrev, canNext });
+  stepRef.current = { step, canPrev, canNext };
   // Which task "Show task" was opened for, so a popup left open doesn't come
   // back by itself when the next task's examples go up.
   const [taskOpenFor, setTaskOpenFor] = useState<string | null>(null);
 
-  // Everything on the projector has to be readable from the back of the room
-  // without anyone scrolling: the page is locked to the viewport and the
-  // whole thing (text and code) shrinks until it fits. Re-fit from full size
-  // whenever what's on screen changes. Once examples are up, the task itself
-  // leaves the screen (it's behind "Show task") so the code gets all the room,
-  // and only the code shrinks -- the buttons around it stay full size.
+  // The task screens have to be readable from the back of the room without
+  // anyone scrolling: the page is locked to the viewport and the whole thing
+  // shrinks until it fits. Re-fit from full size whenever what's on screen
+  // changes. Once an example is up, the task itself leaves the screen (it's
+  // behind "Show task") and the code stays full size: it can be long, so the
+  // page scrolls instead, with the controls staying put in the top bar.
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const fitKey = JSON.stringify([
@@ -91,9 +113,34 @@ export default function App() {
     question?.prompt,
     question?.example,
     compact,
-    examples.map((ex) => ex.source_code),
   ]);
-  const scale = useFitScale(viewportRef, contentRef, fitKey, !compact);
+  useFitScale(viewportRef, contentRef, fitKey, !compact);
+
+  // A new entry starts at its top.
+  const exampleKey = compact && question ? `${question.id}:${position?.index}:${examples[0]?.source_code}` : null;
+  useLayoutEffect(() => {
+    if (exampleKey) viewportRef.current?.scrollTo({ top: 0 });
+  }, [exampleKey]);
+
+  // Presentation clickers send PageDown/PageUp; the arrow keys work too, unless
+  // the lecturer is typing in the editor (or the task popup is open).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest(".monaco-editor, input, textarea, [role='dialog']")) return;
+      const { step: go, canPrev: prev, canNext: next } = stepRef.current;
+      if ((e.key === "PageDown" || e.key === "ArrowRight") && next) {
+        e.preventDefault();
+        go(1);
+      } else if ((e.key === "PageUp" || e.key === "ArrowLeft") && prev) {
+        e.preventDefault();
+        go(-1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-zinc-50">
@@ -106,6 +153,19 @@ export default function App() {
               <strong className="font-mono font-bold tracking-[0.12em] text-zinc-950">{joinCode}</strong>
             </span>
           )}
+          {compact && position && position.total > 1 && (
+            <div className="flex items-center gap-2" aria-label="Screen queue">
+              <Button variant="secondary" onClick={() => step(-1)} disabled={!canPrev} title="Previous in the queue (Page Up / ←)">
+                ← Previous
+              </Button>
+              <span className="min-w-16 text-center font-mono text-lg text-zinc-500 tabular-nums">
+                {position.index + 1} / {position.total}
+              </span>
+              <Button onClick={() => step(1)} disabled={!canNext} title="Next in the queue (Page Down / →)">
+                Next →
+              </Button>
+            </div>
+          )}
           {compact && question && <Button variant="secondary" onClick={() => setTaskOpenFor(question.id)}>Show task</Button>}
           <FullscreenButton />
         </div>
@@ -114,8 +174,9 @@ export default function App() {
         <TaskPopup question={question} onClose={() => setTaskOpenFor(null)} />
       )}
 
-      {/* Scrolls only as a last resort: code too long to fit even at the
-          editor's smallest font (6px) is never cut off. */}
+      {stepError && <p className="border-b border-red-200 bg-red-50 px-8 py-2 text-red-700">{stepError}</p>}
+      {/* The task screens shrink to fit; shown code scrolls, so a long
+          attempt stays readable from the back of the room. */}
       <div ref={viewportRef} className={cx("min-h-0 flex-1", compact ? "overflow-y-auto" : "overflow-hidden")}>
         {/* Only the centred status screens stretch to fill: with a task up, the
             box is the content's own height, so useFitScale can see spare room. */}
@@ -190,23 +251,18 @@ export default function App() {
                 </section>
               )}
 
-              {compact && examples.length > 0 && (
-                <section aria-label="Shown attempts">
-                  <div className="grid gap-6">
-                    {examples.map((ex, i) => (
-                      <ExampleCard
-                        // Keyed by content, not just position, so a poll never
-                        // remounts (and wipes the lecturer's edits/highlights on) an
-                        // example that's still up.
-                        key={`${question.id}:${i}:${ex.source_code}`}
-                        example={ex}
-                        label={examples.length > 1 ? `Example ${i + 1}` : null}
-                        language={question.language}
-                        questionId={question.id}
-                        scale={scale}
-                      />
-                    ))}
-                  </div>
+              {compact && examples[0] && (
+                <section aria-label="Shown attempt">
+                  <ExampleCard
+                    // Keyed by content and place in the queue, so a poll never
+                    // remounts (and wipes the lecturer's edits/highlights on) the
+                    // example that's still up.
+                    key={exampleKey}
+                    example={examples[0]}
+                    label={null}
+                    language={question.language}
+                    questionId={question.id}
+                  />
                 </section>
               )}
             </main>
@@ -217,25 +273,23 @@ export default function App() {
   );
 }
 
-// Low enough that even two long attempts fit on a small screen: the brief
-// is that nothing on the projector is ever cut off or needs scrolling.
+// Low enough that a long task prompt fits on a small screen: the brief is
+// that nothing on the task screens is ever cut off or needs scrolling.
 const MIN_SCALE = 0.1;
 
 // Sizes the page's root font size (everything here is sized in rem, via
-// Tailwind) so that `content` fills `viewport` without overflowing it, and
-// returns the factor so the code editors can scale their pixel font sizes to
-// match. Shrinks while the content overflows and grows back while there's
-// room (never back up to a scale already seen to overflow, so it settles
-// instead of flip-flopping as text rewraps). Starts again from full size when
-// `resetKey` or the window size changes. With `scaleRoot` off, the root font
-// stays at full size and only what reads the returned factor (the code
-// editors) shrinks.
+// Tailwind) so that `content` fills `viewport` without overflowing it.
+// Shrinks while the content overflows and grows back while there's room
+// (never back up to a scale already seen to overflow, so it settles instead
+// of flip-flopping as text rewraps). Starts again from full size when
+// `resetKey` or the window size changes. Off (`enabled` false), the page
+// stays at full size.
 function useFitScale(
   viewportRef: RefObject<HTMLDivElement | null>,
   contentRef: RefObject<HTMLDivElement | null>,
   resetKey: string,
-  scaleRoot: boolean,
-): number {
+  enabled: boolean,
+): void {
   const [scale, setScale] = useState(1);
   const [windowSize, setWindowSize] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
   // The smallest scale seen to overflow since the last reset.
@@ -253,13 +307,13 @@ function useFitScale(
   }, [resetKey, windowSize]);
 
   useLayoutEffect(() => {
-    document.documentElement.style.fontSize = `${16 * (scaleRoot ? scale : 1)}px`;
-  }, [scale, scaleRoot]);
+    document.documentElement.style.fontSize = `${16 * (enabled ? scale : 1)}px`;
+  }, [scale, enabled]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     const content = contentRef.current;
-    if (!viewport || !content) return;
+    if (!enabled || !viewport || !content) return;
     const check = () => {
       const vh = Math.max(1, viewport.clientHeight);
       const overH = content.scrollHeight / vh;
@@ -287,9 +341,7 @@ function useFitScale(
     ro.observe(content);
     for (const child of Array.from(content.children)) ro.observe(child);
     return () => ro.disconnect();
-  }, [viewportRef, contentRef, scale, resetKey, windowSize]);
-
-  return scale;
+  }, [viewportRef, contentRef, scale, resetKey, windowSize, enabled]);
 }
 
 export interface TaskPopupProps {
@@ -298,8 +350,8 @@ export interface TaskPopupProps {
 }
 
 // "Show task" while the shown code has the screen: the task on top of it.
-// Sized in px, not rem -- the page's rem is shrunk to fit the code
-// (useFitScale), and the task should stay readable however small that got.
+// Sized in px, not rem, like the code under it -- whatever useFitScale last
+// did to the page's rem doesn't reach it.
 function TaskPopup({ question, onClose }: TaskPopupProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -419,32 +471,22 @@ export interface ExampleCardProps {
   label: string | null;
   language: string;
   questionId: string;
-  // The projector's fit-to-screen factor (see useFitScale).
-  scale: number;
 }
 
-function ExampleCard({ example, label, language, questionId, scale }: ExampleCardProps) {
+function ExampleCard({ example, label, language, questionId }: ExampleCardProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const highlightsRef = useRef<monaco.editor.IEditorDecorationsCollection[]>([]);
-  // Monaco won't go below a 6px font, and reads a lineHeight under 8 as a
-  // multiple of the font size rather than pixels.
-  const fontSize = Math.max(6, Math.round(FONT_SIZE * scale));
-  const lineHeight = Math.max(8, Math.round(fontSize * (LINE_HEIGHT / FONT_SIZE)));
-  const padding = Math.round(12 * scale);
-  // The editor is always as tall as its (wrapped) content, so every line is
-  // on screen and it never scrolls; useFitScale shrinks the page instead.
-  // Kept as a count of on-screen (wrapped) lines rather than pixels, so the
-  // height follows the fit scale at once -- before Monaco has loaded, and
-  // before it reports its new size. A pixel height lagging behind the scale
-  // reads as overflow to useFitScale, which then shrinks the code all the way
-  // down to its minimum.
+  const fontSize = FONT_SIZE;
+  const lineHeight = LINE_HEIGHT;
+  const padding = 12;
+  // The editor is always as tall as its (wrapped) content, so it never
+  // scrolls on its own -- the page scrolls past it instead. Kept as a count
+  // of on-screen (wrapped) lines, so the height is right before Monaco has
+  // loaded and reported its size.
   const [visualLines, setVisualLines] = useState(() => example.source_code.split("\n").length);
   const height = visualLines * lineHeight + 2 * padding;
-  const metricsRef = useRef({ lineHeight, padding });
-  metricsRef.current = { lineHeight, padding };
   const measure = (contentHeight: number) => {
-    const m = metricsRef.current;
-    setVisualLines(Math.max(1, Math.round((contentHeight - 2 * m.padding) / m.lineHeight)));
+    setVisualLines(Math.max(1, Math.round((contentHeight - 2 * padding) / lineHeight)));
   };
   const [edited, setEdited] = useState(false);
   const [highlightCount, setHighlightCount] = useState(0);

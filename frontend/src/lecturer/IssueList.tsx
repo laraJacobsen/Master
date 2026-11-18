@@ -75,7 +75,7 @@ export function IssueList({
           </div>
           {raised > 0 && (
             <span className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white">
-              {taskRunning ? `${raised} queued · shown when time's up` : `${raised} on screen`}
+              {taskRunning ? `${raised} queued · shown when time's up` : `${raised} in screen queue`}
             </span>
           )}
         </div>
@@ -210,11 +210,11 @@ function IssueRow({
                   title={
                     taskRunning
                       ? c.raised
-                        ? "Take this out of the queue"
-                        : "Queue this example instead of anything queued: it goes on the projector and students' screens when the task ends"
+                        ? "Take this out of the screen queue"
+                        : "Add this example to the screen queue: it goes on the projector and students' screens, one at a time, when the task ends"
                       : c.raised
-                        ? "Stop showing this on the projector and students' screens"
-                        : "Show this example on the projector and students' screens now, replacing what's there"
+                        ? "Take this out of the screen queue (and off the screens if it's showing)"
+                        : "Add this example to the screen queue and show it on the projector and students' screens now"
                   }
                   className={cx(
                     "ml-auto inline-flex h-8 flex-none items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
@@ -232,7 +232,7 @@ function IssueRow({
                       <svg className="size-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                         <path d="M2.5 6.2l2.3 2.3L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
-                      {taskRunning ? "Queued" : "Showing"}
+                      Queued
                     </>
                   ) : taskRunning ? (
                     "Add to queue"

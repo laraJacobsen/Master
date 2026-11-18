@@ -35,6 +35,8 @@ from backend.aggregation import (
     cluster_submissions,
     lecture_review,
     raise_issue,
+    screen_position,
+    screen_queue,
     shown_examples,
     session_summary,
     student_recap,
@@ -164,6 +166,18 @@ class RaiseIssueRequest(BaseModel):
 
 class ShowSubmissionRequest(BaseModel):
     shown: bool = True
+
+
+class MoveQueueEntryRequest(BaseModel):
+    # The entry's new place in the queue, 0-based (clamped to the queue).
+    index: int
+
+
+class ScreenQueueCurrentRequest(BaseModel):
+    # Either jump to one entry, or move `step` places along the queue
+    # (the projector's Previous/Next: -1/+1).
+    entry_id: int | None = None
+    step: int | None = None
 
 
 class LectureJoinRequest(BaseModel):
@@ -490,8 +504,64 @@ def api_lecturer_show_submission(submission_id: int, req: ShowSubmissionRequest)
     sub = store.get_submission(submission_id)
     if not sub:
         raise HTTPException(status_code=404, detail="Not found")
-    store.set_submission_shown(sub, req.shown)
+    entry_id = store.set_submission_shown(sub, req.shown)
+    _show_now_if_time_up(sub["question_id"], entry_id)
     return store.shown_submission_ids(sub["question_id"], single_only=True)
+
+
+def _time_up(question: dict) -> bool:
+    return question["status"] != "live" or _seconds_remaining(question) <= 0
+
+
+def _show_now_if_time_up(question_id: str, entry_id) -> None:
+    """While the task runs, "Show on screen" only adds to the end of the screen
+    queue. Once time is up the class is already looking at the queue, so what
+    the lecturer picks then goes straight on screen."""
+    question = store.get_question_row(question_id)
+    if entry_id is not None and question and _time_up(question):
+        store.set_current_queue_entry(question_id, entry_id)
+
+
+# The screen queue: everything the lecturer has lined up to show the class
+# (raised discussion points' examples and single attempts), in order. Queued
+# while the task runs; once time is up the projector and students' waiting
+# screens show one entry at a time and the lecturer steps through them. Each
+# call returns the queue as aggregation.screen_queue() describes it.
+@app.get("/api/lecturer/questions/{question_id}/screen_queue")
+def api_lecturer_screen_queue(question_id: str):
+    return screen_queue(question_id)
+
+
+@app.post("/api/lecturer/screen_queue/{entry_id}/move")
+def api_lecturer_move_queue_entry(entry_id: int, req: MoveQueueEntryRequest):
+    entry = store.get_queue_entry(entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Not found")
+    store.move_queue_entry(entry_id, req.index)
+    return screen_queue(entry["question_id"])
+
+
+@app.delete("/api/lecturer/screen_queue/{entry_id}")
+def api_lecturer_delete_queue_entry(entry_id: int):
+    entry = store.get_queue_entry(entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Not found")
+    store.delete_queue_entry(entry_id)
+    return screen_queue(entry["question_id"])
+
+
+@app.post("/api/lecturer/questions/{question_id}/screen_queue/current")
+def api_lecturer_set_screen_queue_current(question_id: str, req: ScreenQueueCurrentRequest):
+    if req.entry_id is not None:
+        entry = store.get_queue_entry(req.entry_id)
+        if not entry or entry["question_id"] != question_id:
+            raise HTTPException(status_code=404, detail="Not found")
+        store.set_current_queue_entry(question_id, req.entry_id)
+    elif req.step is not None:
+        store.step_current_queue_entry(question_id, req.step)
+    else:
+        raise HTTPException(status_code=400, detail="Give entry_id or step.")
+    return screen_queue(question_id)
 
 
 @app.post("/api/lecturer/lectures")
@@ -723,7 +793,7 @@ def api_lecture_status():
     # of silently carrying the old join over.
     lecture_id = current_lecture["id"] if current_lecture else None
     if not question:
-        return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": []}
+        return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": [], "shown_position": None}
 
     tests = test_files.without_contents(question["test_cases"])
     time_up = _seconds_remaining(question) <= 0
@@ -756,10 +826,13 @@ def api_lecture_status():
             "started_at": question["started_at"],
             "seconds_remaining": _seconds_remaining(question),
         },
-        # Issues the lecturer is showing the class (aggregation.raise_issue()) --
-        # only once time is up, so no student sees anyone else's attempt while
-        # they're still answering.
+        # What the lecturer is showing the class: the screen queue's current
+        # entry (aggregation.shown_examples()) -- only once time is up, so no
+        # student sees anyone else's attempt while they're still answering.
         "shown_examples": shown_examples(question["id"]) if time_up else [],
+        # Where that entry sits in the queue, for the projector's
+        # Previous/Next controls; None before time is up or with nothing queued.
+        "shown_position": screen_position(question["id"]) if time_up else None,
     }
 
 
@@ -1260,9 +1333,10 @@ def api_lecturer_clusters(question_id: str = None):
 @app.post("/api/lecturer/clusters/raise")
 def api_lecturer_clusters_raise(req: RaiseIssueRequest):
     try:
-        raise_issue(req.question_id, req.exec_verdict, req.error_type, req.submission_ids, req.raised)
+        entry_id = raise_issue(req.question_id, req.exec_verdict, req.error_type, req.submission_ids, req.raised)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    _show_now_if_time_up(req.question_id, entry_id)
     return cluster_submissions(req.question_id)
 
 

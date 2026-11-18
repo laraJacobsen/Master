@@ -794,25 +794,46 @@ def _run_checks(client):
         # correct one included. Reaches the students' examples, raises no
         # discussion point, and unshowing takes it back down.
         correct_sub = next(row for row in store_mod.all_submissions("sum-ints") if row["verdict"] == "correct")
-        # Only one attempt is up at a time: showing a single attempt replaces a
-        # raised discussion point, and raising one replaces a single attempt.
+        # Showing adds to the screen queue; the class sees one entry at a
+        # time (the current one, first by default) and the lecturer steps
+        # through, reorders and removes entries.
         client.post("/api/lecturer/clusters/raise", json=raise_body)
         assert len(agg_mod.shown_examples("sum-ints")) == 1
         r = client.post(f"/api/lecturer/submissions/{correct_sub['id']}/show", json={"shown": True})
         assert r.status_code == 200 and r.json() == [correct_sub["id"]], r.text
         assert client.get("/api/lecturer/questions/sum-ints/shown_submissions").json() == [correct_sub["id"]]
+        queue = client.get("/api/lecturer/questions/sum-ints/screen_queue").json()
+        assert [e["kind"] for e in queue["entries"]] == ["issue", "attempt"], queue
+        issue_entry, attempt_entry = (e["id"] for e in queue["entries"])
+        # sum-ints is still running, so the attempt only queued behind the issue.
+        assert queue["current_entry_id"] == issue_entry, queue
+        queue = client.post("/api/lecturer/questions/sum-ints/screen_queue/current", json={"step": 1}).json()
+        assert queue["current_entry_id"] == attempt_entry, queue
         shown = agg_mod.shown_examples("sum-ints")
         assert len(shown) == 1 and shown[0]["correct"] is True and shown[0]["failing_test"] is None, shown
         assert correct_sub["student_name"] not in json_lib.dumps(shown), shown
         clusters = client.get("/api/lecturer/clusters", params={"question_id": "sum-ints"}).json()
-        assert not any(c["raised"] for c in clusters), "a single shown submission must not raise a discussion point"
-        client.post("/api/lecturer/clusters/raise", json=raise_body)
-        assert client.get("/api/lecturer/questions/sum-ints/shown_submissions").json() == [], "raising replaces the single attempt"
-        shown = agg_mod.shown_examples("sum-ints")
-        assert len(shown) == 1 and shown[0]["correct"] is False, shown
+        assert sum(c["raised"] for c in clusters) == 1, "a single shown submission must not raise a discussion point"
+        assert agg_mod.screen_position("sum-ints") == {"index": 1, "total": 2}
+        queue = client.post("/api/lecturer/questions/sum-ints/screen_queue/current", json={"step": -1}).json()
+        assert queue["current_entry_id"] == issue_entry, queue
+        assert agg_mod.shown_examples("sum-ints")[0]["correct"] is False
+        queue = client.post("/api/lecturer/questions/sum-ints/screen_queue/current", json={"step": -5}).json()
+        assert queue["current_entry_id"] == issue_entry, "stepping stops at the start of the queue"
+        queue = client.post(f"/api/lecturer/screen_queue/{attempt_entry}/move", json={"index": 0}).json()
+        assert [e["id"] for e in queue["entries"]] == [attempt_entry, issue_entry], queue
+        assert queue["current_entry_id"] == issue_entry, "reordering keeps what's on screen"
+        # Removing what's on screen shows the entry next to it.
+        queue = client.delete(f"/api/lecturer/screen_queue/{issue_entry}").json()
+        assert [e["id"] for e in queue["entries"]] == [attempt_entry] and queue["current_entry_id"] == attempt_entry, queue
+        clusters = client.get("/api/lecturer/clusters", params={"question_id": "sum-ints"}).json()
+        assert not any(c["raised"] for c in clusters), "removing an issue's entry unraises it"
+        assert client.delete("/api/lecturer/screen_queue/999999").status_code == 404
         client.post(f"/api/lecturer/submissions/{correct_sub['id']}/show", json={"shown": True})
+        assert len(client.get("/api/lecturer/questions/sum-ints/screen_queue").json()["entries"]) == 1, "no duplicate entries"
         r = client.post(f"/api/lecturer/submissions/{correct_sub['id']}/show", json={"shown": False})
         assert r.json() == [] and agg_mod.shown_examples("sum-ints") == [], r.text
+        assert agg_mod.screen_position("sum-ints") is None
         assert client.post("/api/lecturer/submissions/999999/show", json={"shown": True}).status_code == 404
         print("Show single submission (correct code)            OK")
 
@@ -1073,6 +1094,20 @@ def _run_question_setup_checks(client):
     assert qid in [q["id"] for q in client.get("/api/questions").json()]  # still accepting submits
     assert client.post("/api/lecturer/questions/no-such-q/end_now").status_code == 404
     print("POST .../end_now -> time's up, still live   OK")
+
+    # Once time is up, "Show on screen" puts the pick on screen straight away
+    # instead of queueing it behind what's there.
+    from backend import store as store_mod
+    grace_subs = [row for row in store_mod.all_submissions(qid) if row["student_name"] == "Grace"]
+    for row in grace_subs[:2]:
+        client.post(f"/api/lecturer/submissions/{row['id']}/show", json={"shown": True})
+    queue = client.get(f"/api/lecturer/questions/{qid}/screen_queue").json()
+    assert len(queue["entries"]) == 2 and queue["current_entry_id"] == queue["entries"][1]["id"], queue
+    status = client.get("/api/lecture/status").json()
+    assert status["shown_position"] == {"index": 1, "total": 2} and len(status["shown_examples"]) == 1, status
+    for row in grace_subs[:2]:
+        client.post(f"/api/lecturer/submissions/{row['id']}/show", json={"shown": False})
+    print("Show on screen after time's up -> on screen now   OK")
 
     # Live submission-progress counter (live-submission-progress-scoping-decision.md):
     # Grace's three submissions above (correct + two rejections) count as one

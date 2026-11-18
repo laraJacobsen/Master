@@ -1133,7 +1133,7 @@ def _is_raised(question_id, exec_verdict, error_type, students: set) -> bool:
     )
 
 
-def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids: list, raised: bool) -> None:
+def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids: list, raised: bool):
     """Shows (or stops showing) one issue to the class, chosen by the lecturer: its
     example goes to every student's waiting screen once time is up (see
     shown_examples()), and the issue gets a discussion point and sorts first on
@@ -1157,7 +1157,11 @@ def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids:
     The issue is identified by the students in it, via `submission_ids` (what the
     dashboard already has per cluster; its first id is the example shown).
     Unraising removes every entry on the same (question, verdict, error_type) that
-    shares a student with it. Raises ValueError if none of the ids exist."""
+    shares a student with it. Raises ValueError if none of the ids exist.
+
+    Raising adds to the end of the question's screen queue (see
+    store.add_raised_issue()) and returns the new entry's id; unraising
+    returns None."""
     students = set()
     for sub_id in submission_ids:
         row = store.get_submission(sub_id)
@@ -1166,7 +1170,7 @@ def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids:
     if not students:
         raise ValueError(f"no submissions found for ids {submission_ids!r}")
     if raised:
-        store.add_raised_issue(question_id, exec_verdict, error_type, students, submission_ids[0])
+        return store.add_raised_issue(question_id, exec_verdict, error_type, students, submission_ids[0])
     else:
         store.delete_raised_issues(
             [
@@ -1177,43 +1181,83 @@ def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids:
         )
 
 
-def shown_examples(question_id: str) -> list:
-    """What the class is being shown for this question -- at most one attempt
-    (showing one replaces the last, see store.add_raised_issue()): a raised
-    discussion point's example (raise_issue()) or a single submission the
-    lecturer picked from a student's attempts (store.set_submission_shown(),
-    correct ones included). As the students see them: code with comments
+def _shared_example(submission_id: int):
+    """One queued submission as the students see it: code with comments
     stripped (the one free-text field in a submission, see _strip_comments()),
     whether it passed every test, and the first test it failed. No student
     name, no discussion point -- see raise_issue()."""
-    examples = []
-    seen = set()
-    for sub_id in store.shown_submission_ids(question_id):
-        if sub_id in seen:
-            continue
-        seen.add(sub_id)
-        row = store.get_submission(sub_id)
-        if not row:
-            continue
-        results = json.loads(row.get("raw_test_results") or "[]")
-        failing = next((r for r in results if not r.get("passed")), None)
-        examples.append(
+    row = store.get_submission(submission_id)
+    if not row:
+        return None
+    results = json.loads(row.get("raw_test_results") or "[]")
+    failing = next((r for r in results if not r.get("passed")), None)
+    return {
+        "source_code": _strip_comments(row["source_code"]),
+        "correct": row.get("verdict") == "correct",
+        "failing_test": (
             {
-                "source_code": _strip_comments(row["source_code"]),
-                "correct": row.get("verdict") == "correct",
-                "failing_test": (
-                    {
-                        "stdin": failing.get("stdin", ""),
-                        "expected_stdout": failing.get("expected_stdout", ""),
-                        "stdout": failing.get("stdout") or "",
-                        "stderr": failing.get("stderr") or "",
-                    }
-                    if failing
-                    else None
-                ),
+                "stdin": failing.get("stdin", ""),
+                "expected_stdout": failing.get("expected_stdout", ""),
+                "stdout": failing.get("stdout") or "",
+                "stderr": failing.get("stderr") or "",
+            }
+            if failing
+            else None
+        ),
+    }
+
+
+def shown_examples(question_id: str) -> list:
+    """What the class is being shown for this question: the screen queue's
+    current entry only (at most one attempt is up at a time -- see
+    store.add_raised_issue()), as a list of zero or one. An entry is a raised
+    discussion point's example (raise_issue()) or a single submission the
+    lecturer picked from a student's attempts (store.set_submission_shown(),
+    correct ones included)."""
+    current = store.current_queue_entry_id(question_id)
+    if current is None:
+        return []
+    entry = store.get_queue_entry(current)
+    example = _shared_example(entry["submission_id"]) if entry else None
+    return [example] if example else []
+
+
+def screen_position(question_id: str):
+    """{"index", "total"} of the entry on screen within the queue (0-based
+    index), or None if nothing is queued -- for the projector's controls."""
+    order = [r["id"] for r in store.queue_rows(question_id)]
+    current = store.current_queue_entry_id(question_id)
+    if current is None:
+        return None
+    return {"index": order.index(current), "total": len(order)}
+
+
+def screen_queue(question_id: str) -> dict:
+    """The lecturer's view of the screen queue: every entry in order (with
+    student names -- this is for the lecturer's dashboard only) and which one
+    is on screen once time is up."""
+    current = store.current_queue_entry_id(question_id)
+    entries = []
+    for r in store.queue_rows(question_id):
+        sub = store.get_submission(r["submission_id"]) or {}
+        # As shown to the class -- see _shared_example().
+        code = _strip_comments(sub.get("source_code") or "")
+        entries.append(
+            {
+                "id": r["id"],
+                "kind": "attempt" if r["single"] else "issue",
+                "exec_verdict": r["exec_verdict"],
+                "error_type": r["error_type"],
+                "students": sorted(r["students"]),
+                "submission_id": r["submission_id"],
+                "verdict": sub.get("verdict"),
+                "tests_passed": sub.get("tests_passed"),
+                "tests_total": sub.get("tests_total"),
+                "lines": len(code.splitlines()),
+                "current": r["id"] == current,
             }
         )
-    return examples
+    return {"entries": entries, "current_entry_id": current}
 
 
 def cluster_submissions(question_id: str = None) -> list:

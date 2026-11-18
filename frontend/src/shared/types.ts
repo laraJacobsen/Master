@@ -69,9 +69,37 @@ export interface LectureStatus {
   // The lecture this status describes (active, or the one that just ended).
   lecture_id: number | null;
   question: LiveQuestion | null;
-  // Examples the lecturer is showing the class -- only sent once the task's
-  // time is up. See aggregation.raise_issue() / shown_examples().
+  // What the lecturer is showing the class: the screen queue's current entry
+  // (zero or one) -- only sent once the task's time is up. See
+  // aggregation.shown_examples().
   shown_examples: SharedExample[];
+  // Where that entry sits in the screen queue (0-based index), for the
+  // projector's Previous/Next; null before time is up or with nothing queued.
+  shown_position: { index: number; total: number } | null;
+}
+
+// One thing the lecturer queued to show the class -- a raised discussion
+// point's example ("issue") or one student's attempt. Lecturer-only: it
+// carries student names. See aggregation.screen_queue().
+export interface ScreenQueueEntry {
+  id: number;
+  kind: "issue" | "attempt";
+  exec_verdict: string;
+  error_type: string | null;
+  students: string[];
+  submission_id: number;
+  verdict: string | null;
+  tests_passed: number | null;
+  tests_total: number | null;
+  // Length of the code shown, so the lecturer can tell a long one coming.
+  lines: number;
+  current: boolean;
+}
+
+export interface ScreenQueue {
+  entries: ScreenQueueEntry[];
+  // On screen once time is up (the first entry unless the lecturer moved on).
+  current_entry_id: number | null;
 }
 
 // One anonymized submission the lecturer put on every student's screen:

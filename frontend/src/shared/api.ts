@@ -26,6 +26,7 @@ import type {
   SubmitResponse,
   ValidationResponse,
   RunResponse,
+  ScreenQueue,
 } from "./types";
 
 const API_BASE = ""; // same origin as the page when served by the FastAPI backend
@@ -240,6 +241,38 @@ export function showSubmission(submissionId: number, shown: boolean): Promise<nu
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ shown }),
+  }).then((res) => asJson(res));
+}
+
+// The screen queue -- see backend/main.py's api_lecturer_screen_queue. Every
+// change returns the whole queue as it now stands.
+export function fetchScreenQueue(questionId: string): Promise<ScreenQueue> {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/screen_queue`).then((res) =>
+    asJson(res),
+  );
+}
+
+export function moveQueueEntry(entryId: number, index: number): Promise<ScreenQueue> {
+  return apiFetch(`${API_BASE}/api/lecturer/screen_queue/${entryId}/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ index }),
+  }).then((res) => asJson(res));
+}
+
+export function removeQueueEntry(entryId: number): Promise<ScreenQueue> {
+  return apiFetch(`${API_BASE}/api/lecturer/screen_queue/${entryId}`, { method: "DELETE" }).then((res) => asJson(res));
+}
+
+// Put one entry on screen, or move `step` places along the queue.
+export function setScreenQueueCurrent(
+  questionId: string,
+  target: { entry_id: number } | { step: number },
+): Promise<ScreenQueue> {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/screen_queue/current`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(target),
   }).then((res) => asJson(res));
 }
 

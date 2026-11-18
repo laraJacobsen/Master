@@ -5,6 +5,8 @@ import type {
   LectureSummary,
   ProgressResponse,
   QuestionRow,
+  ScreenQueue,
+  ScreenQueueEntry,
   StudentActivity,
   SubmissionRow,
 } from "../shared/types";
@@ -24,10 +26,15 @@ import {
   raiseIssue,
   fetchShownSubmissions,
   showSubmission,
+  fetchScreenQueue,
+  moveQueueEntry,
+  removeQueueEntry,
+  setScreenQueueCurrent,
 } from "../shared/api";
 import { ClassProgress } from "./ClassProgress";
 import { IssueList } from "./IssueList";
-import { clusterIds, issueKey } from "./issues";
+import { clusterIds, issueKey, issueTag } from "./issues";
+import { ScreenQueuePanel } from "./ScreenQueue";
 import { LiveHero } from "./TaskHeader";
 import { VerdictBreakdown } from "./VerdictBreakdown";
 import { buildTracks } from "./studentTracks";
@@ -82,6 +89,26 @@ function verdictLabel(v: string) {
   };
   return labels[v] || v;
 }
+// ?mock versions of the backend's screen-queue changes (store.py).
+let mockQueueId = 1;
+function mockAppend(
+  prev: ScreenQueueEntry[],
+  fields: Omit<ScreenQueueEntry, "id" | "current">,
+  showNow: boolean,
+): ScreenQueueEntry[] {
+  const entry = { ...fields, id: mockQueueId++, current: prev.length === 0 };
+  const next = [...prev, entry];
+  return showNow ? next.map((e) => ({ ...e, current: e.id === entry.id })) : next;
+}
+function mockRemove(prev: ScreenQueueEntry[], drop: (e: ScreenQueueEntry) => boolean): ScreenQueueEntry[] {
+  const i = prev.findIndex((e) => e.current);
+  const rest = prev.filter((e) => !drop(e));
+  if (i < 0 || !drop(prev[i])) return rest;
+  // What was on screen went: the next one along takes its place.
+  const after = prev.slice(i + 1).find((e) => !drop(e)) ?? rest[rest.length - 1];
+  return rest.map((e) => ({ ...e, current: e.id === after?.id }));
+}
+
 export default function App() {
   const [pageTitle, setPageTitle] = useState("Lecturer Dashboard");
 
@@ -113,6 +140,10 @@ export default function App() {
   const [showingSubId, setShowingSubId] = useState<number | null>(null);
   const [showCodeError, setShowCodeError] = useState<string | null>(null);
   const [raiseError, setRaiseError] = useState<string | null>(null);
+  // What's lined up for the projector and students' screens -- see ScreenQueuePanel.
+  const [screenQueue, setScreenQueue] = useState<ScreenQueueEntry[]>([]);
+  const [queueBusy, setQueueBusy] = useState(false);
+  const [queueError, setQueueError] = useState<string | null>(null);
 
   // The active lecture's Kahoot-style join code, shown in the Task control
   // card for the whole session -- fetched once (it doesn't change once the
@@ -294,6 +325,11 @@ export default function App() {
       if (QUESTION_ID) {
         fetchShownSubmissions(QUESTION_ID)
           .then((ids) => setShownSubIds(new Set(ids)))
+          .catch(() => {
+            // Same as above.
+          });
+        fetchScreenQueue(QUESTION_ID)
+          .then((q) => setScreenQueue(q.entries))
           .catch(() => {
             // Same as above.
           });
@@ -507,20 +543,39 @@ export default function App() {
   // aggregation.raise_issue()). Raising a wrong_answer issue waits on a live
   // Label call, hence the busy state.
   // "Show on screen" in a student's code drawer -- see api_lecturer_show_submission.
-  // Only one attempt is up at a time: showing this one takes down whatever
-  // was showing, a raised discussion point included.
+  // Adds the attempt to the end of the screen queue (or takes it out); after
+  // time's up it also goes straight on screen.
   async function toggleSubmissionShown(sub: SubmissionRow) {
     const next = !shownSubIds.has(sub.id);
     if (MOCK) {
-      setShownSubIds(next ? new Set([sub.id]) : new Set());
-      if (next) setClusters((prev) => prev.map((x) => ({ ...x, raised: false })));
+      setShownSubIds((prev) => {
+        const ids = new Set(prev);
+        if (next) ids.add(sub.id);
+        else ids.delete(sub.id);
+        return ids;
+      });
+      setScreenQueue((prev) =>
+        next
+          ? mockAppend(prev, {
+              kind: "attempt",
+              exec_verdict: sub.exec_verdict ?? "",
+              error_type: sub.error_type ?? null,
+              students: [sub.student_name],
+              submission_id: sub.id,
+              verdict: sub.verdict ?? null,
+              tests_passed: sub.tests_passed ?? null,
+              tests_total: sub.tests_total ?? null,
+              lines: (sub.source_code ?? "").split("\n").length,
+            }, timeUp)
+          : mockRemove(prev, (e) => e.kind === "attempt" && e.submission_id === sub.id),
+      );
       return;
     }
     setShowingSubId(sub.id);
     setShowCodeError(null);
     try {
       setShownSubIds(new Set(await showSubmission(sub.id, next)));
-      if (next && QUESTION_ID) setClusters(await fetchClusters(QUESTION_ID));
+      if (QUESTION_ID) setScreenQueue((await fetchScreenQueue(QUESTION_ID)).entries);
     } catch (e) {
       setShowCodeError(e instanceof Error ? e.message : "Could not update the shown code.");
     } finally {
@@ -531,22 +586,141 @@ export default function App() {
   async function toggleRaised(c: ClusterRow) {
     if (!QUESTION_ID) return;
     const key = issueKey(c);
-    // One at a time, as in toggleSubmissionShown().
     if (MOCK) {
-      setClusters((prev) => prev.map((x) => ({ ...x, raised: issueKey(x) === key ? !x.raised : false })));
-      if (!c.raised) setShownSubIds(new Set());
+      setClusters((prev) => prev.map((x) => (issueKey(x) === key ? { ...x, raised: !x.raised } : x)));
+      const names = clusterIds(c).map((id) => knownSub(id)?.student_name ?? `#${id}`);
+      const example = knownSub(c.example_submission_id);
+      setScreenQueue((prev) =>
+        !c.raised
+          ? mockAppend(prev, {
+              kind: "issue",
+              exec_verdict: c.exec_verdict,
+              error_type: c.error_type,
+              students: names,
+              submission_id: c.example_submission_id,
+              verdict: example?.verdict ?? null,
+              tests_passed: example?.tests_passed ?? null,
+              tests_total: example?.tests_total ?? null,
+              lines: (example?.source_code ?? "").split("\n").length,
+            }, timeUp)
+          : mockRemove(prev, (e) => e.kind === "issue" && issueEntryMatches(e, c)),
+      );
       return;
     }
     setRaisingKey(key);
     setRaiseError(null);
     try {
       setClusters(await raiseIssue(QUESTION_ID, c, !c.raised));
-      if (!c.raised) setShownSubIds(new Set(await fetchShownSubmissions(QUESTION_ID)));
+      setScreenQueue((await fetchScreenQueue(QUESTION_ID)).entries);
     } catch (e) {
       setRaiseError(e instanceof Error ? e.message : "Could not update this issue.");
     } finally {
       setRaisingKey(null);
     }
+  }
+
+  // The screen queue's own controls (ScreenQueuePanel). Each change answers
+  // with the whole queue; `mock` does the same change locally for ?mock.
+  async function changeQueue(real: () => Promise<ScreenQueue>, mock: (entries: ScreenQueueEntry[]) => ScreenQueueEntry[]) {
+    if (MOCK) {
+      setScreenQueue(mock);
+      return;
+    }
+    setQueueBusy(true);
+    setQueueError(null);
+    try {
+      setScreenQueue((await real()).entries);
+    } catch (e) {
+      setQueueError(e instanceof Error ? e.message : "Could not update the screen queue.");
+    } finally {
+      setQueueBusy(false);
+    }
+  }
+
+  function moveEntry(entry: ScreenQueueEntry, index: number) {
+    void changeQueue(
+      () => moveQueueEntry(entry.id, index),
+      (prev) => {
+        const rest = prev.filter((e) => e.id !== entry.id);
+        rest.splice(Math.max(0, Math.min(rest.length, index)), 0, entry);
+        return rest;
+      },
+    );
+  }
+
+  async function removeEntry(entry: ScreenQueueEntry) {
+    if (MOCK) {
+      if (entry.kind === "attempt") {
+        setShownSubIds((prev) => new Set([...prev].filter((id) => id !== entry.submission_id)));
+      } else {
+        setClusters((prev) => prev.map((c) => (c.raised && issueEntryMatches(entry, c) ? { ...c, raised: false } : c)));
+      }
+    }
+    await changeQueue(
+      () => removeQueueEntry(entry.id),
+      (prev) => mockRemove(prev, (e) => e.id === entry.id),
+    );
+    if (MOCK || !QUESTION_ID) return;
+    // Taking an entry out unraises its issue / unpresses its attempt's button.
+    fetchShownSubmissions(QUESTION_ID)
+      .then((ids) => setShownSubIds(new Set(ids)))
+      .catch(() => {});
+    if (entry.kind === "issue") {
+      fetchClusters(QUESTION_ID)
+        .then((rows) => setClusters(rows))
+        .catch(() => {});
+    }
+  }
+
+  function showEntry(entry: ScreenQueueEntry) {
+    if (!QUESTION_ID) return;
+    void changeQueue(
+      () => setScreenQueueCurrent(QUESTION_ID, { entry_id: entry.id }),
+      (prev) => prev.map((e) => ({ ...e, current: e.id === entry.id })),
+    );
+  }
+
+  function stepQueue(step: number) {
+    if (!QUESTION_ID) return;
+    void changeQueue(
+      () => setScreenQueueCurrent(QUESTION_ID, { step }),
+      (prev) => {
+        const i = prev.findIndex((e) => e.current);
+        const next = Math.max(0, Math.min(prev.length - 1, i + step));
+        return prev.map((e, j) => ({ ...e, current: j === next }));
+      },
+    );
+  }
+
+  // A raised issue's queue entry holds the students in it when it was raised;
+  // the cluster it came from is the raised one on the same verdict sharing a student.
+  function issueEntryMatches(entry: ScreenQueueEntry, c: ClusterRow) {
+    if (c.exec_verdict !== entry.exec_verdict || (c.error_type ?? null) !== (entry.error_type ?? null)) return false;
+    const names = new Set(entry.students);
+    return clusterIds(c).some((id) => {
+      const name = knownSub(id)?.student_name;
+      return name !== undefined && names.has(name);
+    });
+  }
+
+  function describeEntry(entry: ScreenQueueEntry) {
+    const lines = `${entry.lines} line${entry.lines === 1 ? "" : "s"}`;
+    if (entry.kind === "issue") {
+      const cluster = clusters.find((c) => c.raised && issueEntryMatches(entry, c));
+      const tag = issueTag(entry);
+      const n = entry.students.length;
+      return {
+        title: cluster?.title ?? tag,
+        meta: ["Discussion point", cluster?.title ? tag : null, `${n} student${n === 1 ? "" : "s"}`, lines]
+          .filter(Boolean)
+          .join(" · "),
+      };
+    }
+    const tests = entry.tests_total != null ? `${entry.tests_passed ?? 0}/${entry.tests_total} tests` : null;
+    return {
+      title: `Attempt by ${studentLabel(entry.students[0] ?? "")}`,
+      meta: [verdictLabel(entry.verdict ?? "") || null, tests, lines].filter(Boolean).join(" · "),
+    };
   }
 
   // `expected` is just a number the lecturer typed in at setup time (see
@@ -563,6 +737,8 @@ export default function App() {
 
   const lastTask = hasNextTask === false;
   const taskRunning = secondsRemaining != null && secondsRemaining > 0;
+  // The class is looking at the screen queue: the timer ran out (or the task was closed).
+  const timeUp = question != null && !taskRunning && (question.status !== "live" || secondsRemaining === 0);
   const tracks = buildTracks(subRows, taskRunning ? activity : null);
   // Same alphabetical numbering as StudentGrid.
   const studentNumber = new Map(tracks.map((t, i) => [t.name, String(i + 1).padStart(2, "0")]));
@@ -691,6 +867,21 @@ export default function App() {
             id="live-content"
             className="mt-8 grid scroll-mt-32 items-start gap-5 lg:grid-cols-2"
           >
+            {screenQueue.length > 0 && (
+              <div className="min-w-0 lg:col-span-2">
+                <ScreenQueuePanel
+                  entries={screenQueue}
+                  live={timeUp}
+                  describe={describeEntry}
+                  busy={queueBusy}
+                  error={queueError}
+                  onMove={moveEntry}
+                  onRemove={(e) => void removeEntry(e)}
+                  onShow={showEntry}
+                  onStep={stepQueue}
+                />
+              </div>
+            )}
             <div className="min-w-0">
             {showCodeError && <ErrorText className="mb-3">{showCodeError}</ErrorText>}
             <VerdictBreakdown
