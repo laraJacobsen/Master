@@ -2,8 +2,11 @@
 """Dev/demo only: a mock class that fills whatever lecture you run from the UI.
 
 THIS IS SYNTHETIC DATA. Every program the "students" submit is written in this file.
-Keep lectures run with it out of anything reported as research data (archive them
-afterwards, or give them a "[Demo]" label).
+So it only joins demo lectures: one whose label starts with "[Demo]" (name the lecture
+that way when you create it), or the one lecture you name with --lecture. Any other
+lecture is left alone, so a real class can't pick up fake students from a copy of
+this left running. It also refuses a backend that isn't on this machine unless you
+pass --allow-remote.
 
 Two parts:
 
@@ -15,7 +18,8 @@ Two parts:
 
 2. The students. Leave this running in a terminal:
        python3 mock_class.py
-   Then, in the UI: "Add sample questions" -> new lecture -> open the lobby. The
+   Then, in the UI: "Add sample questions" -> new lecture labelled "[Demo] ..." ->
+   open the lobby. The
    students join one by one. Every time a task goes live they start answering it:
    heartbeats while they "type", then their submissions, spread over --spread
    seconds. Each student's program is different. Per task the class covers wrong
@@ -35,6 +39,8 @@ Options:
     --idle 0          students who join but never submit (shown as idle)
     --solve 0.5       chance a student who starts wrong ends up fixing it
     --seed N          same class behaviour every run
+    --lecture ID      join this lecture even without a "[Demo]" label
+    --allow-remote    allow a --base that isn't localhost
 """
 
 import argparse
@@ -44,6 +50,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -55,6 +62,8 @@ import seed_file_lecture as file_seed  # noqa: E402
 SAMPLES_JSON = REPO / "frontend" / "src" / "setup" / "sampleQuestions.json"
 NAMES = stdin_seed.STUDENTS
 CATEGORIES = ("correct", "wrong_answer", "syntax_error", "runtime_error", "timeout")
+DEMO_LABEL = stdin_seed.DEMO_PREFIX.strip()  # "[Demo]"
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
 
 
 # =============================================================== Sample questions
@@ -538,6 +547,12 @@ def plan_class(students, picker, rng, idle, solve=0.5):
 
 # ===================================================================== Running it
 
+class ApiError(RuntimeError):
+    def __init__(self, method, path, status, text):
+        super().__init__(f"{method} {path} -> {status}: {text[:200]}")
+        self.status = status
+
+
 class Api:
     def __init__(self, base):
         self.base = base.rstrip("/")
@@ -545,7 +560,7 @@ class Api:
     def __call__(self, method, path, **kw):
         r = requests.request(method, self.base + path, timeout=120, **kw)
         if r.status_code != 200:
-            raise RuntimeError(f"{method} {path} -> {r.status_code}: {r.text[:200]}")
+            raise ApiError(method, path, r.status_code, r.text)
         return r.json()
 
 
@@ -578,31 +593,42 @@ def student_works(api, qid, name, attempts, spread, rng, stop, results):
                 r = api("POST", "/api/submit", json={"student_name": name, "question_id": qid, "source_code": code})
                 detail = api("GET", f"/api/lecturer/submissions/{r['submission_id']}")
                 results.append((name, detail.get("exec_verdict") or r.get("verdict")))
-            except RuntimeError as e:
-                if "409" in str(e):
+            except ApiError as e:
+                if e.status == 409:
                     return  # the task closed
+                log(f"  {name}: submit failed: {e}")
+            except requests.RequestException as e:
                 log(f"  {name}: submit failed: {e}")
         if attempts and not pending and now - last_beat >= 9:
             return  # done; stop heartbeating once the last one is through
         stop.wait(1)
 
 
-def join_students(api, lecture, students, gap):
+def join_students(api, lecture, students, gap, rng):
     code = lecture["join_code"]
     for name in students:
         try:
             api("POST", "/api/lecture/join", json={"code": code, "student_name": name})
-        except RuntimeError as e:
+        except (ApiError, requests.RequestException) as e:
             log(f"  {name} couldn't join: {e}")
             return
-        time.sleep(gap * random.uniform(0.4, 1.6))
+        time.sleep(gap * rng.uniform(0.4, 1.6))
     log(f'All {len(students)} students are in "{lecture.get("display_label") or lecture.get("label")}"')
 
 
+def is_demo(lecture, args):
+    """Only lectures that are clearly synthetic get fake students."""
+    if args.lecture is not None:
+        return lecture["id"] == args.lecture
+    return (lecture.get("label") or "").startswith(DEMO_LABEL)
+
+
 def run(api, args, rng):
-    students = rng.sample(NAMES, min(args.students, len(NAMES)))
+    students = rng.sample(NAMES, args.students)
     joined_lecture, current_q, stop = None, None, threading.Event()
-    log(f"Waiting for a lecture to open its lobby ({len(students)} students ready). Ctrl-C to stop.")
+    skipped = set()
+    target = f"lecture #{args.lecture}" if args.lecture is not None else f'a lecture labelled "{DEMO_LABEL} ..."'
+    log(f"Waiting for {target} to open its lobby ({len(students)} students ready). Ctrl-C to stop.")
     while True:
         try:
             active = api("GET", "/api/lecturer/lectures/active")
@@ -613,15 +639,22 @@ def run(api, args, rng):
             continue
 
         lecture = active.get("lecture")
-        if lecture and lecture.get("lobby_opened_at") and lecture["id"] != joined_lecture:
-            joined_lecture = lecture["id"]
-            current_q = None
-            log(f'Lobby open for lecture #{lecture["id"]} (code {lecture["join_code"]}): students joining')
-            threading.Thread(target=join_students, args=(api, lecture, students, args.join_gap), daemon=True).start()
-        if not lecture and joined_lecture is not None:
+        lecture_id = lecture["id"] if lecture else None
+        if joined_lecture is not None and lecture_id != joined_lecture:
+            # Ended, or already replaced by the next lecture: stop the old students either way.
             stop.set()
             log("Lecture finished. Waiting for the next one.")
             joined_lecture, current_q = None, None
+        if lecture and lecture_id != joined_lecture and lecture.get("lobby_opened_at"):
+            if is_demo(lecture, args):
+                joined_lecture = lecture_id
+                log(f'Lobby open for lecture #{lecture_id} (code {lecture["join_code"]}): students joining')
+                threading.Thread(target=join_students, daemon=True, args=(
+                    api, lecture, students, args.join_gap, random.Random(rng.random()))).start()
+            elif lecture_id not in skipped:
+                skipped.add(lecture_id)
+                log(f'Not joining lecture #{lecture_id} "{lecture.get("display_label") or ""}": not a demo lecture '
+                    f'(label it "{DEMO_LABEL} ...", or pass --lecture {lecture_id})')
 
         q = status.get("question")
         live_id = q["id"] if q and q.get("seconds_remaining", 0) > 0 and joined_lecture else None
@@ -682,11 +715,26 @@ def main():
                     help="chance a student who starts wrong fixes it (3 in 14 are right first time anyway)")
     ap.add_argument("--join-gap", type=float, default=0.8, help="average seconds between two students joining")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--lecture", type=int, default=None, help='join this lecture even without a "[Demo]" label')
+    ap.add_argument("--allow-remote", action="store_true", help="allow a --base that isn't localhost")
     ap.add_argument("--write-samples", action="store_true", help="regenerate the setup page's sample questions")
     args = ap.parse_args()
     if args.write_samples:
         write_samples()
         return
+    if not 1 <= args.students <= len(NAMES):
+        ap.error(f"--students must be between 1 and {len(NAMES)}")
+    if not 0 <= args.idle <= args.students:
+        ap.error("--idle must be between 0 and --students")
+    if not 0 <= args.solve <= 1:
+        ap.error("--solve must be between 0 and 1")
+    if args.spread <= 0:
+        ap.error("--spread must be more than 0")
+    if args.join_gap < 0:
+        ap.error("--join-gap can't be negative")
+    if urlparse(args.base).hostname not in LOCAL_HOSTS and not args.allow_remote:
+        ap.error(f"{args.base} isn't on this machine. This script submits fake students; "
+                 "pass --allow-remote if you really mean to point it there.")
     try:
         run(Api(args.base), args, random.Random(args.seed))
     except KeyboardInterrupt:
