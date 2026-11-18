@@ -20,6 +20,9 @@ import { cx } from "../shared/cx";
 import { defaultStarterCode } from "../shared/starterCode";
 import type { Tone } from "../shared/ui";
 import sampleQuestions from "./sampleQuestions.json";
+import { ROUTES, liveTaskUrl, lobbyUrl } from "../shared/routes";
+import { Footer } from "../shared/Footer";
+import { toast } from "../shared/toast";
 
 // Lecture preparation. Top: the lecture itself and its one next action (open
 // the lobby, or go back to it / the live dashboard). Left: the questions in
@@ -374,7 +377,7 @@ export default function App() {
     setLobbyError(null);
     try {
       await openLobbyApi(activeLecture.id);
-      window.location.href = `lecturer.html?lobby=${activeLecture.id}`;
+      window.location.href = lobbyUrl(activeLecture.id);
     } catch (e) {
       setLobbyError(e instanceof Error ? e.message : "Could not open the lobby.");
       setOpeningLobby(false);
@@ -392,7 +395,7 @@ export default function App() {
     setDeleteLectureError(null);
     try {
       await deleteLectureApi(activeLecture.id);
-      window.location.href = "index.html";
+      window.location.href = ROUTES.home;
     } catch (e) {
       setDeleteLectureError(e instanceof Error ? e.message : "Could not delete this lecture.");
       setDeletingLecture(false);
@@ -410,6 +413,7 @@ export default function App() {
     if (!q) return;
     try {
       await deleteQuestionApi(q.id);
+      toast(`Deleted “${q.title}”`);
       if (currentId === q.id) resetForm();
       loadQuestionList();
     } catch (err) {
@@ -445,7 +449,8 @@ export default function App() {
         });
         await validateQuestionApi(created.id);
       }
-      setStatus(`Added ${samples.length} sample questions.`, "ok");
+      setStatus("");
+      toast(`Added ${samples.length} sample questions`);
       loadQuestionList();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Could not add test questions.", "bad");
@@ -826,7 +831,7 @@ export default function App() {
       setStatus("Live.", "ok");
       loadQuestionList();
       setTimeout(() => {
-        window.location.href = `lecturer.html?question_id=${encodeURIComponent(currentId)}`;
+        window.location.href = liveTaskUrl(currentId);
       }, 700);
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Could not start this question.", "bad");
@@ -892,11 +897,11 @@ export default function App() {
                   </Button>
                 )}
                 {liveQuestionId ? (
-                  <LinkButton href={`lecturer.html?question_id=${encodeURIComponent(liveQuestionId)}`}>
+                  <LinkButton href={liveTaskUrl(liveQuestionId)}>
                     Back to live dashboard &rarr;
                   </LinkButton>
                 ) : lobbyOpen ? (
-                  <LinkButton href={`lecturer.html?lobby=${activeLecture.id}`}>Back to lobby &rarr;</LinkButton>
+                  <LinkButton href={lobbyUrl(activeLecture.id)}>Back to lobby &rarr;</LinkButton>
                 ) : (
                   <Button
                     onClick={handleOpenLobby}
@@ -967,7 +972,7 @@ export default function App() {
                         <LinkButton
                           variant="ghost"
                           size="sm"
-                          href={`lecturer.html?question_id=${encodeURIComponent(q.id)}`}
+                          href={liveTaskUrl(q.id)}
                         >
                           Dashboard
                         </LinkButton>
@@ -1570,6 +1575,7 @@ export default function App() {
         onConfirm={confirmDeleteQuestion}
         onCancel={() => setQuestionPendingDelete(null)}
       />
+      <Footer className="mt-16" />
     </>
   );
 }

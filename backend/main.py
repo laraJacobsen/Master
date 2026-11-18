@@ -24,7 +24,7 @@ from datetime import datetime
 
 import anyio
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -1459,10 +1459,47 @@ def api_lecturer_clusters_raise(req: RaiseIssueRequest):
     return cluster_submissions(req.question_id)
 
 
-# Serve the built React/TS frontend (setup.html, student.html, lecturer.html
-# -- see frontend/README) as static files, mounted last so it never shadows
-# the /api/* routes above. Built with `npm run build` from frontend/, which
-# outputs to frontend/dist.
+# Serve the built React/TS frontend (see frontend/README), mounted last so it
+# never shadows the /api/* routes above. Built with `npm run build` from
+# frontend/, which outputs to frontend/dist.
+#
+# Each page is served at a clean path (frontend/src/shared/routes.ts -- keep
+# the two in step, along with PAGES in frontend/vite.config.ts). The old
+# *.html URLs redirect to them, so earlier bookmarks and links still work.
+# Anything else gets 404.html with a 404 status (StaticFiles' html mode).
 _frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+_PAGES = {
+    "/setup": "setup.html",
+    "/live": "lecturer.html",
+    "/history": "history.html",
+    "/present": "present.html",
+    "/join": "student.html",
+    "/help": "help.html",
+    "/privacy": "privacy.html",
+}
+_LEGACY_PAGES = {f"/{file}": path for path, file in _PAGES.items()} | {"/index.html": "/"}
+
+
+# Factories, not default arguments: FastAPI would expose a handler's extra
+# parameters as query parameters (?file=... choosing what gets served).
+def _page_handler(file: str):
+    def page() -> FileResponse:
+        return FileResponse(os.path.join(_frontend_dir, file))
+
+    return page
+
+
+def _redirect_handler(target: str):
+    def redirect(request: Request) -> RedirectResponse:
+        query = request.url.query
+        return RedirectResponse(f"{target}?{query}" if query else target, status_code=301)
+
+    return redirect
+
+
 if os.path.isdir(_frontend_dir):
+    for _path, _file in _PAGES.items():
+        app.add_api_route(_path, _page_handler(_file), methods=["GET", "HEAD"], include_in_schema=False)
+    for _old, _new in _LEGACY_PAGES.items():
+        app.add_api_route(_old, _redirect_handler(_new), methods=["GET", "HEAD"], include_in_schema=False)
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")

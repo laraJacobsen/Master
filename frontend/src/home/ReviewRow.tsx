@@ -6,6 +6,7 @@ import { Card, SectionTitle, Skeleton, TextLink } from "../shared/ui";
 import { TrendChart } from "../shared/TrendChart";
 import { Delta, IssueLine, TopicItem } from "../shared/reviewUi";
 import { formatDate, parseDate, percent, plural, shortDate, topicsFrom } from "../shared/review";
+import { ROUTES, lectureSummaryUrl } from "../shared/routes";
 
 // The home page's second row: what a lecturer wants before walking into the
 // next class. Last lecture (how it went, against the one before), what to
@@ -21,7 +22,7 @@ function byDate(a: LectureReview, b: LectureReview): number {
 }
 
 function summaryHref(lectureId: number): string {
-  return `lecturer.html?lecture_id=${lectureId}`;
+  return lectureSummaryUrl(lectureId);
 }
 
 // ------------------------------------------------------------ Last lecture
@@ -169,7 +170,7 @@ function TopicsCard({ ranked }: TopicsCardProps) {
     <Card className="min-w-0">
       <SectionTitle
         actions={
-          <TextLink href="history.html" className="text-[13px]">
+          <TextLink href={ROUTES.history} className="text-[13px]">
             All &rarr;
           </TextLink>
         }

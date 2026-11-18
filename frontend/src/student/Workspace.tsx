@@ -3,7 +3,7 @@ import type { ReactNode, Ref } from "react";
 import { Editor, monaco } from "../shared/monaco";
 import { fetchTestFile, runCode } from "../shared/api";
 import type { RunResponse, SubmitResponse, VisibleTestFile } from "../shared/types";
-import { Button, Spinner } from "../shared/ui";
+import { Button, CodeSkeleton, Spinner } from "../shared/ui";
 import { cx } from "../shared/cx";
 import { loadDraft, saveDraft } from "./drafts";
 
@@ -596,7 +596,7 @@ export function Workspace({
           language={file.language}
           defaultValue={file.kind === "code" ? initialCode : file.kind === "input" ? initialInput : undefined}
           value={readOnlyValue}
-          loading={<span className="text-sm text-zinc-500">Loading editor...</span>}
+          loading={<CodeSkeleton className="self-start" />}
           options={{
             ...editorOptions,
             readOnly: file.readOnly,

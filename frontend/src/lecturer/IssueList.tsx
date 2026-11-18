@@ -6,7 +6,7 @@ import { StudentTile } from "./StudentGrid";
 import { LABEL, verdictOf } from "./studentTracks";
 import { groupByShape, groupKey } from "./codeGroups";
 import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_PILL, categoryOf } from "../shared/categories";
-import { Card } from "../shared/ui";
+import { Card, CodeSkeleton } from "../shared/ui";
 import { cx } from "../shared/cx";
 import { issueKey } from "./issues";
 
@@ -341,7 +341,7 @@ function IssueCode({ subs, loadError, selected, selectedLabel, onClearSelected, 
       ) : loadError ? (
         <span className="text-red-600">Could not load these submissions.</span>
       ) : (
-        <span className="text-zinc-500">Loading...</span>
+        <CodeSkeleton lines={4} className="rounded-lg bg-zinc-50 p-4" />
       )}
     </div>
   );

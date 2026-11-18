@@ -1044,17 +1044,27 @@ def _run_checks(client):
         # frontend/README.md) -- content like "Submit" is rendered client-side,
         # not present in the served HTML, so this only checks the right shell
         # (via its <title>) and a bundled JS entrypoint come back.
-        r = client.get("/student.html")
-        assert r.status_code == 200 and "Student" in r.text and 'id="root"' in r.text, r.status_code
-        print("Static frontend (student.html) OK")
+        # Pages are served at clean paths (backend/main.py's _PAGES); the old
+        # *.html URLs 301 to them, keeping the query string.
+        r = client.get("/join")
+        assert r.status_code == 200 and "Join a lecture" in r.text and 'id="root"' in r.text, r.status_code
+        print("Static frontend (/join)        OK")
 
-        r = client.get("/lecturer.html")
-        assert r.status_code == 200 and "Lecturer" in r.text and 'id="root"' in r.text, r.status_code
-        print("Static frontend (lecturer.html)OK")
+        r = client.get("/live")
+        assert r.status_code == 200 and "Live dashboard" in r.text and 'id="root"' in r.text, r.status_code
+        print("Static frontend (/live)        OK")
 
         r = client.get("/")
         assert r.status_code == 200 and 'id="root"' in r.text, r.status_code
-        print("Static frontend (index.html, site root) OK")
+        print("Static frontend (site root)    OK")
+
+        r = client.get("/lecturer.html?question_id=sum-ints", follow_redirects=False)
+        assert r.status_code == 301 and r.headers["location"] == "/live?question_id=sum-ints", (r.status_code, r.headers)
+        print("Old .html URL -> redirect      OK")
+
+        r = client.get("/no-such-page")
+        assert r.status_code == 404 and "Page not found" in r.text, r.status_code
+        print("Unknown page -> 404 page       OK")
 
         _run_question_setup_checks(client)
         _run_lecture_dashboard_checks(client)

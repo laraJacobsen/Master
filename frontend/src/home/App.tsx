@@ -12,9 +12,14 @@ import {
 import { activeLectureAction } from "../shared/lectureNav";
 import { NavBar } from "../shared/NavBar";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-import { Button, Card, ErrorText, Eyebrow, Input, Label, TextLink } from "../shared/ui";
+import { Button, Card, ErrorText, Eyebrow, Input, Label, Skeleton, TextLink } from "../shared/ui";
+import { Footer } from "../shared/Footer";
+import { BRAND } from "../shared/brand";
+import { copyWithToast, toast } from "../shared/toast";
+import { Onboarding } from "./Onboarding";
 import { cx } from "../shared/cx";
 import { ReviewRow } from "./ReviewRow";
+import { ROUTES, joinLink } from "../shared/routes";
 
 const POLL_MS = 5000;
 
@@ -108,7 +113,7 @@ export default function App() {
     setStartError(null);
     try {
       await createLecture(label.trim() || null);
-      window.location.href = "setup.html";
+      window.location.href = ROUTES.setup;
     } catch (e) {
       setStartError(e instanceof Error ? e.message : "Could not start a new lecture.");
       loadActive(); // someone else may have just started one -- pick up "Resume" instead
@@ -133,6 +138,7 @@ export default function App() {
     setDeleteError(null);
     try {
       await deleteLecture(active.lecture.id);
+      toast("Lecture deleted");
       loadActive();
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : "Could not delete this lecture.");
@@ -151,7 +157,7 @@ export default function App() {
         <section className="lg:col-span-5">
           <Eyebrow>Lecturer</Eyebrow>
           <h1 className="mt-4 text-4xl font-bold tracking-tight text-balance text-zinc-950 sm:text-5xl">
-            Interactive Lecture
+            {BRAND.name}
           </h1>
           <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-zinc-500">
             Pose a coding question, watch the class work through it live, and bring the interesting
@@ -179,7 +185,7 @@ export default function App() {
                 </div>
               </dl>
             )}
-            <TextLink href="history.html" className="text-sm">
+            <TextLink href={ROUTES.history} className="text-sm">
               Lecture history &rarr;
             </TextLink>
           </div>
@@ -203,7 +209,12 @@ export default function App() {
               />
             )}
             {activeLoading ? (
-              <p className="text-sm text-zinc-500">Loading...</p>
+              <div role="status" aria-label="Loading">
+                <Skeleton className="h-6 w-48" />
+                <Skeleton className="mt-3 h-4 w-64" />
+                <Skeleton className="mt-6 h-24 w-full rounded-lg" />
+                <Skeleton className="mt-6 h-11 w-36 rounded-lg" />
+              </div>
             ) : hasActive ? (
               <>
                 <div className="flex items-center justify-between gap-4">
@@ -224,8 +235,16 @@ export default function App() {
                         {active!.lecture!.join_code}
                       </div>
                       <p className="mt-1 text-[13px] text-white/75">
-                        Students enter this on the student page to join.
+                        Students enter this at {window.location.host}
+                        {ROUTES.join} to join.
                       </p>
+                      <button
+                        type="button"
+                        onClick={() => void copyWithToast(joinLink(active!.lecture!.join_code!), "Join link")}
+                        className="mt-3 rounded-md text-[13px] font-semibold text-white underline decoration-white/40 underline-offset-4 transition-colors hover:decoration-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                      >
+                        Copy join link
+                      </button>
                     </div>
                   )
                 ) : (
@@ -299,10 +318,20 @@ export default function App() {
           </Card>
         </section>
 
+        {/* Until the first lecture has been finished, show how it works. (Not
+            "no lectures run": a fresh database already has the seeded sample
+            lecture in progress -- see store.init_db.) */}
+        {reviews !== null && reviews.length === 0 && (
+          <section className="lg:col-span-12" aria-label="Getting started">
+            <Onboarding />
+          </section>
+        )}
+
         <section className="lg:col-span-12" aria-label="Recent lectures">
           <ReviewRow reviews={reviews} activeLectureId={lectureId} />
         </section>
       </main>
+      <Footer />
       <ConfirmDialog
         open={confirmDeleteOpen}
         title="Delete lecture?"

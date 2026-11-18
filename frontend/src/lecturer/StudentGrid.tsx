@@ -38,6 +38,11 @@ function groupOf(t: StudentTrack): Group {
 // "Add to queue" for a single attempt in the code drawer: puts it (no name) in
 // the screen queue for the students' waiting screens and the projector -- any
 // verdict, so a correct solution can go up too. The projector steps through it.
+/** Students in the order a grid shows them: worst outcome first, alphabetical within. */
+export function orderStudents(tracks: StudentTrack[], only?: Set<string>): StudentTrack[] {
+  return GROUP_ORDER.flatMap((g) => tracks.filter((t) => groupOf(t) === g)).filter((t) => !only || only.has(t.name));
+}
+
 export interface ShowCodeControl {
   shownIds: Set<number>;
   busyId: number | null;
@@ -91,9 +96,7 @@ export function StudentGrid({
   // changes when someone new joins, never when they move between groups.
   const tracks = buildTracks(subs, activity);
   const label = studentLabeler(tracks, showNames);
-  const ordered = GROUP_ORDER.flatMap((g) => tracks.filter((t) => groupOf(t) === g)).filter(
-    (t) => !only || only.has(t.name),
-  );
+  const ordered = orderStudents(tracks, only);
 
   function select(name: string) {
     if (onSelect) onSelect(name);

@@ -3,6 +3,7 @@ import type { DragEvent, KeyboardEvent } from "react";
 import type { ScreenQueueEntry } from "../shared/types";
 import { Card } from "../shared/ui";
 import { cx } from "../shared/cx";
+import { ROUTES } from "../shared/routes";
 
 export interface QueueEntryText {
   title: string;
@@ -71,7 +72,7 @@ export function ScreenQueuePanel({
           </p>
         </div>
         <a
-          href="present.html"
+          href={ROUTES.present}
           target="_blank"
           rel="noopener"
           className="rounded-sm text-[12px] font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-4 transition-colors hover:text-zinc-900 hover:decoration-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"

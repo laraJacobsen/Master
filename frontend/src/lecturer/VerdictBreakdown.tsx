@@ -1,7 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { StudentActivity, SubmissionRow } from "../shared/types";
 import type { StudentTrack } from "./studentTracks";
-import { StudentDrawer, StudentGrid } from "./StudentGrid";
+import { orderStudents, StudentDrawer, StudentGrid } from "./StudentGrid";
+import { isTypingTarget } from "../shared/shortcuts";
 import { studentLabeler } from "./studentNames";
 import type { ShowCodeControl } from "./StudentGrid";
 import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_ORDER, categoryOf } from "../shared/categories";
@@ -51,6 +52,27 @@ export function VerdictBreakdown({
   const categories = CATEGORY_ORDER.filter((c) => count(c) > 0);
   const total = categories.reduce((n, c) => n + count(c), 0);
   const rows: Row[] = [...categories, ...(count("not_submitted") > 0 ? ["not_submitted" as const] : [])];
+
+  // With a student's code open, ←/→ step to the previous/next student, in the
+  // order the rows show them -- going through the class without closing and
+  // reopening the drawer each time.
+  const stepOrder = rows.flatMap((r) => orderStudents(tracks, members.get(r)).map((t) => t.name));
+  const stepRef = useRef({ stepOrder, selected });
+  stepRef.current = { stepOrder, selected };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const { stepOrder: order, selected: current } = stepRef.current;
+      if (current == null || e.altKey || e.ctrlKey || e.metaKey || e.defaultPrevented || isTypingTarget(e.target)) return;
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const i = order.indexOf(current);
+      const next = order[i + (e.key === "ArrowRight" ? 1 : -1)];
+      if (i < 0 || next === undefined) return;
+      e.preventDefault();
+      setSelected(next);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   function toggleRow(r: Row) {
     setOpenRows((prev) => {

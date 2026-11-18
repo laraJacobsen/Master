@@ -39,12 +39,15 @@ import { VerdictBreakdown } from "./VerdictBreakdown";
 import { buildTracks } from "./studentTracks";
 import { readShowNames, saveShowNames } from "./studentNames";
 import { buildMock } from "./mockData";
+import { Kbd, ShortcutsDialog, useShortcuts } from "../shared/shortcuts";
+import { copyWithToast, toast } from "../shared/toast";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
 import { NavBar } from "../shared/NavBar";
-import { Badge, Button, Card, Callout, ErrorText, Eyebrow, LinkButton, Page, PageHeader, SectionTitle, TextLink } from "../shared/ui";
+import { Badge, Button, Callout, Card, ErrorText, Eyebrow, LinkButton, Page, PageHeader, SectionTitle, Skeleton, TextLink } from "../shared/ui";
 import { cx } from "../shared/cx";
 import type { Tone } from "../shared/ui";
+import { ROUTES, joinLink, lectureSummaryUrl, liveTaskUrl } from "../shared/routes";
 
 const POLL_MS = 3000;
 
@@ -229,7 +232,7 @@ export default function App() {
     fetchActiveLecture()
       .then((a) => {
         if (a.live_question_id) {
-          window.location.href = `lecturer.html?question_id=${encodeURIComponent(a.live_question_id)}`;
+          window.location.href = liveTaskUrl(a.live_question_id);
           return;
         }
         if (!a.lecture || a.lecture.id !== id) {
@@ -419,7 +422,7 @@ export default function App() {
     try {
       const res = await nextTask(QUESTION_ID);
       if (res.started) {
-        window.location.href = `lecturer.html?question_id=${encodeURIComponent(res.started.id)}`;
+        window.location.href = liveTaskUrl(res.started.id);
       } else {
         // Someone started/removed the last draft since the last poll.
         setHasNextTask(false);
@@ -464,7 +467,7 @@ export default function App() {
         // land there directly rather than toggling in-page state, so it's
         // the same shareable/bookmarkable link the home dashboard's history
         // list uses for this same lecture.
-        window.location.href = `lecturer.html?lecture_id=${res.lecture_id}`;
+        window.location.href = lectureSummaryUrl(res.lecture_id);
         return;
       }
       // Defensive fallback -- there was no active lecture to end (shouldn't
@@ -486,7 +489,7 @@ export default function App() {
     try {
       const res = await nextTask(null);
       if (res.started) {
-        window.location.href = `lecturer.html?question_id=${encodeURIComponent(res.started.id)}`;
+        window.location.href = liveTaskUrl(res.started.id);
       } else {
         setStartError("No questions ready to start yet. Add and validate one on setup first.");
         setStartingLecture(false);
@@ -565,6 +568,7 @@ export default function App() {
             })
           : mockRemove(prev, (e) => e.kind === "attempt" && e.submission_id === sub.id),
       );
+      toast(next ? "Added to the screen queue" : "Removed from the screen queue");
       return;
     }
     setShowingSubId(sub.id);
@@ -572,6 +576,7 @@ export default function App() {
     try {
       setShownSubIds(new Set(await showSubmission(sub.id, next)));
       if (QUESTION_ID) setScreenQueue((await fetchScreenQueue(QUESTION_ID)).entries);
+      toast(next ? "Added to the screen queue" : "Removed from the screen queue");
     } catch (e) {
       setShowCodeError(e instanceof Error ? e.message : "Could not update the shown code.");
     } finally {
@@ -607,6 +612,7 @@ export default function App() {
       setScreenQueue(next);
       const stillRaised = next.some((e) => e.kind === "issue" && issueEntryMatches(e, c));
       setClusters((prev) => prev.map((x) => (issueKey(x) === issueKey(c) ? { ...x, raised: stillRaised } : x)));
+      toast(queued ? "Removed from the screen queue" : "Added to the screen queue");
       return;
     }
     setQueueingSubId(sub.id);
@@ -614,6 +620,7 @@ export default function App() {
     try {
       setClusters(await raiseIssue(QUESTION_ID, c, !queued, sub.id));
       setScreenQueue((await fetchScreenQueue(QUESTION_ID)).entries);
+      toast(queued ? "Removed from the screen queue" : "Added to the screen queue");
     } catch (e) {
       setRaiseError(e instanceof Error ? e.message : "Could not update the screen queue.");
     } finally {
@@ -728,9 +735,9 @@ export default function App() {
     isLiveTask || liveQuestionId === undefined
       ? null
       : inActiveLecture && liveQuestionId
-        ? { href: `lecturer.html?question_id=${encodeURIComponent(liveQuestionId)}`, label: "Go to the live task" }
+        ? { href: liveTaskUrl(liveQuestionId), label: "Go to the live task" }
         : !inActiveLecture && question?.lecture_id != null
-          ? { href: `lecturer.html?lecture_id=${question.lecture_id}`, label: "Lecture summary" }
+          ? { href: lectureSummaryUrl(question.lecture_id), label: "Lecture summary" }
           : null;
   const taskRunning = secondsRemaining != null && secondsRemaining > 0;
   // The class is looking at the screen queue: the timer ran out (or the task was closed).
@@ -746,11 +753,41 @@ export default function App() {
     });
   }
 
+  // Single-key shortcuts on a task's live view ("?" lists them).
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const onTaskView = QUESTION_ID != null && !LECTURE_ID && !lectureFinished;
+  useShortcuts(
+    [
+      { key: "?", label: "Show keyboard shortcuts", run: () => setShortcutsOpen((o) => !o) },
+      {
+        key: "n",
+        label: "Show or hide student names",
+        run: () => {
+          toast(showNames ? "Names hidden" : "Names shown", "info");
+          toggleNames();
+        },
+      },
+      { key: "p", label: "Open the projector view", run: () => window.open(ROUTES.present, "_blank", "noopener") },
+    ],
+    onTaskView && !confirmFinishOpen,
+  );
+
   return (
     <>
       <NavBar
         // Glass over the live band (LiveHero), which only exists once the timer is known.
         overlayBandId={QUESTION_ID && !LECTURE_ID && !lectureFinished && secondsRemaining != null ? "live-band" : undefined}
+      />
+      <ShortcutsDialog
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        rows={[
+          { keys: ["N"], label: "Show or hide student names" },
+          { keys: ["P"], label: "Open the projector view" },
+          { keys: ["←", "→"], label: "Previous / next student (code open)" },
+          { keys: ["Alt", "←", "→"], label: "Move a screen-queue item" },
+          { keys: ["?"], label: "Show this list" },
+        ]}
       />
       <ConfirmDialog
         open={confirmFinishOpen}
@@ -803,11 +840,11 @@ export default function App() {
                   <div className="font-mono text-sm text-zinc-500 tabular-nums">
                     {subRows.length} submission{subRows.length === 1 ? "" : "s"}
                   </div>
-                  <HeaderNavLink href="setup.html">Question setup &rarr;</HeaderNavLink>
+                  <HeaderNavLink href={ROUTES.setup}>Question setup &rarr;</HeaderNavLink>
                 </div>
               ) : LECTURE_ID ? (
                 /* Summaries are opened from the history page, so that's where "back" goes. */
-                <LinkButton href="history.html" variant="secondary">
+                <LinkButton href={ROUTES.history} variant="secondary">
                   &larr; Lecture history
                 </LinkButton>
               ) : undefined
@@ -825,7 +862,24 @@ export default function App() {
                   <div className="mt-2 font-mono text-6xl font-bold tracking-[0.18em] text-zinc-950 sm:text-7xl">
                     {lobbyLecture.join_code}
                   </div>
-                  <p className="mt-3 text-sm text-zinc-500">Students enter this on the student page to join.</p>
+                  <p className="mt-3 text-sm text-zinc-500">
+                    Students go to{" "}
+                    <span className="font-medium text-zinc-900">
+                      {window.location.host}
+                      {ROUTES.join}
+                    </span>{" "}
+                    and enter this code, or open the join link.
+                  </p>
+                  {lobbyLecture.join_code && (
+                    <div className="mt-6 flex flex-wrap gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => void copyWithToast(joinLink(lobbyLecture.join_code!), "Join link")}>
+                        Copy join link
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => void copyWithToast(lobbyLecture.join_code!, "Join code")}>
+                        Copy code
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
             </Card>
@@ -843,7 +897,7 @@ export default function App() {
                     {startingLecture ? "Starting..." : "Start lecture"}
                   </Button>
                 )}
-                <Button variant="secondary" size="lg" onClick={() => (window.location.href = "setup.html")}>
+                <Button variant="secondary" size="lg" onClick={() => (window.location.href = ROUTES.setup)}>
                   Manage questions
                 </Button>
               </div>
@@ -925,6 +979,14 @@ export default function App() {
           </div>
           <p className="mt-6 pb-12 text-center text-[12px] text-zinc-400">
             Student names and individual code stay hidden until you open a discussion point or show the students.
+            <span className="mx-2 text-zinc-300" aria-hidden="true">·</span>
+            <button
+              type="button"
+              onClick={() => setShortcutsOpen(true)}
+              className="rounded-sm text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+            >
+              Press <Kbd className="mx-0.5 h-5 min-w-5 text-[11px]">?</Kbd> for keyboard shortcuts
+            </button>
           </p>
           </>
         )}
@@ -1022,14 +1084,20 @@ export default function App() {
             {lectureFinished && (
               <div className="lg:col-span-2">
                 {/* Summaries are opened from the history page, so that's where "back" goes. */}
-                <LinkButton href="history.html" variant="secondary">
+                <LinkButton href={ROUTES.history} variant="secondary">
                   &larr; Lecture history
                 </LinkButton>
               </div>
             )}
             <Card>
               <SectionTitle>Tasks</SectionTitle>
-              {summaryLoading && <p className="mt-3 text-sm text-zinc-500">Loading...</p>}
+              {summaryLoading && (
+                <div role="status" aria-label="Loading" className="mt-4 space-y-3">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-4/5" />
+                </div>
+              )}
               {summaryError && <ErrorText className="mt-3">{summaryError}</ErrorText>}
               {summary && summary.tasks.length === 0 && (
                 <p className="mt-3 text-sm text-zinc-500">No tasks were run this lecture.</p>
@@ -1048,17 +1116,17 @@ export default function App() {
                         <span className="text-[13px] text-zinc-500">{submittedText(t.submitted, t.expected)}</span>
                         <TextLink
                           className="ml-auto text-[13px] whitespace-nowrap"
-                          href={`lecturer.html?question_id=${encodeURIComponent(t.question_id)}`}
+                          href={liveTaskUrl(t.question_id)}
                         >
                           View task &rarr;
                         </TextLink>
                       </div>
                       {taskSubs[t.question_id] ? (
                         <ClassProgress subs={taskSubs[t.question_id]} expected={t.expected} activity={null} finished />
+                      ) : taskSubsLoaded ? (
+                        <p className="mt-2 text-sm text-zinc-500">Could not load this task's submissions.</p>
                       ) : (
-                        <p className="mt-2 text-sm text-zinc-500">
-                          {taskSubsLoaded ? "Could not load this task's submissions." : "Loading..."}
-                        </p>
+                        <Skeleton className="mt-3 h-8 w-full" />
                       )}
                     </li>
                   ))}

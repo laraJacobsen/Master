@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { fetchLecturerSession, lecturerLogin, LECTURER_AUTH_EXPIRED_EVENT } from "./api";
 import { Button, Callout, Card, Eyebrow, Input, Label, Spinner } from "./ui";
+import { rememberRole } from "./role";
 
 // Every lecturer page (home, setup, live dashboard, history, projector) sits
 // behind this when the server has a LECTURER_PASSWORD (backend/auth.py).
@@ -32,6 +33,10 @@ export function LecturerGate({ children }: LecturerGateProps) {
     window.addEventListener(LECTURER_AUTH_EXPIRED_EVENT, onExpired);
     return () => window.removeEventListener(LECTURER_AUTH_EXPIRED_EVENT, onExpired);
   }, []);
+
+  useEffect(() => {
+    if (state === "open") rememberRole("lecturer");
+  }, [state]);
 
   if (state === "checking") return null;
 

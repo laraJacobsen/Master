@@ -3,8 +3,9 @@ import type { ReactNode, RefObject } from "react";
 import type { LectureStatus, LiveQuestion, RunResponse, SharedExample, TestCase } from "../shared/types";
 import { fetchActiveLecture, fetchLectureStatus, lecturerRunCode, setScreenQueueCurrent } from "../shared/api";
 import { Editor, monaco } from "../shared/monaco";
-import { BrandMark, Button, Eyebrow } from "../shared/ui";
+import { BrandMark, Button, CodeSkeleton, Eyebrow } from "../shared/ui";
 import { cx } from "../shared/cx";
+import { ROUTES } from "../shared/routes";
 
 // The lecturer's projector screen: whatever task is live, a big countdown,
 // and -- once time is up -- the attempts the lecturer queued on the live
@@ -194,7 +195,7 @@ export default function App() {
               {joinCode ? (
                 <>
                   <p className="text-3xl text-zinc-500">
-                    Go to <strong className="font-semibold text-zinc-950">{window.location.host}/student.html</strong> and
+                    Go to <strong className="font-semibold text-zinc-950">{window.location.host}{ROUTES.join}</strong> and
                     enter
                   </p>
                   <div className="my-6 font-mono text-[clamp(5rem,16vw,12rem)] leading-none font-bold tracking-[0.12em] text-zinc-950">
@@ -622,7 +623,7 @@ function ExampleCard({ example, label, language, questionId, exampleTest }: Exam
               const value = v ?? "";
               setEdited(value !== example.source_code);
             }}
-            loading="Loading editor..."
+            loading={<CodeSkeleton lines={8} className="self-start p-6" />}
             options={{
               minimap: { enabled: false },
               fontSize,

@@ -10,6 +10,8 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 import { cx } from "./cx";
+import { LogoMark } from "./Logo";
+import { BRAND } from "./brand";
 
 // Shared, typed building blocks for every page. All visual rules from
 // .claude/skills/ui-design.md live here once: zinc palette, ultra-thin
@@ -444,14 +446,9 @@ export interface BrandMarkProps {
 export function BrandMark({ compact = false, className }: BrandMarkProps) {
   return (
     <span className={cx("flex items-center gap-2.5", className)}>
-      <span
-        className="grid size-7 place-items-center rounded-md bg-linear-to-br from-brand-500 to-violet-500 font-mono text-[11px] font-bold text-white"
-        aria-hidden="true"
-      >
-        IL
-      </span>
+      <LogoMark />
       <span className={cx("text-sm font-bold tracking-tight text-zinc-950", compact && "hidden sm:inline")}>
-        Interactive Lecture
+        {BRAND.name}
       </span>
     </span>
   );
@@ -594,5 +591,24 @@ export function Skeleton({ className }: SkeletonProps) {
         className,
       )}
     />
+  );
+}
+
+export interface CodeSkeletonProps {
+  /** How many placeholder lines. */
+  lines?: number;
+  className?: string;
+}
+
+const CODE_LINE_WIDTHS = ["w-2/5", "w-3/4", "w-1/2", "w-2/3", "w-1/3", "w-3/5", "w-1/4", "w-1/2"];
+
+/** Placeholder for code that's still loading (editor, file preview, examples): indented lines. */
+export function CodeSkeleton({ lines = 6, className }: CodeSkeletonProps) {
+  return (
+    <div role="status" aria-label="Loading" className={cx("w-full space-y-2.5 p-4", className)}>
+      {Array.from({ length: lines }, (_, i) => (
+        <Skeleton key={i} className={cx("h-3", CODE_LINE_WIDTHS[i % CODE_LINE_WIDTHS.length], i % 3 !== 0 && "ml-6")} />
+      ))}
+    </div>
   );
 }

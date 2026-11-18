@@ -5,12 +5,17 @@ import { fetchActiveLecture } from "./api";
 import { activeLectureAction } from "./lectureNav";
 import { LinkButton } from "./ui";
 import { cx } from "./cx";
+import { LogoMark } from "./Logo";
+import { BRAND } from "./brand";
+import { ROUTES } from "./routes";
+import { AccountMenu } from "./AccountMenu";
 
-// A bare "/" (the site root) and "/index.html" are the same page as far as
-// FastAPI's StaticFiles(html=True) is concerned -- normalize so comparing
-// against the current location can't miss that they match.
+// Pages are served at clean paths (shared/routes.ts); "/index.html" and a
+// trailing slash are the same page -- normalize so comparing against the
+// current location can't miss that they match.
 function normalizedPath(pathname: string): string {
-  return pathname === "/" ? "/index.html" : pathname;
+  if (pathname === "/index.html") return "/";
+  return pathname.length > 1 ? pathname.replace(/\/$/, "").replace(/\.html$/, "") : pathname;
 }
 
 function isCurrentPage(href: string): boolean {
@@ -22,10 +27,10 @@ function isCurrentPage(href: string): boolean {
 }
 
 // Persistent top bar across the three lecturer-facing pages (home, setup,
-// live dashboard) -- not on student.html, which is a different audience
+// live dashboard) -- not on the student page, which is a different audience
 // with nothing on this bar relevant to it. The brand link is the "go back"
 // affordance (clicking it always returns to the one hub every flow starts
-// from), "History" opens the past-lectures page (history.html) from
+// from), "History" opens the past-lectures page from
 // anywhere, and the right-hand shortcut is always the single obvious next
 // step for wherever the lecture currently stands, using the exact same
 // logic the home page's own resume button uses. That shortcut is a labeled
@@ -78,8 +83,8 @@ export function NavBar({ overlayBandId }: NavBarProps) {
   }, []);
 
   const action = activeLectureAction(active);
-  const onHome = isCurrentPage("index.html");
-  const onHistory = isCurrentPage("history.html");
+  const onHome = isCurrentPage(ROUTES.home);
+  const onHistory = isCurrentPage(ROUTES.history);
   // "Resume lobby" is left off the nav bar's shortcut on purpose -- the home
   // page's own card already surfaces the join code for that state, and a
   // nav-bar link would just duplicate it without that context.
@@ -96,49 +101,43 @@ export function NavBar({ overlayBandId }: NavBarProps) {
     >
       <div className="mx-auto flex h-14 max-w-[112rem] items-center gap-6 px-5 sm:px-8">
         <a
-          href="index.html"
+          href={ROUTES.home}
           className={cx(
             "group flex items-center gap-2.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4",
             onBand ? "focus-visible:outline-white" : "focus-visible:outline-brand-500",
           )}
         >
-          <span
-            className={cx(
-              "grid size-7 place-items-center rounded-md font-mono text-[11px] font-bold transition-opacity group-hover:opacity-85",
-              onBand ? "bg-white text-brand-700" : "bg-linear-to-br from-brand-500 to-violet-500 text-white",
-            )}
-            aria-hidden="true"
-          >
-            IL
-          </span>
+          <LogoMark inverted={onBand} className="transition-opacity group-hover:opacity-85" />
           <span
             className={cx("hidden text-sm font-bold tracking-tight sm:inline", onBand ? "text-white" : "text-zinc-950")}
           >
-            Interactive Lecture
+            {BRAND.name}
           </span>
         </a>
         {/* Always shown, marked when current -- a nav link that vanishes on its
             own page makes the bar jump around between pages. */}
         <div className="flex items-center gap-1">
-          <NavLink href="index.html" current={onHome} onBand={onBand}>
+          <NavLink href={ROUTES.home} current={onHome} onBand={onBand}>
             Home
           </NavLink>
-          <NavLink href="history.html" current={onHistory} onBand={onBand}>
+          <NavLink href={ROUTES.history} current={onHistory} onBand={onBand}>
             History
           </NavLink>
         </div>
-        {showCta && (
-          <LinkButton
-            href={action.href}
-            size="sm"
-            className={cx(
-              "ml-auto",
-              onBand && "bg-white text-brand-700 hover:bg-brand-50 active:bg-brand-100 focus-visible:outline-white",
-            )}
-          >
-            {action.label}
-          </LinkButton>
-        )}
+        <div className="ml-auto flex items-center gap-3">
+          {showCta && (
+            <LinkButton
+              href={action.href}
+              size="sm"
+              className={cx(
+                onBand && "bg-white text-brand-700 hover:bg-brand-50 active:bg-brand-100 focus-visible:outline-white",
+              )}
+            >
+              {action.label}
+            </LinkButton>
+          )}
+          <AccountMenu onBand={onBand} />
+        </div>
       </div>
     </nav>
   );

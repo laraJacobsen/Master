@@ -22,12 +22,15 @@ import {
 import { defaultStarterCode, isUntouched } from "../shared/starterCode";
 import { draftKey, loadDraft, pruneOldDrafts } from "./drafts";
 import { TestFiles } from "./TestFiles";
-import { Badge, BrandMark, Button, Callout, Card, Code, Eyebrow, Input, Label, Spinner, StatusLine, TimeLine } from "../shared/ui";
+import { Badge, BrandMark, Button, Callout, Card, Code, CodeSkeleton, Eyebrow, Input, Label, Skeleton, Spinner, StatusLine, TimeLine } from "../shared/ui";
 import { CodeBlock, FailingTestStrip } from "../shared/code";
 import { HERO_FILL, SCORE_LINE, TILE_TONE } from "../shared/verdictStyles";
 import { cx } from "../shared/cx";
 import type { Tone } from "../shared/ui";
 import type { WorkspaceHandle } from "./Workspace";
+import { ROUTES } from "../shared/routes";
+import { Footer } from "../shared/Footer";
+import { rememberRole } from "../shared/role";
 // Monaco is most of this page's weight -- loaded only once a task is live,
 // so the join and waiting screens stay instant.
 const Workspace = lazy(() => import("./Workspace").then((m) => ({ default: m.Workspace })));
@@ -224,7 +227,10 @@ export default function App() {
   // Pre-filled with the name from this tab's last join, if any (e.g. coming
   // back via "Back to home" after a lecture ended).
   const [joinNameInput, setJoinNameInput] = useState(getJoinedName);
-  const [joinCodeInput, setJoinCodeInput] = useState("");
+  // A shared join link (/join?code=482913, copied from the lecturer's lobby) fills the code in.
+  const [joinCodeInput, setJoinCodeInput] = useState(
+    () => new URLSearchParams(window.location.search).get("code")?.replace(/\D/g, "") ?? "",
+  );
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   // Shown on the join screen after being sent back to it because a new
@@ -569,6 +575,7 @@ export default function App() {
     try {
       const joinedLecture = await joinLectureApi(code, trimmedName, loadIdentity()?.token ?? null);
       saveIdentity({ lectureId: joinedLecture.lecture_id, token: joinedLecture.token });
+      rememberRole("student");
       setStudentToken(joinedLecture.token);
       // The lecture's spelling of the name (a rejoin keeps the original one).
       markJoinedThisSession(joinedLecture.student_name, joinedLecture.lecture_id);
@@ -662,7 +669,7 @@ export default function App() {
                 <Input
                   type="text"
                   id="join-name"
-                  placeholder="e.g. Lara Pinheiro"
+                  placeholder="e.g. Kari Nordmann"
                   autoFocus
                   className="h-11 text-[15px]"
                   value={joinNameInput}
@@ -695,6 +702,7 @@ export default function App() {
             </Card>
           </section>
         </StudentPage>
+        <Footer />
       </>
     );
   }
@@ -704,9 +712,16 @@ export default function App() {
       <>
         <StudentBar name={joinedName} />
         <StudentPage className="pt-14">
-          <p className="flex items-center gap-2 text-sm text-zinc-500">
-            <Spinner /> Loading...
-          </p>
+          <div role="status" aria-label="Loading" className="grid gap-8 lg:grid-cols-12">
+            <div className="lg:col-span-4">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="mt-4 h-8 w-3/4" />
+              <Skeleton className="mt-6 h-4 w-full" />
+              <Skeleton className="mt-2 h-4 w-5/6" />
+              <Skeleton className="mt-2 h-4 w-2/3" />
+            </div>
+            <Skeleton className="h-[28rem] rounded-xl lg:col-span-8" />
+          </div>
         </StudentPage>
       </>
     );
@@ -729,8 +744,8 @@ export default function App() {
             {/* The join screen is the student's "home" -- this tab's join was
                 already forgotten when the lecture ended (see applyStatus), so a
                 fresh load lands there, ready for the next lecture's code. */}
-            <Button variant="secondary" className="mt-8" onClick={() => (window.location.href = "student.html")}>
-              Back to home
+            <Button variant="secondary" className="mt-8" onClick={() => (window.location.href = ROUTES.join)}>
+              Join another lecture
             </Button>
           </section>
           {recap && (
@@ -763,6 +778,7 @@ export default function App() {
             </section>
           )}
         </StudentPage>
+        <Footer />
       </>
     );
   }
@@ -1088,8 +1104,8 @@ export default function App() {
         <section className="h-[80dvh] min-h-[32rem] min-w-0 lg:h-auto" aria-label="Your code">
           <Suspense
             fallback={
-              <div className="flex h-full items-center justify-center rounded-xl bg-white text-sm text-zinc-500 shadow-card">
-                <Spinner /> <span className="ml-2">Loading editor...</span>
+              <div className="h-full rounded-xl bg-white shadow-card">
+                <CodeSkeleton lines={8} className="p-6" />
               </div>
             }
           >

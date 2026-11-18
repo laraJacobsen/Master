@@ -30,6 +30,8 @@ import {
 } from "../shared/review";
 import { TrendChart } from "../shared/TrendChart";
 import type { TrendPoint } from "../shared/TrendChart";
+import { lectureSummaryUrl, liveTaskUrl } from "../shared/routes";
+import { Footer } from "../shared/Footer";
 
 // Lecture history, reachable from the nav bar on every lecturer page. Built
 // around one decision: what should a review lecture go back over? Top to
@@ -97,7 +99,7 @@ function TaskRow({ task }: TaskRowProps) {
     <li className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-sm font-semibold text-zinc-900">{task.title}</span>
-        <TextLink className="text-[13px] whitespace-nowrap" href={`lecturer.html?question_id=${encodeURIComponent(task.question_id)}`}>
+        <TextLink className="text-[13px] whitespace-nowrap" href={liveTaskUrl(task.question_id)}>
           View task
         </TextLink>
       </div>
@@ -180,7 +182,7 @@ function LectureItem({ review, rank, open, onToggle }: LectureItemProps) {
               <TaskRow key={t.question_id} task={t} />
             ))}
           </ul>
-          <TextLink className="mt-4 inline-block text-[13px]" href={`lecturer.html?lecture_id=${review.lecture_id}`}>
+          <TextLink className="mt-4 inline-block text-[13px]" href={lectureSummaryUrl(review.lecture_id)}>
             Lecture summary &rarr;
           </TextLink>
         </div>
@@ -681,7 +683,7 @@ export default function App() {
                   >
                     <a
                       className="group flex min-w-0 flex-1 flex-col gap-0.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
-                      href={`lecturer.html?lecture_id=${row.id}`}
+                      href={lectureSummaryUrl(row.id)}
                     >
                       <span className="truncate text-sm font-semibold text-zinc-900 group-hover:underline group-hover:underline-offset-4">
                         {row.display_label}
@@ -706,6 +708,7 @@ export default function App() {
           </Card>
         </div>
       </Page>
+      <Footer className="mt-16" />
     </>
   );
 }

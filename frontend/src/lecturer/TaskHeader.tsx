@@ -7,6 +7,7 @@ import { ACTIVITY_LABEL, isSolved } from "./studentTracks";
 import type { StudentTrack } from "./studentTracks";
 import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_ORDER, categoryCounts } from "../shared/categories";
 import { cx } from "../shared/cx";
+import { ROUTES } from "../shared/routes";
 
 export interface LiveHeroProps {
   title: string;
@@ -116,8 +117,8 @@ export function LiveHero(props: LiveHeroProps) {
   const menuItems: MenuEntry[] = [
     ...taskItems,
     ...(taskItems.length ? ["separator" as const] : []),
-    { label: "Projector view ↗", href: "present.html", newTab: true },
-    { label: "Question setup", href: "setup.html" },
+    { label: "Projector view ↗", href: ROUTES.present, newTab: true },
+    { label: "Question setup", href: ROUTES.setup },
     // Ends the whole lecture for everyone -- kept in here, not on the page,
     // so it isn't clicked by accident (and it still asks to confirm).
     ...(canEndLecture

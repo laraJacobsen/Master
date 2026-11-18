@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { fetchTestFile } from "../shared/api";
 import type { VisibleTestFile } from "../shared/types";
-import { Button, Callout, Eyebrow } from "../shared/ui";
+import { Button, Callout, CodeSkeleton, Eyebrow } from "../shared/ui";
 import { cx } from "../shared/cx";
 
 // Long files are cut here in the viewer; the full file is one click away (Download).
@@ -133,7 +133,7 @@ export function TestFiles({ questionId, files, groupByTest = false }: TestFilesP
               </Button>
             </span>
           </div>
-          {loadingKey === keyOf(open) && <div className="px-3 py-2 text-[13px] text-zinc-500">Loading...</div>}
+          {loadingKey === keyOf(open) && <CodeSkeleton lines={4} className="px-3 py-3" />}
           {error && (
             <Callout tone="danger" role="alert" className="m-3">
               {error}

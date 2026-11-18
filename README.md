@@ -182,11 +182,11 @@ has to join under a new name (e.g. with their last initial).
 
 Then open in a browser:
 
-- Question setup (lecturer): `http://localhost:8000/setup.html` -- author a
+- Question setup (lecturer): `http://localhost:8000/setup` -- author a
   question, set its grading config, run the validation preview against a
   reference solution, then start it. The pre-seeded `sum-ints` question is
   already live, so this step is only needed to add more questions.
-- Student page: `http://localhost:8000/student.html`. First shows a
+- Student page: `http://localhost:8000/join`. First shows a
   Kahoot-style "enter the code" screen -- the join code for the currently
   live lecture is shown on the home page (and on the live task-control
   dashboard) once a lecture is active; a fresh checkout's pre-seeded lecture
@@ -212,7 +212,7 @@ Then open in a browser:
   resubmitting is what escalates the hint tier. Issues the lecturer flags
   with "Show on full screen" (anonymous code + failing test) appear on this
   waiting screen once the task's time is up.
-- Lecturer page: `http://localhost:8000/lecturer.html?question_id=sum-ints`
+- Lecturer page: `http://localhost:8000/live?question_id=sum-ints`
   (the setup page's "Start"/"Live dashboard" links go here directly; with no
   `question_id` it shows submissions across every question, the old behavior).
   The "Task control" card at the top runs the lecture:
@@ -233,7 +233,7 @@ Then open in a browser:
     running still wait for the next one. A one-time startup migration also
     retires leftovers from lectures that ended before this existed.)
 
-- Projector view: `http://localhost:8000/present.html` (also linked as
+- Projector view: `http://localhost:8000/present` (also linked as
   "Open projector view" on the live dashboard's Task control card) -- the
   page to put on the big screen. Follows the lecture on its own: the join
   code while students are joining, then the live task's title/prompt and a

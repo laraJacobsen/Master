@@ -1,0 +1,7 @@
+# Lecturer pages are behind a login and shouldn't be crawled; only the public
+# student, help and privacy pages are meant to be found.
+User-agent: *
+Disallow: /
+Allow: /join
+Allow: /help
+Allow: /privacy

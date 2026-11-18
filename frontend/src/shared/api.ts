@@ -60,6 +60,23 @@ export function lecturerLogin(password: string): Promise<{ logged_in: boolean }>
   }).then((res) => asJson(res));
 }
 
+export function lecturerLogout(): Promise<unknown> {
+  return apiFetch(`${API_BASE}/api/lecturer/logout`, { method: "POST" }).then((res) => asJson(res));
+}
+
+// Fired when the server stops or starts answering again -- only on the change,
+// not per call. ConnectionBanner shows "Reconnecting..." while it's down.
+export const CONNECTION_EVENT = "api-connection";
+export interface ConnectionDetail {
+  ok: boolean;
+}
+let connectionOk = true;
+function reportConnection(ok: boolean): void {
+  if (ok === connectionOk) return;
+  connectionOk = ok;
+  window.dispatchEvent(new CustomEvent<ConnectionDetail>(CONNECTION_EVENT, { detail: { ok } }));
+}
+
 // fetch() only rejects when the server can't be reached at all (network down,
 // server stopped), with browser jargon like "Failed to fetch" -- shown as-is in
 // the pages' error lines, which is no use to a lecturer or student.
@@ -68,9 +85,12 @@ function apiFetch(input: string, init?: RequestInit): Promise<Response> {
   if (studentToken && !input.includes("/api/lecturer/")) headers.set("X-Student-Token", studentToken);
   return fetch(input, { ...init, headers })
     .catch(() => {
+      reportConnection(false);
       throw new Error("Couldn't reach the server. Check your connection and try again.");
     })
     .then((res) => {
+      // A proxy in front of a stopped backend answers 502/503/504 instead.
+      reportConnection(res.status < 502 || res.status > 504);
       // The lecturer's session ran out (or was never there): LecturerGate shows
       // the login dialog over the page, which stays as it was underneath.
       if (res.status === 401 && input.includes("/api/lecturer/") && !input.endsWith("/api/lecturer/login")) {
