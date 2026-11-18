@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import type { ReactNode } from "react";
 import type { StudentActivity, SubmissionRow, Verdict } from "../shared/types";
 import { LABEL, activityText, activityTitle, attemptTitle, buildTracks, isSolved, verdictOf } from "./studentTracks";
 import type { StudentTrack } from "./studentTracks";
@@ -18,7 +19,7 @@ import { cx } from "../shared/cx";
 // drawer -- code can be long, and the page shouldn't jump around for it.
 
 
-type Group = Verdict | "none";
+export type Group = Verdict | "none";
 
 // Worst first: the students worth a look sit at the top.
 const GROUP_ORDER: Group[] = ["error", "incorrect", "partially_correct", "none", "correct"];
@@ -132,9 +133,12 @@ export function StudentGrid({ subs, activity, only, showNames: showNamesProp, sh
             const share = t.best && t.best.tests_total ? t.best.tests_passed / t.best.tests_total : 0;
             return (
               <li key={t.name}>
-                <button
-                  type="button"
-                  aria-pressed={selected === t.name}
+                <StudentTile
+                  label={label(t)}
+                  mono={!showNames}
+                  verdict={group}
+                  share={share}
+                  pressed={selected === t.name}
                   onClick={() => select(t.name)}
                   title={
                     `${label(t)}: ` +
@@ -143,31 +147,13 @@ export function StudentGrid({ subs, activity, only, showNames: showNamesProp, sh
                       : "no attempts yet") +
                     (a ? ` · ${activityTitle(a)}` : "")
                   }
-                  className={cx(
-                    "relative flex h-12 w-full flex-col justify-between rounded-md border px-2 pt-1.5 pb-2 text-left transition-[border-color,box-shadow]",
-                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
-                    TILE_TONE[group],
-                    TILE_HOVER[group],
-                    selected === t.name && "ring-2 ring-brand-500 ring-offset-1",
-                  )}
                 >
-                  <span className={cx("truncate pr-2.5 text-xs leading-tight", showNames ? "font-medium" : "font-mono")}>
-                    {label(t)}
-                  </span>
-                  {t.best && (
-                    <span className="block h-[3px] overflow-hidden rounded-sm bg-black/10" aria-hidden="true">
-                      <span
-                        className={cx("block h-full rounded-sm", SCORE_LINE[verdictOf(t.best)])}
-                        style={{ width: `${Math.max(share, 0.04) * 100}%` }}
-                      />
-                    </span>
-                  )}
                   {dot && (
                     <span className="absolute top-1.5 right-1.5 flex" role="img" aria-label={activityText(dot)}>
                       <ActivityDot status={dot.status} />
                     </span>
                   )}
-                </button>
+                </StudentTile>
               </li>
             );
           })}
@@ -237,6 +223,51 @@ export function StudentGrid({ subs, activity, only, showNames: showNamesProp, sh
         )}
       </Drawer>
     </section>
+  );
+}
+
+export interface StudentTileProps {
+  label: string;
+  // Numbers ("#04") are set in mono; names aren't.
+  mono: boolean;
+  verdict: Group;
+  // Share of tests passed, drawn as the thin line at the bottom.
+  share: number;
+  pressed: boolean;
+  onClick: () => void;
+  title: string;
+  // Corner marks (the activity dot).
+  children?: ReactNode;
+}
+
+// One student's box, coloured by a verdict. Shared with a discussion point's
+// list of students (IssueList.tsx) so both look the same.
+export function StudentTile({ label, mono, verdict, share, pressed, onClick, title, children }: StudentTileProps) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      title={title}
+      className={cx(
+        "relative flex h-12 w-full flex-col justify-between rounded-md border px-2 pt-1.5 pb-2 text-left transition-[border-color,box-shadow]",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
+        TILE_TONE[verdict],
+        TILE_HOVER[verdict],
+        pressed && "ring-2 ring-brand-500 ring-offset-1",
+      )}
+    >
+      <span className={cx("truncate pr-2.5 text-xs leading-tight", mono ? "font-mono" : "font-medium")}>{label}</span>
+      {verdict !== "none" && (
+        <span className="block h-[3px] overflow-hidden rounded-sm bg-black/10" aria-hidden="true">
+          <span
+            className={cx("block h-full rounded-sm", SCORE_LINE[verdict])}
+            style={{ width: `${Math.max(share, 0.04) * 100}%` }}
+          />
+        </span>
+      )}
+      {children}
+    </button>
   );
 }
 

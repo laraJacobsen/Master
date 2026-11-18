@@ -3,7 +3,6 @@ import type { StudentActivity, SubmissionRow } from "../shared/types";
 import type { StudentTrack } from "./studentTracks";
 import { StudentGrid } from "./StudentGrid";
 import type { ShowCodeControl } from "./StudentGrid";
-import { readShowNames, saveShowNames } from "./studentNames";
 import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_ORDER, categoryOf } from "../shared/categories";
 import type { Category } from "../shared/categories";
 import { Card } from "../shared/ui";
@@ -18,6 +17,9 @@ export interface VerdictBreakdownProps {
   activity: StudentActivity[] | null;
   // "Show on screen" for one student's attempt, in their code drawer.
   showCode?: ShowCodeControl;
+  // Shared with the discussion points' student tiles, so both agree.
+  showNames: boolean;
+  onToggleNames: () => void;
 }
 
 // Each student's best result so far, a row per outcome category (the bar
@@ -28,9 +30,10 @@ export function VerdictBreakdown({
   subs,
   activity,
   showCode,
+  showNames,
+  onToggleNames,
 }: VerdictBreakdownProps) {
   const [openRows, setOpenRows] = useState<Set<Row>>(new Set());
-  const [showNames, setShowNames] = useState(readShowNames);
 
   const members = new Map<Row, Set<string>>();
   for (const t of tracks) {
@@ -51,13 +54,6 @@ export function VerdictBreakdown({
     });
   }
 
-  function toggleNames() {
-    setShowNames((prev) => {
-      saveShowNames(!prev);
-      return !prev;
-    });
-  }
-
   return (
     <Card className="flex flex-col">
       <div className="flex items-start justify-between gap-4">
@@ -70,7 +66,7 @@ export function VerdictBreakdown({
             <button
               type="button"
               aria-pressed={showNames}
-              onClick={toggleNames}
+              onClick={onToggleNames}
               className="rounded-md px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
             >
               {showNames ? "Hide names" : "Show names"}

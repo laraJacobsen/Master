@@ -31,6 +31,7 @@ import { clusterIds, issueKey } from "./issues";
 import { LiveHero } from "./TaskHeader";
 import { VerdictBreakdown } from "./VerdictBreakdown";
 import { buildTracks } from "./studentTracks";
+import { readShowNames, saveShowNames } from "./studentNames";
 import { buildMock } from "./mockData";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { HeaderNavLink } from "../shared/HeaderNavLink";
@@ -103,6 +104,9 @@ export default function App() {
   const [openIssues, setOpenIssues] = useState<Set<string>>(new Set());
   const [fetchedSubs, setFetchedSubs] = useState<Record<number, SubmissionRow>>({});
   const [issueLoadError, setIssueLoadError] = useState(false);
+  // Names or numbers on student tiles -- one toggle for the outcome rows and
+  // the discussion points, so a student is "#04" in both.
+  const [showNames, setShowNames] = useState(readShowNames);
   const [raisingKey, setRaisingKey] = useState<string | null>(null);
   // Single submissions picked from a student's code drawer (any verdict).
   const [shownSubIds, setShownSubIds] = useState<Set<number>>(new Set());
@@ -560,6 +564,15 @@ export default function App() {
   const lastTask = hasNextTask === false;
   const taskRunning = secondsRemaining != null && secondsRemaining > 0;
   const tracks = buildTracks(subRows, taskRunning ? activity : null);
+  // Same alphabetical numbering as StudentGrid.
+  const studentNumber = new Map(tracks.map((t, i) => [t.name, String(i + 1).padStart(2, "0")]));
+  const studentLabel = (name: string) => (showNames ? name : `#${studentNumber.get(name) ?? "--"}`);
+  function toggleNames() {
+    setShowNames((prev) => {
+      saveShowNames(!prev);
+      return !prev;
+    });
+  }
 
   return (
     <>
@@ -690,6 +703,8 @@ export default function App() {
                 taskRunning,
                 onToggle: toggleSubmissionShown,
               }}
+              showNames={showNames}
+              onToggleNames={toggleNames}
             />
             </div>
             <section aria-label="Discussion points" className="min-w-0">
@@ -707,6 +722,8 @@ export default function App() {
                 loadError={issueLoadError}
                 raisingKey={raisingKey}
                 onToggleRaised={toggleRaised}
+                studentLabel={studentLabel}
+                namesShown={showNames}
               />
             </section>
           </div>
@@ -737,6 +754,8 @@ export default function App() {
                 loadError={issueLoadError}
                 raisingKey={raisingKey}
                 onToggleRaised={null}
+                studentLabel={studentLabel}
+                namesShown={showNames}
               />
             </section>
             {

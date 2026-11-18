@@ -950,6 +950,11 @@ def _submit(req: SubmitRequest):
     if question["status"] != "live":
         raise HTTPException(status_code=409, detail="This question isn't live (not started yet, or already closed).")
 
+    # Submitting counts as working on it: reset the idle timer (and any nudge)
+    # like typing does, so reading the feedback doesn't read as idle straight away.
+    # Name stripped the same way the heartbeat strips it, so it's the same row.
+    store.record_activity(req.question_id, req.student_name.strip(), edited=True)
+
     attempt_number = store.next_attempt_number(req.student_name, req.question_id)
     tests_total = len(_graded(question["test_cases"]))
 

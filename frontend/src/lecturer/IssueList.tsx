@@ -1,5 +1,8 @@
+import { useState } from "react";
 import type { ClusterRow, SubmissionRow } from "../shared/types";
-import { ExampleBlock } from "./ExampleBlock";
+import { ExampleBlock, SubmissionDetail } from "./ExampleBlock";
+import { StudentTile } from "./StudentGrid";
+import { LABEL, verdictOf } from "./studentTracks";
 import { groupByShape, groupKey } from "./codeGroups";
 import { CATEGORY_FILL, CATEGORY_LABEL, CATEGORY_PILL, categoryOf } from "../shared/categories";
 import { Card } from "../shared/ui";
@@ -39,6 +42,9 @@ export interface IssueListProps {
   // While the task runs, raising only queues: the backend holds raised
   // examples back from students and the projector until time is up.
   taskRunning: boolean;
+  // A student's tile label: their name, or their class number when names are hidden.
+  studentLabel: (name: string) => string;
+  namesShown: boolean;
 }
 
 // The discussion points, biggest first (raised ones on top). Each row is the
@@ -53,6 +59,8 @@ export function IssueList({
   raisingKey,
   onToggleRaised,
   taskRunning,
+  studentLabel,
+  namesShown,
 }: IssueListProps) {
   // Passing is in the verdict breakdown -- nothing to discuss.
   const points = issues.filter((c) => c.exec_verdict !== "pass");
@@ -95,6 +103,8 @@ export function IssueList({
               raiseBusy={raisingKey !== null}
               onToggleRaised={onToggleRaised ? () => onToggleRaised(c) : null}
               taskRunning={taskRunning}
+              studentLabel={studentLabel}
+              namesShown={namesShown}
             />
           ))}
         </ul>
@@ -113,6 +123,8 @@ export interface IssueRowProps {
   raiseBusy: boolean;
   onToggleRaised: (() => void) | null;
   taskRunning: boolean;
+  studentLabel: (name: string) => string;
+  namesShown: boolean;
 }
 
 function IssueRow({
@@ -125,7 +137,11 @@ function IssueRow({
   raiseBusy,
   onToggleRaised,
   taskRunning,
+  studentLabel,
+  namesShown,
 }: IssueRowProps) {
+  // The one student whose code is shown instead of the grouped code.
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const category = categoryOf(c.exec_verdict);
   const action = actionText(c);
   // The note is already the headline when the AI headline isn't there.
@@ -227,20 +243,122 @@ function IssueRow({
               )}
             </div>
           )}
-          <IssueCode subs={subs} loadError={loadError} />
+          <IssueStudents
+            subs={subs}
+            selectedId={selectedId}
+            onSelect={(id) => setSelectedId((prev) => (prev === id ? null : id))}
+            studentLabel={studentLabel}
+            namesShown={namesShown}
+          />
+          <IssueCode
+            subs={subs}
+            loadError={loadError}
+            selected={subs.find((s) => s.id === selectedId) ?? null}
+            selectedLabel={(s) => studentLabel(s.student_name)}
+            onClearSelected={() => setSelectedId(null)}
+          />
         </div>
       )}
     </li>
   );
 }
 
+// A student's latest attempt in this issue -- one tile per student, even if
+// several of their attempts landed here.
+function latestPerStudent(subs: SubmissionRow[]): SubmissionRow[] {
+  const latest = new Map<string, SubmissionRow>();
+  for (const sub of subs) {
+    const prev = latest.get(sub.student_name);
+    if (!prev || sub.id > prev.id) latest.set(sub.student_name, sub);
+  }
+  return [...latest.values()];
+}
+
+export interface IssueStudentsProps {
+  subs: SubmissionRow[];
+  selectedId: number | null;
+  onSelect: (id: number) => void;
+  studentLabel: (name: string) => string;
+  namesShown: boolean;
+}
+
+// The students who made this mistake, as the same tiles as "Students by
+// outcome" (coloured by this attempt, not their best). A tile swaps the code
+// below for that student's own; clicking it again goes back.
+function IssueStudents({ subs, selectedId, onSelect, studentLabel, namesShown }: IssueStudentsProps) {
+  const students = latestPerStudent(subs).sort((a, b) =>
+    studentLabel(a.student_name).localeCompare(studentLabel(b.student_name), undefined, { numeric: true }),
+  );
+  if (students.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-2 text-xs text-zinc-500">
+        Students with this issue · click one to see their code
+      </p>
+      <ul
+        className={cx(
+          "grid gap-1.5",
+          namesShown
+            ? "grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))]"
+            : "grid-cols-[repeat(auto-fill,minmax(3.25rem,1fr))]",
+        )}
+      >
+        {students.map((sub) => {
+          const label = studentLabel(sub.student_name);
+          return (
+            <li key={sub.student_name}>
+              <StudentTile
+                label={label}
+                mono={!namesShown}
+                verdict={verdictOf(sub)}
+                share={sub.tests_total ? sub.tests_passed / sub.tests_total : 0}
+                pressed={selectedId === sub.id}
+                onClick={() => onSelect(sub.id)}
+                title={`${label}: ${LABEL[verdictOf(sub)]}, ${sub.tests_passed}/${sub.tests_total} tests, attempt ${sub.attempt_number}`}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export interface IssueCodeProps {
   subs: SubmissionRow[];
   loadError: boolean;
+  // One student's attempt to show instead of the grouped code.
+  selected: SubmissionRow | null;
+  selectedLabel: (sub: SubmissionRow) => string;
+  onClearSelected: () => void;
   className?: string;
 }
 
-function IssueCode({ subs, loadError, className }: IssueCodeProps) {
+function IssueCode({ subs, loadError, selected, selectedLabel, onClearSelected, className }: IssueCodeProps) {
+  if (selected) {
+    return (
+      <div key={selected.id} className={cx("grid animate-fade-in text-[13px]", className)}>
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-xs text-zinc-500">
+          <span>
+            <strong className="font-semibold text-zinc-900">{selectedLabel(selected)}</strong> · attempt{" "}
+            {selected.attempt_number} ·{" "}
+            <span className="font-mono">
+              {selected.tests_passed}/{selected.tests_total}
+            </span>{" "}
+            tests
+          </span>
+          <button
+            type="button"
+            onClick={onClearSelected}
+            className="rounded-md px-2 py-1 font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+          >
+            Back to all code
+          </button>
+        </div>
+        <SubmissionDetail sub={selected} />
+      </div>
+    );
+  }
   return (
     <div className={cx("grid animate-fade-in gap-5 text-[13px]", className)}>
       {subs.length > 0 ? (
