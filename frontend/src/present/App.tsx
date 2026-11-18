@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
-import type { LectureStatus, LiveQuestion, RunResponse, SharedExample } from "../shared/types";
+import type { LectureStatus, LiveQuestion, RunResponse, SharedExample, TestCase } from "../shared/types";
 import { fetchActiveLecture, fetchLectureStatus, runCode, setScreenQueueCurrent } from "../shared/api";
 import { Editor, monaco } from "../shared/monaco";
 import { BrandMark, Button, Eyebrow } from "../shared/ui";
@@ -262,6 +262,7 @@ export default function App() {
                     label={null}
                     language={question.language}
                     questionId={question.id}
+                    exampleTest={question.example}
                   />
                 </section>
               )}
@@ -471,9 +472,12 @@ export interface ExampleCardProps {
   label: string | null;
   language: string;
   questionId: string;
+  // The task's example test: what Run uses when the attempt failed no test
+  // (a correct one), so input() has something to read instead of hitting EOF.
+  exampleTest: TestCase | null;
 }
 
-function ExampleCard({ example, label, language, questionId }: ExampleCardProps) {
+function ExampleCard({ example, label, language, questionId, exampleTest }: ExampleCardProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const highlightsRef = useRef<monaco.editor.IEditorDecorationsCollection[]>([]);
   const fontSize = FONT_SIZE;
@@ -530,6 +534,8 @@ function ExampleCard({ example, label, language, questionId }: ExampleCardProps)
 
   // Ungraded and not stored (the student page's Run endpoint), on the input
   // of the test this attempt failed -- so "Got" can be compared before/after.
+  // A correct attempt failed nothing, so it runs on the task's example input.
+  const runTest = example.failing_test ?? exampleTest;
   const runIt = async () => {
     const editor = editorRef.current;
     if (!editor || running) return;
@@ -541,7 +547,7 @@ function ExampleCard({ example, label, language, questionId }: ExampleCardProps)
           student_name: "Lecturer (projector)",
           question_id: questionId,
           source_code: editor.getValue(),
-          stdin: example.failing_test?.stdin ?? "",
+          stdin: runTest?.stdin ?? "",
         }),
       );
     } catch (e) {
@@ -661,7 +667,15 @@ function ExampleCard({ example, label, language, questionId }: ExampleCardProps)
           />
         )}
       </div>
-      {(run || runError) && <RunResult run={run} error={runError} expected={failing?.expected_stdout ?? null} />}
+      {(run || runError) && (
+        <RunResult
+          run={run}
+          error={runError}
+          expected={runTest?.expected_stdout ?? null}
+          // The failing test's input is already in the table above.
+          input={failing ? null : (runTest?.stdin ?? "")}
+        />
+      )}
       {edited && <p className="mt-3 text-[15px] text-zinc-500">Edited here only. Students still see the original.</p>}
     </div>
   );
@@ -672,9 +686,11 @@ export interface RunResultProps {
   error: string | null;
   // The failing test's expected output, to say whether the run now matches.
   expected: string | null;
+  // The input it ran on, when it isn't already shown above.
+  input: string | null;
 }
 
-function RunResult({ run, error, expected }: RunResultProps) {
+function RunResult({ run, error, expected, input }: RunResultProps) {
   if (error || !run) {
     return <p className="mt-4 text-xl text-red-600">{error}</p>;
   }
@@ -698,6 +714,7 @@ function RunResult({ run, error, expected }: RunResultProps) {
       <IoTable
         className="text-xl"
         rows={[
+          ...(input != null ? ([["Input", input.trimEnd() || "(none)"]] as Array<[string, string]>) : []),
           [
             run.output_file ? `Now writes to ${run.output_file}` : "Now gets",
             output == null ? "(file not created)" : output.trim() || "(nothing)",

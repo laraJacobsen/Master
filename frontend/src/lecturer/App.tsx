@@ -29,7 +29,6 @@ import {
   fetchScreenQueue,
   moveQueueEntry,
   removeQueueEntry,
-  setScreenQueueCurrent,
 } from "../shared/api";
 import { ClassProgress } from "./ClassProgress";
 import { IssueList } from "./IssueList";
@@ -91,14 +90,8 @@ function verdictLabel(v: string) {
 }
 // ?mock versions of the backend's screen-queue changes (store.py).
 let mockQueueId = 1;
-function mockAppend(
-  prev: ScreenQueueEntry[],
-  fields: Omit<ScreenQueueEntry, "id" | "current">,
-  showNow: boolean,
-): ScreenQueueEntry[] {
-  const entry = { ...fields, id: mockQueueId++, current: prev.length === 0 };
-  const next = [...prev, entry];
-  return showNow ? next.map((e) => ({ ...e, current: e.id === entry.id })) : next;
+function mockAppend(prev: ScreenQueueEntry[], fields: Omit<ScreenQueueEntry, "id" | "current">): ScreenQueueEntry[] {
+  return [...prev, { ...fields, id: mockQueueId++, current: prev.length === 0 }];
 }
 function mockRemove(prev: ScreenQueueEntry[], drop: (e: ScreenQueueEntry) => boolean): ScreenQueueEntry[] {
   const i = prev.findIndex((e) => e.current);
@@ -134,7 +127,8 @@ export default function App() {
   // Names or numbers on student tiles -- one toggle for the outcome rows and
   // the discussion points, so a student is "#04" in both.
   const [showNames, setShowNames] = useState(readShowNames);
-  const [raisingKey, setRaisingKey] = useState<string | null>(null);
+  // The snippet whose "Add to queue" is on its way to the server.
+  const [queueingSubId, setQueueingSubId] = useState<number | null>(null);
   // Single submissions picked from a student's code drawer (any verdict).
   const [shownSubIds, setShownSubIds] = useState<Set<number>>(new Set());
   const [showingSubId, setShowingSubId] = useState<number | null>(null);
@@ -544,14 +538,9 @@ export default function App() {
     }
   }
 
-  // "Show on full screen" -- the lecturer's call that an issue is worth going
-  // over with the class, even if only one student hit it: its example goes to
-  // every student's waiting screen once time is up (see
-  // aggregation.raise_issue()). Raising a wrong_answer issue waits on a live
-  // Label call, hence the busy state.
-  // "Show on screen" in a student's code drawer -- see api_lecturer_show_submission.
-  // Adds the attempt to the end of the screen queue (or takes it out); after
-  // time's up it also goes straight on screen.
+  // "Add to queue" in a student's code drawer -- see api_lecturer_show_submission.
+  // Adds the attempt to the end of the screen queue (or takes it out). Only
+  // the projector moves what's on screen.
   async function toggleSubmissionShown(sub: SubmissionRow) {
     const next = !shownSubIds.has(sub.id);
     if (MOCK) {
@@ -573,7 +562,7 @@ export default function App() {
               tests_passed: sub.tests_passed ?? null,
               tests_total: sub.tests_total ?? null,
               lines: (sub.source_code ?? "").split("\n").length,
-            }, timeUp)
+            })
           : mockRemove(prev, (e) => e.kind === "attempt" && e.submission_id === sub.id),
       );
       return;
@@ -590,39 +579,45 @@ export default function App() {
     }
   }
 
-  async function toggleRaised(c: ClusterRow) {
+  // "Add to queue" on one snippet of a discussion point: that exact code goes
+  // in the screen queue (see aggregation.raise_issue()'s example_submission_id).
+  // A discussion point can queue several of its snippets, each its own entry.
+  function queuedSnippetIds(c: ClusterRow): Set<number> {
+    return new Set(screenQueue.filter((e) => e.kind === "issue" && issueEntryMatches(e, c)).map((e) => e.submission_id));
+  }
+
+  async function toggleSnippetQueued(c: ClusterRow, sub: SubmissionRow) {
     if (!QUESTION_ID) return;
-    const key = issueKey(c);
+    const queued = queuedSnippetIds(c).has(sub.id);
     if (MOCK) {
-      setClusters((prev) => prev.map((x) => (issueKey(x) === key ? { ...x, raised: !x.raised } : x)));
       const names = clusterIds(c).map((id) => knownSub(id)?.student_name ?? `#${id}`);
-      const example = knownSub(c.example_submission_id);
-      setScreenQueue((prev) =>
-        !c.raised
-          ? mockAppend(prev, {
-              kind: "issue",
-              exec_verdict: c.exec_verdict,
-              error_type: c.error_type,
-              students: names,
-              submission_id: c.example_submission_id,
-              verdict: example?.verdict ?? null,
-              tests_passed: example?.tests_passed ?? null,
-              tests_total: example?.tests_total ?? null,
-              lines: (example?.source_code ?? "").split("\n").length,
-            }, timeUp)
-          : mockRemove(prev, (e) => e.kind === "issue" && issueEntryMatches(e, c)),
-      );
+      const next = queued
+        ? mockRemove(screenQueue, (e) => e.kind === "issue" && e.submission_id === sub.id && issueEntryMatches(e, c))
+        : mockAppend(screenQueue, {
+            kind: "issue",
+            exec_verdict: c.exec_verdict,
+            error_type: c.error_type,
+            students: names,
+            submission_id: sub.id,
+            verdict: sub.verdict ?? null,
+            tests_passed: sub.tests_passed ?? null,
+            tests_total: sub.tests_total ?? null,
+            lines: (sub.source_code ?? "").split("\n").length,
+          });
+      setScreenQueue(next);
+      const stillRaised = next.some((e) => e.kind === "issue" && issueEntryMatches(e, c));
+      setClusters((prev) => prev.map((x) => (issueKey(x) === issueKey(c) ? { ...x, raised: stillRaised } : x)));
       return;
     }
-    setRaisingKey(key);
+    setQueueingSubId(sub.id);
     setRaiseError(null);
     try {
-      setClusters(await raiseIssue(QUESTION_ID, c, !c.raised));
+      setClusters(await raiseIssue(QUESTION_ID, c, !queued, sub.id));
       setScreenQueue((await fetchScreenQueue(QUESTION_ID)).entries);
     } catch (e) {
-      setRaiseError(e instanceof Error ? e.message : "Could not update this issue.");
+      setRaiseError(e instanceof Error ? e.message : "Could not update the screen queue.");
     } finally {
-      setRaisingKey(null);
+      setQueueingSubId(null);
     }
   }
 
@@ -679,26 +674,6 @@ export default function App() {
     }
   }
 
-  function showEntry(entry: ScreenQueueEntry) {
-    if (!QUESTION_ID) return;
-    void changeQueue(
-      () => setScreenQueueCurrent(QUESTION_ID, { entry_id: entry.id }),
-      (prev) => prev.map((e) => ({ ...e, current: e.id === entry.id })),
-    );
-  }
-
-  function stepQueue(step: number) {
-    if (!QUESTION_ID) return;
-    void changeQueue(
-      () => setScreenQueueCurrent(QUESTION_ID, { step }),
-      (prev) => {
-        const i = prev.findIndex((e) => e.current);
-        const next = Math.max(0, Math.min(prev.length - 1, i + step));
-        return prev.map((e, j) => ({ ...e, current: j === next }));
-      },
-    );
-  }
-
   // A raised issue's queue entry holds the students in it when it was raised;
   // the cluster it came from is the raised one on the same verdict sharing a student.
   function issueEntryMatches(entry: ScreenQueueEntry, c: ClusterRow) {
@@ -718,7 +693,7 @@ export default function App() {
       const n = entry.students.length;
       return {
         title: cluster?.title ?? tag,
-        meta: ["Discussion point", cluster?.title ? tag : null, `${n} student${n === 1 ? "" : "s"}`, lines]
+        meta: [cluster?.title ? tag : null, `${n} student${n === 1 ? "" : "s"}`, lines]
           .filter(Boolean)
           .join(" · "),
       };
@@ -902,8 +877,6 @@ export default function App() {
                   error={queueError}
                   onMove={moveEntry}
                   onRemove={(e) => void removeEntry(e)}
-                  onShow={showEntry}
-                  onStep={stepQueue}
                 />
               </div>
             )}
@@ -940,8 +913,11 @@ export default function App() {
                     .filter((sub): sub is SubmissionRow => !!sub)
                 }
                 loadError={issueLoadError}
-                raisingKey={raisingKey}
-                onToggleRaised={isLiveTask ? toggleRaised : null}
+                snippetQueue={
+                  isLiveTask
+                    ? { queuedIds: queuedSnippetIds, busyId: queueingSubId, onToggle: (c, sub) => void toggleSnippetQueued(c, sub) }
+                    : null
+                }
                 studentLabel={studentLabel}
                 namesShown={showNames}
               />
@@ -972,8 +948,7 @@ export default function App() {
                     .filter((sub): sub is SubmissionRow => !!sub)
                 }
                 loadError={issueLoadError}
-                raisingKey={raisingKey}
-                onToggleRaised={null}
+                snippetQueue={null}
                 studentLabel={studentLabel}
                 namesShown={showNames}
               />

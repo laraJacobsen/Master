@@ -1133,7 +1133,9 @@ def _is_raised(question_id, exec_verdict, error_type, students: set) -> bool:
     )
 
 
-def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids: list, raised: bool):
+def raise_issue(
+    question_id: str, exec_verdict: str, error_type, submission_ids: list, raised: bool, example_submission_id=None
+):
     """Shows (or stops showing) one issue to the class, chosen by the lecturer: its
     example goes to every student's waiting screen once time is up (see
     shown_examples()), and the issue gets a discussion point and sorts first on
@@ -1161,7 +1163,15 @@ def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids:
 
     Raising adds to the end of the question's screen queue (see
     store.add_raised_issue()) and returns the new entry's id; unraising
-    returns None."""
+    returns None.
+
+    `example_submission_id` picks which snippet goes on screen -- one issue
+    holds several code variants, and the lecturer wants "this one"
+    (requested 2026-11-18). Each picked snippet is its own queue entry, so
+    one issue can queue several; picking one that's already queued returns
+    its existing entry. Unraising with it takes out only that snippet's
+    entry. It must be one of `submission_ids` (ValueError otherwise);
+    without it the first id is the example, as before."""
     students = set()
     for sub_id in submission_ids:
         row = store.get_submission(sub_id)
@@ -1169,14 +1179,25 @@ def raise_issue(question_id: str, exec_verdict: str, error_type, submission_ids:
             students.add(row["student_name"])
     if not students:
         raise ValueError(f"no submissions found for ids {submission_ids!r}")
+    if example_submission_id is not None and example_submission_id not in submission_ids:
+        raise ValueError(f"submission {example_submission_id} is not in this issue")
+    same_issue = [
+        r
+        for r in store.raised_issue_rows(question_id)
+        if (r["exec_verdict"], r["error_type"]) == (exec_verdict, error_type) and r["students"] & students
+    ]
     if raised:
-        return store.add_raised_issue(question_id, exec_verdict, error_type, students, submission_ids[0])
+        example = example_submission_id if example_submission_id is not None else submission_ids[0]
+        existing = next((r["id"] for r in same_issue if r["submission_id"] == example), None)
+        if existing is not None:
+            return existing
+        return store.add_raised_issue(question_id, exec_verdict, error_type, students, example)
     else:
         store.delete_raised_issues(
             [
                 r["id"]
-                for r in store.raised_issue_rows(question_id)
-                if (r["exec_verdict"], r["error_type"]) == (exec_verdict, error_type) and r["students"] & students
+                for r in same_issue
+                if example_submission_id is None or r["submission_id"] == example_submission_id
             ]
         )
 

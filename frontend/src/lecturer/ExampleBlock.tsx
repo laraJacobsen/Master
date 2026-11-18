@@ -89,13 +89,16 @@ const MAX_ALTERNATIVES = 4;
 
 export interface ExampleBlockProps {
   subs: SubmissionRow[];
+  // A control for the snippet on show (e.g. "Add to queue"): the chosen
+  // student's attempt, else the group's first.
+  action?: (sub: SubmissionRow) => ReactNode;
 }
 
 // One "same code" group (see codeGroups.ts), shown once with the most common
 // name for each variable. The names that vary are marked, with the others
 // listed per variable underneath -- one line per variable however many
 // students there are. "Show as written by" switches to one student's exact code.
-export function ExampleBlock({ subs }: ExampleBlockProps) {
+export function ExampleBlock({ subs, action }: ExampleBlockProps) {
   const [viewAs, setViewAs] = useState("");
   const slots = nameSlots(subs);
   const varying = slots.filter((s) => s.names.length > 1);
@@ -109,7 +112,7 @@ export function ExampleBlock({ subs }: ExampleBlockProps) {
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <div className="text-xs text-zinc-500">
           {subs.length > 1 && <strong className="font-semibold text-zinc-900">{subs.length} students </strong>}
           {someNames(subs)} ·{" "}
@@ -118,25 +121,28 @@ export function ExampleBlock({ subs }: ExampleBlockProps) {
           </span>{" "}
           tests
         </div>
-        {varying.length > 0 && (
-          <label className="flex items-center gap-2 text-xs text-zinc-500">
-            Show as written by
-            <select
-              className="h-7 max-w-44 rounded-md border border-zinc-200 bg-white px-1.5 text-xs text-zinc-900 hover:border-zinc-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 focus:outline-none"
-              value={student ? viewAs : ""}
-              onChange={(e) => setViewAs(e.target.value)}
-            >
-              <option value="">Most common names</option>
-              {[...subs]
-                .sort((a, b) => a.student_name.localeCompare(b.student_name))
-                .map((s) => (
-                  <option key={s.id} value={s.student_name}>
-                    {s.student_name}
-                  </option>
-                ))}
-            </select>
-          </label>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {varying.length > 0 && (
+            <label className="flex items-center gap-2 text-xs text-zinc-500">
+              Show as written by
+              <select
+                className="h-7 max-w-44 rounded-md border border-zinc-200 bg-white px-1.5 text-xs text-zinc-900 hover:border-zinc-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15 focus:outline-none"
+                value={student ? viewAs : ""}
+                onChange={(e) => setViewAs(e.target.value)}
+              >
+                <option value="">Most common names</option>
+                {[...subs]
+                  .sort((a, b) => a.student_name.localeCompare(b.student_name))
+                  .map((s) => (
+                    <option key={s.id} value={s.student_name}>
+                      {s.student_name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+          {action?.(base)}
+        </div>
       </div>
       <SubmissionDetail sub={base} names={varying.length ? shown : undefined} marks={varying.length ? marks : undefined} />
       {varying.length > 0 && (

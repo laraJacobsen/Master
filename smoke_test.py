@@ -787,6 +787,29 @@ def _run_checks(client):
 
         r = client.post("/api/lecturer/clusters/raise", json={**raise_body, "submission_ids": [999999]})
         assert r.status_code == 404, r.text
+
+        # Picking the snippet: the lecturer queues "this one" out of an issue's
+        # code variants. Each pick is its own entry; re-picking doesn't
+        # duplicate; unraising one pick leaves the others.
+        multi = next(c for c in clusters if c["exec_verdict"] != "pass" and len(c["submission_ids"]) >= 2)
+        first_id, second_id = multi["submission_ids"][:2]
+        multi_body = {
+            "question_id": "sum-ints",
+            "exec_verdict": multi["exec_verdict"],
+            "error_type": multi["error_type"],
+            "submission_ids": multi["submission_ids"],
+        }
+        client.post("/api/lecturer/clusters/raise", json={**multi_body, "example_submission_id": second_id})
+        client.post("/api/lecturer/clusters/raise", json={**multi_body, "example_submission_id": first_id})
+        client.post("/api/lecturer/clusters/raise", json={**multi_body, "example_submission_id": second_id})
+        assert [r["submission_id"] for r in store_mod.raised_issue_rows("sum-ints")] == [second_id, first_id]
+        client.post("/api/lecturer/clusters/raise", json={**multi_body, "example_submission_id": second_id, "raised": False})
+        assert [r["submission_id"] for r in store_mod.raised_issue_rows("sum-ints")] == [first_id]
+        r = client.post("/api/lecturer/clusters/raise", json={**multi_body, "example_submission_id": 999999})
+        assert r.status_code == 404, r.text
+        client.post("/api/lecturer/clusters/raise", json={**multi_body, "raised": False})
+        assert store_mod.raised_issue_rows("sum-ints") == []
+        clusters = client.get("/api/lecturer/clusters", params={"question_id": "sum-ints"}).json()
         print("Show on full screen: singleton raised, example queued  OK")
 
 
@@ -1095,19 +1118,19 @@ def _run_question_setup_checks(client):
     assert client.post("/api/lecturer/questions/no-such-q/end_now").status_code == 404
     print("POST .../end_now -> time's up, still live   OK")
 
-    # Once time is up, "Show on screen" puts the pick on screen straight away
-    # instead of queueing it behind what's there.
+    # Even once time is up, queueing from the dashboard only appends: the
+    # projector alone moves what's on screen (2026-11-18).
     from backend import store as store_mod
     grace_subs = [row for row in store_mod.all_submissions(qid) if row["student_name"] == "Grace"]
     for row in grace_subs[:2]:
         client.post(f"/api/lecturer/submissions/{row['id']}/show", json={"shown": True})
     queue = client.get(f"/api/lecturer/questions/{qid}/screen_queue").json()
-    assert len(queue["entries"]) == 2 and queue["current_entry_id"] == queue["entries"][1]["id"], queue
+    assert len(queue["entries"]) == 2 and queue["current_entry_id"] == queue["entries"][0]["id"], queue
     status = client.get("/api/lecture/status").json()
-    assert status["shown_position"] == {"index": 1, "total": 2} and len(status["shown_examples"]) == 1, status
+    assert status["shown_position"] == {"index": 0, "total": 2} and len(status["shown_examples"]) == 1, status
     for row in grace_subs[:2]:
         client.post(f"/api/lecturer/submissions/{row['id']}/show", json={"shown": False})
-    print("Show on screen after time's up -> on screen now   OK")
+    print("Queueing after time's up doesn't move the screen   OK")
 
     # Live submission-progress counter (live-submission-progress-scoping-decision.md):
     # Grace's three submissions above (correct + two rejections) count as one

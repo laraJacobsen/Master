@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type { ClusterRow, SubmissionRow } from "../shared/types";
 import { ExampleBlock, SubmissionDetail } from "./ExampleBlock";
 import { StudentTile } from "./StudentGrid";
@@ -36,15 +37,21 @@ export interface IssueListProps {
   // The submissions behind an issue that are loaded so far.
   subsFor: (c: ClusterRow) => SubmissionRow[];
   loadError: boolean;
-  raisingKey: string | null;
-  // Null when there's no single live question to raise issues on.
-  onToggleRaised: ((c: ClusterRow) => void) | null;
-  // While the task runs, raising only queues: the backend holds raised
-  // examples back from students and the projector until time is up.
+  // Null when there's no single live question to queue snippets on.
+  snippetQueue: SnippetQueueControl | null;
   taskRunning: boolean;
   // A student's tile label: their name, or their class number when names are hidden.
   studentLabel: (name: string) => string;
   namesShown: boolean;
+}
+
+// "Add to queue" on one snippet of a discussion point: that exact code (no
+// name) goes in the screen queue. The projector steps through the queue.
+export interface SnippetQueueControl {
+  // Which of this issue's submissions are queued.
+  queuedIds: (c: ClusterRow) => Set<number>;
+  busyId: number | null;
+  onToggle: (c: ClusterRow, sub: SubmissionRow) => void;
 }
 
 // The discussion points, biggest first (raised ones on top). Each row is the
@@ -56,15 +63,14 @@ export function IssueList({
   onToggleOpen,
   subsFor,
   loadError,
-  raisingKey,
-  onToggleRaised,
+  snippetQueue,
   taskRunning,
   studentLabel,
   namesShown,
 }: IssueListProps) {
   // Passing is in the verdict breakdown -- nothing to discuss.
   const points = issues.filter((c) => c.exec_verdict !== "pass");
-  const raised = points.filter((c) => c.raised).length;
+  const queued = snippetQueue ? points.reduce((n, c) => n + snippetQueue.queuedIds(c).size, 0) : 0;
   return (
     <Card flush>
       <div className="px-5 pt-5 pb-4 sm:px-6 sm:pt-6">
@@ -73,15 +79,15 @@ export function IssueList({
             <h2 className="text-lg font-semibold tracking-tight text-zinc-950">Discussion points</h2>
             <p className="mt-0.5 text-[13px] text-zinc-500">Patterns worth pausing on with the room</p>
           </div>
-          {raised > 0 && (
+          {queued > 0 && (
             <span className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white">
-              {taskRunning ? `${raised} queued · shown when time's up` : `${raised} in screen queue`}
+              {queued} snippet{queued === 1 ? "" : "s"} queued
             </span>
           )}
         </div>
-        {raised === 0 && taskRunning && onToggleRaised && (
+        {queued === 0 && snippetQueue && (
           <p className="mt-2 text-[12px] text-zinc-400">
-            Queue points to put their example on screen once the task ends.
+            Open a point and queue the exact snippet you want on the projector.
           </p>
         )}
       </div>
@@ -99,9 +105,7 @@ export function IssueList({
               onToggleOpen={() => onToggleOpen(c)}
               subs={subsFor(c)}
               loadError={loadError}
-              raising={raisingKey === issueKey(c)}
-              raiseBusy={raisingKey !== null}
-              onToggleRaised={onToggleRaised ? () => onToggleRaised(c) : null}
+              snippetQueue={snippetQueue}
               taskRunning={taskRunning}
               studentLabel={studentLabel}
               namesShown={namesShown}
@@ -119,9 +123,7 @@ export interface IssueRowProps {
   onToggleOpen: () => void;
   subs: SubmissionRow[];
   loadError: boolean;
-  raising: boolean;
-  raiseBusy: boolean;
-  onToggleRaised: (() => void) | null;
+  snippetQueue: SnippetQueueControl | null;
   taskRunning: boolean;
   studentLabel: (name: string) => string;
   namesShown: boolean;
@@ -133,13 +135,24 @@ function IssueRow({
   onToggleOpen,
   subs,
   loadError,
-  raising,
-  raiseBusy,
-  onToggleRaised,
+  snippetQueue,
   taskRunning,
   studentLabel,
   namesShown,
 }: IssueRowProps) {
+  const queuedIds = snippetQueue?.queuedIds(c) ?? new Set<number>();
+  // The "Add to queue" for one snippet, next to its code.
+  const queueAction = snippetQueue
+    ? (sub: SubmissionRow) => (
+        <QueueSnippetButton
+          queued={queuedIds.has(sub.id)}
+          busy={snippetQueue.busyId === sub.id}
+          disabled={snippetQueue.busyId !== null}
+          taskRunning={taskRunning}
+          onClick={() => snippetQueue.onToggle(c, sub)}
+        />
+      )
+    : undefined;
   // The one student whose code is shown instead of the grouped code.
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const category = categoryOf(c.exec_verdict);
@@ -169,9 +182,9 @@ function IssueRow({
             >
               {headline(c)}
             </span>
-            {c.raised && (
+            {queuedIds.size > 0 && (
               <span className="rounded-md bg-zinc-900 px-1.5 py-0.5 text-[11px] font-semibold text-white">
-                {taskRunning ? "Queued" : "On screen"}
+                {queuedIds.size > 1 ? `${queuedIds.size} queued` : "Queued"}
               </span>
             )}
           </span>
@@ -198,51 +211,7 @@ function IssueRow({
 
       {open && (
         <div className="grid animate-fade-in gap-4 px-5 pb-6 sm:pr-6 sm:pl-11">
-          {(note || onToggleRaised) && (
-            <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-              {note && <p className="min-w-0 flex-1 basis-56 text-[13px] leading-relaxed text-zinc-700">{note}</p>}
-              {onToggleRaised && (
-                <button
-                  type="button"
-                  aria-pressed={c.raised}
-                  disabled={raiseBusy}
-                  onClick={onToggleRaised}
-                  title={
-                    taskRunning
-                      ? c.raised
-                        ? "Take this out of the screen queue"
-                        : "Add this example to the screen queue: it goes on the projector and students' screens, one at a time, when the task ends"
-                      : c.raised
-                        ? "Take this out of the screen queue (and off the screens if it's showing)"
-                        : "Add this example to the screen queue and show it on the projector and students' screens now"
-                  }
-                  className={cx(
-                    "ml-auto inline-flex h-8 flex-none items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
-                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed",
-                    raising && "cursor-wait",
-                    c.raised
-                      ? "border-brand-500 bg-brand-500 text-white hover:bg-brand-600"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100 disabled:text-zinc-400",
-                  )}
-                >
-                  {raising ? (
-                    c.raised ? "Removing..." : taskRunning ? "Queueing..." : "Sharing..."
-                  ) : c.raised ? (
-                    <>
-                      <svg className="size-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                        <path d="M2.5 6.2l2.3 2.3L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      Queued
-                    </>
-                  ) : taskRunning ? (
-                    "Add to queue"
-                  ) : (
-                    "Show on screen"
-                  )}
-                </button>
-              )}
-            </div>
-          )}
+          {note && <p className="text-[13px] leading-relaxed text-zinc-700">{note}</p>}
           <IssueStudents
             subs={subs}
             selectedId={selectedId}
@@ -256,6 +225,7 @@ function IssueRow({
             selected={subs.find((s) => s.id === selectedId) ?? null}
             selectedLabel={(s) => studentLabel(s.student_name)}
             onClearSelected={() => setSelectedId(null)}
+            action={queueAction}
           />
         </div>
       )}
@@ -331,10 +301,12 @@ export interface IssueCodeProps {
   selected: SubmissionRow | null;
   selectedLabel: (sub: SubmissionRow) => string;
   onClearSelected: () => void;
+  // A control for one snippet (e.g. "Add to queue"), shown above its code.
+  action?: (sub: SubmissionRow) => ReactNode;
   className?: string;
 }
 
-function IssueCode({ subs, loadError, selected, selectedLabel, onClearSelected, className }: IssueCodeProps) {
+function IssueCode({ subs, loadError, selected, selectedLabel, onClearSelected, action, className }: IssueCodeProps) {
   if (selected) {
     return (
       <div key={selected.id} className={cx("grid animate-fade-in text-[13px]", className)}>
@@ -347,13 +319,16 @@ function IssueCode({ subs, loadError, selected, selectedLabel, onClearSelected, 
             </span>{" "}
             tests
           </span>
-          <button
-            type="button"
-            onClick={onClearSelected}
-            className="rounded-md px-2 py-1 font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
-          >
-            Back to all code
-          </button>
+          <span className="flex items-center gap-2">
+            {action?.(selected)}
+            <button
+              type="button"
+              onClick={onClearSelected}
+              className="rounded-md px-2 py-1 font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+            >
+              Back to all code
+            </button>
+          </span>
         </div>
         <SubmissionDetail sub={selected} />
       </div>
@@ -362,12 +337,60 @@ function IssueCode({ subs, loadError, selected, selectedLabel, onClearSelected, 
   return (
     <div className={cx("grid animate-fade-in gap-5 text-[13px]", className)}>
       {subs.length > 0 ? (
-        groupByShape(subs).map((group) => <ExampleBlock key={groupKey(group[0])} subs={group} />)
+        groupByShape(subs).map((group) => <ExampleBlock key={groupKey(group[0])} subs={group} action={action} />)
       ) : loadError ? (
         <span className="text-red-600">Could not load these submissions.</span>
       ) : (
         <span className="text-zinc-500">Loading...</span>
       )}
     </div>
+  );
+}
+
+export interface QueueSnippetButtonProps {
+  queued: boolean;
+  busy: boolean;
+  disabled: boolean;
+  taskRunning: boolean;
+  onClick: () => void;
+}
+
+// Same look and states as the code drawer's "Add to queue" (StudentGrid.tsx).
+function QueueSnippetButton({ queued, busy, disabled, taskRunning, onClick }: QueueSnippetButtonProps) {
+  return (
+    <button
+      type="button"
+      aria-pressed={queued}
+      disabled={disabled}
+      onClick={onClick}
+      title={
+        queued
+          ? "Take this snippet out of the screen queue"
+          : `Add this exact code to the screen queue, as the student wrote it and without their name. ${
+              taskRunning ? "It goes up when the task ends; " : ""
+            }the projector steps through the queue.`
+      }
+      className={cx(
+        "inline-flex h-7 flex-none items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium whitespace-nowrap transition-colors",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed",
+        busy && "cursor-wait",
+        queued
+          ? "border-brand-500 bg-brand-500 text-white hover:bg-brand-600"
+          : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100 disabled:text-zinc-400",
+      )}
+    >
+      {busy ? (
+        queued ? "Removing..." : "Queueing..."
+      ) : queued ? (
+        <>
+          <svg className="size-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M2.5 6.2l2.3 2.3L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Queued
+        </>
+      ) : (
+        "Add to queue"
+      )}
+    </button>
   );
 }

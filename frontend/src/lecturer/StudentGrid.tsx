@@ -35,9 +35,9 @@ function groupOf(t: StudentTrack): Group {
   return t.best ? verdictOf(t.best) : "none";
 }
 
-// "Show on screen" for a single attempt in the code drawer: puts it (no name)
-// on the students' waiting screens and the projector -- any verdict, so a
-// correct solution can go up too. Queued while the task runs, like examples.
+// "Add to queue" for a single attempt in the code drawer: puts it (no name) in
+// the screen queue for the students' waiting screens and the projector -- any
+// verdict, so a correct solution can go up too. The projector steps through it.
 export interface ShowCodeControl {
   shownIds: Set<number>;
   busyId: number | null;
@@ -321,7 +321,7 @@ export interface ShowCodeButtonProps {
   control: ShowCodeControl;
 }
 
-// Same look and states as a discussion point's "Show on screen" (IssueList.tsx).
+// Same look and states as a discussion point snippet's "Add to queue" (IssueList.tsx).
 function ShowCodeButton({ sub, control }: ShowCodeButtonProps) {
   const shown = control.shownIds.has(sub.id);
   const busy = control.busyId === sub.id;
@@ -333,13 +333,11 @@ function ShowCodeButton({ sub, control }: ShowCodeButtonProps) {
       disabled={busy}
       onClick={() => control.onToggle(sub)}
       title={
-        taskRunning
-          ? shown
-            ? "Take this attempt out of the screen queue"
-            : "Add this attempt to the screen queue: it goes on the projector and students' screens, without the name, one at a time when the task ends"
-          : shown
-            ? "Take this attempt out of the screen queue (and off the screens if it's showing)"
-            : "Add this attempt to the screen queue and show it on the projector and students' screens now, without the name"
+        shown
+          ? "Take this attempt out of the screen queue (and off the screens if it's showing)"
+          : `Add this attempt to the screen queue, without the name. ${
+              taskRunning ? "It goes up when the task ends; " : ""
+            }the projector steps through the queue.`
       }
       className={cx(
         "inline-flex h-8 flex-none items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
@@ -350,7 +348,7 @@ function ShowCodeButton({ sub, control }: ShowCodeButtonProps) {
       )}
     >
       {busy ? (
-        shown ? "Removing..." : taskRunning ? "Queueing..." : "Sharing..."
+        shown ? "Removing..." : "Queueing..."
       ) : shown ? (
         <>
           <svg className="size-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -358,10 +356,8 @@ function ShowCodeButton({ sub, control }: ShowCodeButtonProps) {
           </svg>
           Queued
         </>
-      ) : taskRunning ? (
-        "Add to queue"
       ) : (
-        "Show on screen"
+        "Add to queue"
       )}
     </button>
   );

@@ -171,7 +171,13 @@ export function fetchClusters(questionId?: string | null): Promise<ClusterRow[]>
 }
 
 // Returns the question's clusters re-ranked with the change applied.
-export function raiseIssue(questionId: string, cluster: ClusterRow, raised: boolean): Promise<ClusterRow[]> {
+// `exampleId` picks which of the issue's snippets goes on screen (default: its first).
+export function raiseIssue(
+  questionId: string,
+  cluster: ClusterRow,
+  raised: boolean,
+  exampleId?: number,
+): Promise<ClusterRow[]> {
   return apiFetch(`${API_BASE}/api/lecturer/clusters/raise`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -181,6 +187,7 @@ export function raiseIssue(questionId: string, cluster: ClusterRow, raised: bool
       error_type: cluster.error_type,
       submission_ids: cluster.submission_ids,
       raised,
+      example_submission_id: exampleId ?? null,
     }),
   }).then((res) => asJson(res));
 }

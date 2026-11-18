@@ -162,6 +162,9 @@ class RaiseIssueRequest(BaseModel):
     error_type: str | None = None
     submission_ids: list[int]
     raised: bool = True
+    # The snippet to put on screen (one of submission_ids); defaults to the
+    # first. See aggregation.raise_issue().
+    example_submission_id: int | None = None
 
 
 class ShowSubmissionRequest(BaseModel):
@@ -496,37 +499,25 @@ def api_lecturer_shown_submissions(question_id: str):
 
 @app.post("/api/lecturer/submissions/{submission_id}/show")
 def api_lecturer_show_submission(submission_id: int, req: ShowSubmissionRequest):
-    """"Show on screen" in a student's code drawer on the live dashboard: puts
-    that one attempt -- any verdict, a correct solution included -- on the
-    students' waiting screens and the projector once time is up, next to any
-    raised discussion points' examples. No name is shown. Returns the
-    question's shown single-submission ids."""
+    """"Add to queue" in a student's code drawer on the live dashboard: adds
+    that one attempt -- any verdict, a correct solution included -- to the
+    end of the screen queue (or takes it out). No name is shown. Only the
+    projector moves what's on screen (2026-11-18), so this never jumps the
+    class to it, even after time is up. Returns the question's shown
+    single-submission ids."""
     sub = store.get_submission(submission_id)
     if not sub:
         raise HTTPException(status_code=404, detail="Not found")
-    entry_id = store.set_submission_shown(sub, req.shown)
-    _show_now_if_time_up(sub["question_id"], entry_id)
+    store.set_submission_shown(sub, req.shown)
     return store.shown_submission_ids(sub["question_id"], single_only=True)
-
-
-def _time_up(question: dict) -> bool:
-    return question["status"] != "live" or _seconds_remaining(question) <= 0
-
-
-def _show_now_if_time_up(question_id: str, entry_id) -> None:
-    """While the task runs, "Show on screen" only adds to the end of the screen
-    queue. Once time is up the class is already looking at the queue, so what
-    the lecturer picks then goes straight on screen."""
-    question = store.get_question_row(question_id)
-    if entry_id is not None and question and _time_up(question):
-        store.set_current_queue_entry(question_id, entry_id)
 
 
 # The screen queue: everything the lecturer has lined up to show the class
 # (raised discussion points' examples and single attempts), in order. Queued
 # while the task runs; once time is up the projector and students' waiting
-# screens show one entry at a time and the lecturer steps through them. Each
-# call returns the queue as aggregation.screen_queue() describes it.
+# screens show one entry at a time and the projector steps through them
+# (screen_queue/current -- the lecturer dashboard only queues, reorders and
+# removes). Each call returns the queue as aggregation.screen_queue() describes it.
 @app.get("/api/lecturer/questions/{question_id}/screen_queue")
 def api_lecturer_screen_queue(question_id: str):
     return screen_queue(question_id)
@@ -1348,10 +1339,11 @@ def api_lecturer_clusters(question_id: str = None):
 @app.post("/api/lecturer/clusters/raise")
 def api_lecturer_clusters_raise(req: RaiseIssueRequest):
     try:
-        entry_id = raise_issue(req.question_id, req.exec_verdict, req.error_type, req.submission_ids, req.raised)
+        raise_issue(
+            req.question_id, req.exec_verdict, req.error_type, req.submission_ids, req.raised, req.example_submission_id
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    _show_now_if_time_up(req.question_id, entry_id)
     return cluster_submissions(req.question_id)
 
 
