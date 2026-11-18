@@ -271,12 +271,22 @@ export default function App() {
           // Backend not reachable yet -- stay quiet and retry on the next poll.
         });
     };
+    // A cluster poll can take longer than POLL_MS while a discussion point is
+    // being written by the model; skip ticks until it answers instead of
+    // stacking up requests that would all wait on the same call.
+    let clustersInFlight = false;
     const pollClusters = () => {
-      fetchClusters(QUESTION_ID)
-        .then((rows) => setClusters(rows))
-        .catch(() => {
-          // Backend not reachable yet -- stay quiet and retry on the next poll.
-        });
+      if (!clustersInFlight) {
+        clustersInFlight = true;
+        fetchClusters(QUESTION_ID)
+          .then((rows) => setClusters(rows))
+          .catch(() => {
+            // Backend not reachable yet -- stay quiet and retry on the next poll.
+          })
+          .finally(() => {
+            clustersInFlight = false;
+          });
+      }
       if (QUESTION_ID) {
         fetchShownSubmissions(QUESTION_ID)
           .then((ids) => setShownSubIds(new Set(ids)))

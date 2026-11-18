@@ -248,10 +248,11 @@ import keyword
 import logging
 import os
 import re
+import threading
 import time
 import tokenize
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 
 import requests
 from sklearn.cluster import AgglomerativeClustering
@@ -380,7 +381,47 @@ WRONG_ANSWER_SUBCLUSTER_PROMPT = (
 _SECOND_PERSON_RE = re.compile(r"\byou\b|\byour\b|\byou're\b|\byours\b", re.IGNORECASE)
 
 _discussion_cache = {}  # (question_id, exec_verdict, error_type) -> str or None
-_subcluster_discussion_cache = {}  # frozenset(submission ids) -> str or None
+_subcluster_discussion_cache = {}  # (reference, snippets shown) -> str
+_subcluster_label_failed_at = {}  # same key -> time.monotonic() of the last failed Label call
+_LABEL_RETRY_SECONDS = 60
+
+# Model calls currently running, per cache key -- see _single_flight().
+_inflight_lock = threading.Lock()
+_label_inflight = {}  # Label cache key -> Future
+_headline_inflight = {}  # Headline cache key -> Future
+
+
+def _single_flight(inflight: dict, key, compute):
+    """Runs compute() for `key` unless a call for the same key is already running,
+    in which case it waits for that one and returns its result.
+
+    Fixed 2026-11-18: overlapping requests for the same uncached label each made
+    their own model call -- the dashboard's 3 s cluster poll firing again before a
+    slow poll had answered, a second lecturer tab, a raise, the summary. The
+    caches only help once a call has finished; this covers the calls still
+    running. A waiter is no slower than before (it would otherwise have made the
+    same call itself), and it gets the same text the first request cached.
+
+    compute() should re-check its cache first: a call that finished between the
+    caller's own cache check and this one has already left `inflight`."""
+    with _inflight_lock:
+        future = inflight.get(key)
+        owner = future is None
+        if owner:
+            future = Future()
+            inflight[key] = future
+    if not owner:
+        return future.result()
+    try:
+        result = compute()
+        future.set_result(result)
+        return result
+    except BaseException as e:
+        future.set_exception(e)
+        raise
+    finally:
+        with _inflight_lock:
+            inflight.pop(key, None)
 
 # Placeholder for a stripped tokenize.NEWLINE (end of a logical statement) -- see
 # _canonicalize()'s docstring for why this can't just be dropped like NL/INDENT/
@@ -639,10 +680,19 @@ def _shared_failing_case(group: list):
 def _representative_snippets(group: list, max_n: int = 3) -> list:
     """Up to max_n comment-stripped snippets (_strip_comments()) from distinct
     students in this group, for the Label call -- never the full group (keeps the
-    call cheap and the model from over-indexing on one student's resubmissions)."""
+    call cheap and the model from over-indexing on one student's resubmissions).
+
+    The FIRST students to land in the group, each by their first submission in it
+    (oldest id first), not the newest. Changed 2026-11-18 with the Label cache key
+    (see _subcluster_discussion_point()): picking the newest meant every new
+    submission changed what the model was shown, so the label was regenerated on
+    nearly every poll. Picked oldest-first, a group's input stops changing once it
+    has max_n students. Every row in a group shares the same output signature (or
+    the same diff shape), so the earliest students show the bug as well as the
+    latest do."""
     seen_students = set()
     picked = []
-    for row in group:
+    for row in sorted(group, key=lambda r: r["id"]):
         if row["student_name"] in seen_students:
             continue
         seen_students.add(row["student_name"])
@@ -743,35 +793,71 @@ def _subcluster_discussion_point(group: list, reference_solution: str, student_c
     `raised` -- the lecturer flagged this issue (see raise_issue()) -- lifts the
     MIN_STUDENTS_FOR_DISCUSSION gate, so a one-student sub-cluster is labeled
     from its single snippet. Single-snippet labels haven't been through a
-    spot-check round yet; every rated round so far had 2-3 snippets per row."""
+    spot-check round yet; every rated round so far had 2-3 snippets per row.
+
+    Cached on exactly what the model is shown -- the snippets and the reference --
+    since that's all the label depends on. Until 2026-11-18 the key was the set of
+    every submission id in the group, so each new submission joining a group (or a
+    student resubmitting the same bug) meant a fresh Label call, and a fresh
+    Headline call for the new text: about one model call per wrong-answer
+    submission. With _representative_snippets() picking the group's first students,
+    a group is labeled at most once per student count up to 3, plus again only if
+    reclustering changes who its first students are.
+
+    A failed call isn't cached as the answer: the fallback is shown, and the call is
+    retried on a later poll, at most once per _LABEL_RETRY_SECONDS so a gateway
+    outage doesn't make every 3-second dashboard poll wait out a timeout."""
     if student_count < MIN_STUDENTS_FOR_DISCUSSION and not raised:
         return None
 
-    cache_key = frozenset(row["id"] for row in group)
-    if cache_key in _subcluster_discussion_cache:
-        return _subcluster_discussion_cache[cache_key]
-
     fallback = hints.discussion_point_for_cluster("wrong_answer", None, student_count)
-    result = fallback
     snippets = _representative_snippets(group)
     reference = _strip_comments(reference_solution) if reference_solution else None
+    cache_key = (reference, tuple(snippets))
+    if cache_key in _subcluster_discussion_cache:
+        return _subcluster_discussion_cache[cache_key]
+    failed_at = _subcluster_label_failed_at.get(cache_key)
+    if failed_at is not None and time.monotonic() - failed_at < _LABEL_RETRY_SECONDS:
+        return fallback
+
     # Token count measured on the canonicalized form, same as before the 2026-10-13
     # switch to showing real code -- this is a "too little code to describe" gate,
     # independent of what the model is shown.
     trivial = any(len(_canonicalize(s).split()) < _MIN_TOKENS_FOR_PATTERN_CALL for s in snippets)
-    if snippets and not trivial and _llm_available():
-        t0 = time.monotonic()
-        for _attempt in (1, 2):
-            try:
-                result = _call_llm_subcluster_pattern(snippets, reference)
-                break
-            except Exception:
-                continue
-        logger.info(
-            "wrong_answer sub-cluster LLM call (%s): %d snippets, %.3fs, used_model=%s",
-            LLM["provider"], len(snippets), time.monotonic() - t0, result is not fallback,
-        )
+    if not snippets or trivial or not _llm_available():
+        _subcluster_discussion_cache[cache_key] = fallback
+        return fallback
 
+    return _single_flight(
+        _label_inflight, cache_key, lambda: _label_now(cache_key, snippets, reference, fallback)
+    )
+
+
+def _label_now(cache_key, snippets: list, reference, fallback: str) -> str:
+    """The Label call itself, for _subcluster_discussion_point() -- only ever run
+    by one request at a time per cache key (see _single_flight())."""
+    if cache_key in _subcluster_discussion_cache:
+        return _subcluster_discussion_cache[cache_key]
+    failed_at = _subcluster_label_failed_at.get(cache_key)
+    if failed_at is not None and time.monotonic() - failed_at < _LABEL_RETRY_SECONDS:
+        return fallback
+
+    result = None
+    t0 = time.monotonic()
+    for _attempt in (1, 2):
+        try:
+            result = _call_llm_subcluster_pattern(snippets, reference)
+            break
+        except Exception:
+            continue
+    logger.info(
+        "wrong_answer sub-cluster LLM call (%s): %d snippets, %.3fs, used_model=%s",
+        LLM["provider"], len(snippets), time.monotonic() - t0, result is not None,
+    )
+    if result is None:
+        _subcluster_label_failed_at[cache_key] = time.monotonic()
+        return fallback
+    _subcluster_label_failed_at.pop(cache_key, None)
     _subcluster_discussion_cache[cache_key] = result
     return result
 
@@ -791,7 +877,8 @@ HEADLINE_PROMPT = (
     "markdown fences, no explanation outside the JSON object."
 )
 
-_headline_cache = {}  # (category, discussion_point) -> {"title", "action"} or None
+_headline_cache = {}  # (category, discussion_point) -> {"title", "action"}
+_headline_failed_at = {}  # same key -> time.monotonic() of the last failed Headline call
 
 
 def _category_label(exec_verdict: str, error_type) -> str:
@@ -829,19 +916,42 @@ def _call_llm_headline(category: str, discussion_point: str) -> dict:
 
 
 def _headline(category: str, discussion_point: str):
+    """Same caching as the Label call: one call per (category, note) even when
+    requests overlap (_single_flight()), and a failed call isn't cached as "no
+    headline" for good -- with labels now stable, a note's text no longer changes,
+    so that cached None would never be replaced. The dashboard shows the note as
+    the headline meanwhile, and the call is retried at most once per
+    _LABEL_RETRY_SECONDS."""
     key = (category, discussion_point)
     if key in _headline_cache:
         return _headline_cache[key]
+    if not _llm_available():
+        return None
+    failed_at = _headline_failed_at.get(key)
+    if failed_at is not None and time.monotonic() - failed_at < _LABEL_RETRY_SECONDS:
+        return None
+    return _single_flight(_headline_inflight, key, lambda: _headline_now(key, category, discussion_point))
+
+
+def _headline_now(key, category: str, discussion_point: str):
+    if key in _headline_cache:
+        return _headline_cache[key]
+    failed_at = _headline_failed_at.get(key)
+    if failed_at is not None and time.monotonic() - failed_at < _LABEL_RETRY_SECONDS:
+        return None
     result = None
-    if _llm_available():
-        t0 = time.monotonic()
-        for _attempt in (1, 2):
-            try:
-                result = _call_llm_headline(category, discussion_point)
-                break
-            except Exception:
-                continue
-        logger.info("headline LLM call (%s): %.3fs, ok=%s", LLM["provider"], time.monotonic() - t0, result is not None)
+    t0 = time.monotonic()
+    for _attempt in (1, 2):
+        try:
+            result = _call_llm_headline(category, discussion_point)
+            break
+        except Exception:
+            continue
+    logger.info("headline LLM call (%s): %.3fs, ok=%s", LLM["provider"], time.monotonic() - t0, result is not None)
+    if result is None:
+        _headline_failed_at[key] = time.monotonic()
+        return None
+    _headline_failed_at.pop(key, None)
     _headline_cache[key] = result
     return result
 

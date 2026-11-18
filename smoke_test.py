@@ -693,6 +693,52 @@ def _run_checks(client):
         assert len(idun_chat_calls) == 2, "IDUN should not have recorded a call while unreachable"
         print("wrong_answer sub-cluster falls back when IDUN down  OK ->", fallback_point)
 
+        # Label cache churn (fixed 2026-11-18): the label is cached on what the model
+        # is shown -- the group's first 3 students' code -- not on every submission
+        # id in the group, so later students and resubmissions cost no new call. And a
+        # failed call isn't cached as the answer, but isn't retried on every poll either.
+        _idun_state["available"] = True
+        assert aggregation._subcluster_discussion_point(
+            synthetic_group, reference_solution="print(1 + 1)", student_count=2
+        ) == fallback_point, "a failed Label call was retried before _LABEL_RETRY_SECONDS"
+        assert len(idun_chat_calls) == 2
+        churn_code = "total = 0\nfor x in input().split():\n    total += int(x) + {}\nprint(total)"
+        churn_group = [
+            {"id": 9100 + i, "student_name": name, "source_code": churn_code.format(i)}
+            for i, name in enumerate(["Hedda", "Iver", "Jens"])
+        ]
+        churn_ref = "print(sum(int(x) for x in input().split()))"
+        aggregation._subcluster_discussion_point(churn_group, reference_solution=churn_ref, student_count=3)
+        assert len(idun_chat_calls) == 3, idun_chat_calls
+        grown = churn_group + [
+            {"id": 9200, "student_name": "Kari", "source_code": churn_code.format(7)},  # a 4th student
+            {"id": 9201, "student_name": "Hedda", "source_code": churn_code.format(0)},  # a resubmission
+        ]
+        aggregation._subcluster_discussion_point(grown[::-1], reference_solution=churn_ref, student_count=4)
+        assert len(idun_chat_calls) == 3, "a 4th student or a resubmission caused a new Label call"
+        print("Sub-cluster label not regenerated for later students/resubmissions  OK")
+
+        # Overlapping requests (fixed 2026-11-18): polls asking for the same uncached
+        # label while its call is still running wait for that call, not make their own.
+        import threading
+        import time as time_mod
+        from concurrent.futures import ThreadPoolExecutor
+        overlap_calls = []
+
+        def slow_label(snippets, reference=None):
+            overlap_calls.append(threading.get_ident())
+            time_mod.sleep(0.3)
+            return "One shared label."
+
+        overlap_group = [dict(row, source_code=row["source_code"] + "\nprint(0)") for row in churn_group]
+        with patch.object(aggregation, "_call_llm_subcluster_pattern", slow_label):
+            with ThreadPoolExecutor(6) as pool:
+                overlap_labels = set(pool.map(
+                    lambda _: aggregation._subcluster_discussion_point(overlap_group, churn_ref, 3), range(6)
+                ))
+        assert len(overlap_calls) == 1 and overlap_labels == {"One shared label."}, (overlap_calls, overlap_labels)
+        print("Overlapping polls share one Label call  OK")
+
         # "Show on full screen": a one-student issue gets no discussion point by default
         # (MIN_STUDENTS_FOR_DISCUSSION), but once the lecturer raises it, it gets one
         # -- labeled from its single snippet -- sorts above bigger issues, and its
@@ -712,6 +758,7 @@ def _run_checks(client):
         single = lise_cluster(clusters)
         assert single["count"] == 1 and single["discussion_point"] is None and not single["raised"], single
 
+        calls_before_raise = len(idun_chat_calls)
         raise_body = {
             "question_id": "sum-ints",
             "exec_verdict": single["exec_verdict"],
@@ -722,7 +769,7 @@ def _run_checks(client):
         single = lise_cluster(clusters)
         assert single["raised"] and single["discussion_point"] == "All snippets share the same overall structure.", single
         assert r.json()["submission_id"] in clusters[0]["submission_ids"], f"raised issue should sort first: {clusters}"
-        assert len(idun_chat_calls) == 3, "one new single-snippet Label call"
+        assert len(idun_chat_calls) == calls_before_raise + 1, "one new single-snippet Label call"
         assert "Lise" not in json_lib.dumps(idun_chat_calls[-1]), idun_chat_calls[-1]
         from backend import aggregation as agg_mod
         # Stored in SQLite, not process memory: a backend restart (`--reload`) keeps it.
