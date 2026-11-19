@@ -1192,6 +1192,8 @@ def _submit(req: SubmitRequest, student: dict):
             language=question["language"],
             attempt_number=attempt_number,
             hint_ladder=question.get("hint_ladder"),
+            example_result=test_results[0] if test_results else None,
+            output_file=question.get("output_file"),
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI feedback failed: {e}")

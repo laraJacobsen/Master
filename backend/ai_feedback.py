@@ -59,6 +59,54 @@ def _traceback_for(test_results: list) -> str:
     return stderr
 
 
+_QUOTE_MAX_CHARS = 60
+
+# Last generic wrong-answer hint when the example passes but a hidden test doesn't.
+EXAMPLE_PASSES_HINT = (
+    "Your program gets the example right, so the bug only shows up on a test the example "
+    "doesn't cover. Try it on small edge cases: a single value, zero or negative numbers, "
+    "repeated values, or the biggest value first or last. Which one gives the wrong output?"
+)
+
+
+def _quote(line: str) -> str:
+    line = line.strip()
+    if len(line) > _QUOTE_MAX_CHARS:
+        line = line[:_QUOTE_MAX_CHARS] + "..."
+    return f'"{line}"'
+
+
+def _example_diff_hint(example: dict, output_file: str = None) -> str:
+    """The last generic wrong-answer hint, made concrete from the example test (the
+    one test students can see). feedback.py's own last tier can only say "find where
+    it diverges", since it never sees a test; this says exactly where. Returns None
+    when the example didn't run cleanly (a crash has its own hints)."""
+    if example.get("status_description") != "Accepted":
+        return None
+    if example["passed"]:
+        return EXAMPLE_PASSES_HINT
+    # Same normalization as judge0_client.outputs_match(), so the line found here is
+    # the one that actually failed the comparison.
+    norm = lambda t: [ln.rstrip() for ln in (t or "").strip().splitlines()]
+    got, expected = norm(example.get("stdout")), norm(example["expected_stdout"])
+    yours = f"your {output_file}" if output_file else "your output"
+    if not got:
+        return (f"On the example input, {yours} is empty, but it should start with "
+                f"{_quote(expected[0])}. Check that your program actually writes its result.")
+    i = next((k for k in range(min(len(got), len(expected))) if got[k] != expected[k]), None)
+    if i is None and len(got) < len(expected):
+        return (f"On the example input, {yours} stops after line {len(got)}. Line "
+                f"{len(got) + 1} should be {_quote(expected[len(got)])}. What step is missing?")
+    if i is None:
+        return (f"On the example input, {yours} has an extra line {len(expected) + 1}: "
+                f"{_quote(got[len(expected)])}. The expected output ends before it. "
+                f"Where does that line come from?")
+    where = "" if len(expected) == 1 and len(got) == 1 else f"line {i + 1} of "
+    return (f"On the example input, {where}{yours} is {_quote(got[i])}, but it should be "
+            f"{_quote(expected[i])}. Find the step in your code that produces that value and "
+            f"fix it.")
+
+
 def judge_and_feedback(
     question_prompt: str,
     source_code: str,
@@ -67,6 +115,8 @@ def judge_and_feedback(
     attempt_number: int = 1,
     expected_function_name: str = None,
     hint_ladder: list = None,
+    example_result: dict = None,
+    output_file: str = None,
 ) -> dict:
     """Returns a dict: verdict, error_type, feedback, tests_passed, tests_total,
     hint_tier, hint_ceiling, exec_verdict, traceback.
@@ -80,6 +130,10 @@ def judge_and_feedback(
     backend/hint_ladder.py). When set, a wrong answer gets those, escalating by
     attempt, instead of feedback.py's generic ones. Crashes, syntax errors and
     timeouts keep feedback.py's error-specific hints.
+
+    example_result is the example test's result (the test students can see). Without
+    a ladder, a wrong answer's last hint quotes where the output differs from it
+    (see _example_diff_hint()) instead of feedback.py's generic last tier.
     """
     passed = sum(1 for r in test_results if r["passed"])
     total = len(test_results)
@@ -100,6 +154,11 @@ def judge_and_feedback(
     if exec_verdict == "wrong_answer" and hint_ladder:
         tier = min(attempt_number, len(hint_ladder))
         hint = {"hint_text": hint_ladder[tier - 1], "hint_tier": tier, "hint_ceiling": len(hint_ladder)}
+    elif (exec_verdict == "wrong_answer" and example_result is not None
+          and hint["hint_tier"] is not None and hint["hint_tier"] == hint["hint_ceiling"]):
+        concrete = _example_diff_hint(example_result, output_file)
+        if concrete:
+            hint = {**hint, "hint_text": concrete}
 
     result = {
         "verdict": _coarse_verdict(exec_verdict, passed, total),

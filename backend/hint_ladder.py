@@ -5,7 +5,8 @@ feedback.py's hints are keyed only on the error type, so for a plain wrong answe
 the best they can say is "trace your code by hand" -- they never see the task.
 This drafts a short ladder for one task instead, from its prompt and reference
 solution: a nudge about the approach first, then the concrete construct or
-function to use, then the step people most likely get wrong.
+function to use, then -- for the third try and later -- exactly what to change,
+just short of the code itself.
 
 The draft is only a draft. The setup page shows it to the lecturer, who edits it
 and saves it with the question (questions.hint_ladder). Students only ever see
@@ -27,8 +28,8 @@ LADDER_LENGTH = 3
 HINT_LADDER_PROMPT = (
     "You write hints for students solving a short programming exercise in a live class. "
     "A student's program ran but gave the wrong output. Write exactly 3 hints, shown one "
-    "per failed attempt, each a little more specific than the one before. A hint guides "
-    "the student's next step; it never hands over the solution.\n"
+    "per failed attempt, each more specific than the one before. Hints 1 and 2 guide the "
+    "student's next step; hint 3 is the last one they get, so it all but gives the answer.\n"
     "  1. ONE key idea for the approach, in plain words, with no code and no function "
     "names. Not a full plan of every step. E.g. \"Go through the list one item at a time "
     "and keep a count as you go.\"\n"
@@ -36,14 +37,16 @@ HINT_LADDER_PROMPT = (
     "and what to use them on. Name them; don't write the finished expression, format "
     "string or line of code. E.g. \"A for loop over the list works here, with a counter "
     "variable you add 1 to.\"\n"
-    "  3. The step students most often get wrong in THIS exercise, as something to check, "
-    "without repeating hint 2. E.g. \"Check that you print the count once, after the loop "
-    "has finished, not inside it.\"\n"
+    "  3. Exactly what the finished program does, in order and in words: what to compute, "
+    "where, and with which condition or value, including the step students most often get "
+    "wrong in THIS exercise. Specific enough to fix the code from directly, but in words, "
+    "not a line of code. E.g. \"Start a counter at 0 before the loop, add 1 inside the loop "
+    "whenever the item is even, and print the counter once after the loop, not inside it.\"\n"
     "Rules:\n"
     "- Base every hint on the task and the reference solution you're given. The reference "
-    "is for you only: never copy code from it, and never give the whole answer.\n"
-    "- Talk to the student (\"you\"), one or two short sentences per hint, plain text "
-    "with no markdown.\n"
+    "is for you only: never copy code from it.\n"
+    "- Talk to the student (\"you\"), in plain text with no markdown. One or two short "
+    "sentences for hints 1 and 2, up to three for hint 3.\n"
     "- Be specific to this exercise. Never write generic advice like \"trace your code by "
     "hand\", \"check your logic\", \"compare your output\", \"read the problem again\" or "
     "\"debug step by step\".\n"

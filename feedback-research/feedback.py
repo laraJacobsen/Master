@@ -291,7 +291,8 @@ _OTHER_FAMILIES = {
         ceiling=4,
         tiers=[
             "Your output didn't match on the test input for this problem.",
-            "The mismatch is about how your program processes the input, not about crashing.",
+            "Your program runs, but prints the wrong result. Run it on the example input from "
+            "the task and compare what it prints with the expected output.",
             "Trace your code by hand on the exact test input, step by step. Where does the "
             "value it produces first diverge from what you'd expect?",
             "Compare your logic against the problem statement line by line and correct the step "
