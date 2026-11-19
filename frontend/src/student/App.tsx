@@ -948,6 +948,15 @@ export default function App() {
 
   return (
     <>
+      {/* A light brand tint behind the panels once the task is over for this
+          student, so the locked state reads at a glance after the popup closes. */}
+      <div
+        aria-hidden="true"
+        className={cx(
+          "pointer-events-none fixed inset-0 -z-10 bg-brand-100/70 transition-opacity duration-500",
+          locked ? "opacity-100" : "opacity-0",
+        )}
+      />
       <StudentBar name={joinedName || name} />
       <TimeLine fraction={timeFraction} />
       <main className="mx-auto grid w-full max-w-[112rem] gap-5 px-4 pt-5 pb-5 sm:px-6 lg:h-[calc(100dvh-3.5rem-2px)] lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
