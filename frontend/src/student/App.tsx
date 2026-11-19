@@ -21,7 +21,6 @@ import {
 } from "../shared/api";
 import { defaultStarterCode, isUntouched } from "../shared/starterCode";
 import { draftKey, loadDraft, pruneOldDrafts } from "./drafts";
-import { TestFiles } from "./TestFiles";
 import { Badge, BrandMark, Button, Callout, Card, Code, CodeSkeleton, Eyebrow, Input, Label, Skeleton, Spinner, StatusLine, TimeLine } from "../shared/ui";
 import { CodeBlock, FailingTestStrip } from "../shared/code";
 import { HERO_FILL, SCORE_LINE, TILE_TONE } from "../shared/verdictStyles";
@@ -300,6 +299,9 @@ export default function App() {
   // Whether a task has gone live since this tab joined -- tells the waiting
   // screen's "lecture hasn't started yet" apart from "between tasks".
   const [hadTask, setHadTask] = useState(false);
+  // The "submitted / time's up" popup over the locked editor. Opens when the
+  // task ends for this student; closing it leaves the greyed-out editor.
+  const [doneDialogOpen, setDoneDialogOpen] = useState(false);
 
   const questionIdRef = useRef<string | null>(null);
   const phaseRef = useRef<Phase>("loading");
@@ -381,7 +383,10 @@ export default function App() {
       // Solved it -- nothing left to do on this task, so off to the waiting
       // screen. A wrong answer stays on the editor with its hint so the
       // student can resubmit (that's what escalates the hint tier).
-      if (data.verdict === "correct") setPhase("waiting");
+      if (data.verdict === "correct") {
+        setPhase("waiting");
+        setDoneDialogOpen(true);
+      }
     } catch (e) {
       setErrorMessage(e instanceof Error ? e.message : "Submission failed.");
     } finally {
@@ -403,6 +408,7 @@ export default function App() {
     if (autoSubmittedRef.current) return;
     autoSubmittedRef.current = true;
     setPhase("waiting");
+    setDoneDialogOpen(true);
 
     // Already submitted (grading in flight, or already graded) -- the
     // existing submit/result takes it from here, nothing more to do.
@@ -508,6 +514,8 @@ export default function App() {
       setErrorMessage(null);
       loadHistory(q.id);
       setPhase(q.seconds_remaining > 0 ? "answering" : "waiting");
+      // A late joiner lands on a task that's already over: say so up front.
+      setDoneDialogOpen(q.seconds_remaining <= 0);
       return;
     }
 
@@ -783,127 +791,118 @@ export default function App() {
     );
   }
 
-  if (phase === "waiting") {
-    // One screen for every "nothing to type right now" moment -- only the
-    // headline/message change with what this student just did.
-    let title: string;
-    let message: string;
-    if (submitting) {
-      title = "Time's up";
-      message = wasAutoSubmitted ? "Your code was submitted automatically." : "Your code is being graded.";
-    } else if (errorMessage) {
-      title = "Time's up";
-      message = "Waiting for your lecturer to give the next task.";
-    } else if (result?.verdict === "correct") {
-      title = "Good job!";
-      message = "You solved it. Waiting for your lecturer to give the next task.";
-    } else if (result) {
-      title = "Thanks for submitting";
-      message = "Your lecturer will go over the results. Waiting for the next task.";
-    } else if (hadTask) {
-      title = "Time's up";
-      message = "No code submitted for this task. That's fine, the next one's coming.";
-    } else {
-      title = `You're in${name.trim() ? `, ${name.trim()}` : ""}!`;
-      message = "Waiting for your lecturer to start the first task.";
-    }
-    const showFiles = questionId != null && files.some((f) => f.test > 0);
+  // Every "nothing to type right now" moment shares one headline and message;
+  // only the wording changes with what this student just did. Shown in the
+  // popup over a finished task, or on the page between tasks.
+  let title: string;
+  let message: string;
+  if (submitting) {
+    title = "Your code was submitted";
+    message = wasAutoSubmitted
+      ? "Time ran out, so it went in automatically. Running the tests now."
+      : "Running the tests now.";
+  } else if (errorMessage) {
+    title = "Time's up";
+    message = "Waiting for your lecturer to give the next task.";
+  } else if (result?.verdict === "correct") {
+    title = "Your code was submitted";
+    message = "It passes every test. Your lecturer will move on when the class is ready.";
+  } else if (result) {
+    title = "Your code was submitted";
+    message = "Your lecturer will go through the results with the class before the next task.";
+  } else if (hadTask) {
+    title = "Time's up";
+    message = "You didn't submit anything this time. There'll be another task soon.";
+  } else {
+    title = `You're in${name.trim() ? `, ${name.trim()}` : ""}`;
+    message = "Your lecturer hasn't started the first task yet.";
+  }
+  const scored = result != null && !submitting;
+  // A task is current but over for this student (solved, or time's up): the
+  // editor stays up, locked, under the popup.
+  const locked = phase === "waiting" && questionId != null;
 
+  // What the lecturer is going over with the class (see "Show to students").
+  const exampleList = (
+  <div className={cx("grid gap-8", shownExamples.length > 1 && !locked && "2xl:grid-cols-2")}>
+    {shownExamples.map((ex, i) => (
+      <div key={i} className="min-w-0">
+        {shownExamples.length > 1 && <Eyebrow className="mb-2">Example {i + 1}</Eyebrow>}
+        {ex.correct && (
+          <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-emerald-700">
+            <svg className="size-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M2.5 6.2l2.3 2.3L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Passes every test
+          </p>
+        )}
+        {ex.failing_test && (
+          <FailingTestStrip
+            className="mb-2"
+            test={{
+              stdin: ex.failing_test.stdin,
+              expected: ex.failing_test.expected_stdout,
+              got: ex.failing_test.stdout,
+              error: ex.failing_test.stderr,
+            }}
+          />
+        )}
+        <CodeBlock lines={ex.source_code.split("\n").length}>{ex.source_code}</CodeBlock>
+      </div>
+    ))}
+  </div>
+  );
+
+  if (phase === "waiting" && !locked) {
     return (
       <>
         <StudentBar name={joinedName} />
         <StudentPage>
-          <header className="animate-fade-in-up pt-10 sm:pt-14">
-            <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-6">
-              <div className="min-w-0 flex-1 basis-96">
-                {submitting ? (
-                  <div className="flex items-center gap-2 text-[13px] font-medium text-zinc-600">
-                    <Spinner /> {statusText || "Grading..."}
-                  </div>
-                ) : (
-                  <StatusLine
-                    state="live"
-                    label="Waiting for your lecturer"
-                    items={[hadTask && taskTitle]}
-                  />
-                )}
-                <h1 className="mt-3 text-4xl font-bold tracking-tight text-balance text-zinc-950 lg:text-5xl">{title}</h1>
-                <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-zinc-500">{message}</p>
-              </div>
-              {result && !submitting && (
-                <div className="text-right">
-                  <VerdictBadge verdict={result.verdict} />
-                  <div className="mt-2 font-mono text-5xl leading-none font-semibold tracking-tight text-zinc-950 tabular-nums">
-                    {result.tests_passed}
-                    <span className="text-2xl text-zinc-400">/{result.tests_total}</span>
-                  </div>
-                  <div className="mt-1 text-xs text-zinc-500">tests passed</div>
+          <Card
+            flush
+            className="mt-10 grid max-w-3xl animate-fade-in-up overflow-hidden sm:mt-14 sm:grid-cols-[minmax(0,1fr)_auto]"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="min-w-0 px-6 py-7 sm:px-8 sm:py-8">
+              {submitting ? (
+                <div className="flex items-center gap-2 text-[13px] font-medium text-zinc-600">
+                  <Spinner /> {statusText || "Grading..."}
                 </div>
+              ) : (
+                <StatusLine state="live" label="Waiting for your lecturer" items={[hadTask && taskTitle]} />
+              )}
+              <h1 className="mt-4 text-3xl font-bold tracking-tight text-balance text-zinc-950 sm:text-4xl">{title}</h1>
+              <p className="mt-2 max-w-md text-[15px] leading-relaxed text-zinc-500">{message}</p>
+              {errorMessage && !submitting && (
+                <Callout tone="danger" role="alert" className="mt-5">
+                  {errorMessage}
+                </Callout>
               )}
             </div>
-            {errorMessage && !submitting && (
-              <Callout tone="danger" role="alert" className="mt-6 max-w-2xl">
-                {errorMessage}
-              </Callout>
+            {scored && (
+              <div className="flex flex-col justify-end border-t border-zinc-200 bg-zinc-50 px-6 py-6 sm:min-w-44 sm:border-t-0 sm:border-l sm:px-8 sm:py-8">
+                <VerdictBadge verdict={result.verdict} />
+                <div className="mt-3 font-mono text-5xl leading-none font-semibold tracking-tight text-zinc-950 tabular-nums">
+                  {result.tests_passed}
+                  <span className="text-2xl text-zinc-400">/{result.tests_total}</span>
+                </div>
+                <div className="mt-1.5 text-xs text-zinc-500">tests passed</div>
+              </div>
             )}
-            <div className="mt-8 h-px w-full bg-zinc-200" aria-hidden="true" />
-          </header>
-
-          {(shownExamples.length > 0 || showFiles) && (
-            <div
-              className={cx(
-                "grid items-start gap-x-14 gap-y-12 pt-10",
-                shownExamples.length > 0 && showFiles && "lg:grid-cols-[minmax(0,1fr)_minmax(18rem,26rem)]",
-              )}
-            >
-              {shownExamples.length > 0 && (
-                <section className="min-w-0 animate-fade-in-up" aria-label="On your lecturer's screen">
-                  <div className="mb-5 flex flex-wrap items-baseline gap-3">
-                    <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Let's look at this together</h2>
-                    <span className="text-[13px] text-zinc-400">
-                      {shownExamples.length > 1
-                        ? "attempts your lecturer picked from the class"
-                        : "an attempt your lecturer picked from the class"}
-                    </span>
-                  </div>
-                  <div className={cx("grid gap-8", shownExamples.length > 1 && "2xl:grid-cols-2")}>
-                    {shownExamples.map((ex, i) => (
-                      <div key={i} className="min-w-0">
-                        {shownExamples.length > 1 && <Eyebrow className="mb-2">Example {i + 1}</Eyebrow>}
-                        {ex.correct && (
-                          <p className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-emerald-700">
-                            <svg className="size-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                              <path d="M2.5 6.2l2.3 2.3L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Passes every test
-                          </p>
-                        )}
-                        {ex.failing_test && (
-                          <FailingTestStrip
-                            className="mb-2"
-                            test={{
-                              stdin: ex.failing_test.stdin,
-                              expected: ex.failing_test.expected_stdout,
-                              got: ex.failing_test.stdout,
-                              error: ex.failing_test.stderr,
-                            }}
-                          />
-                        )}
-                        <CodeBlock lines={ex.source_code.split("\n").length}>{ex.source_code}</CodeBlock>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {showFiles && questionId && (
-                <section className="min-w-0 animate-fade-in-up" aria-label="Test files">
-                  <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Test files</h2>
-                  <p className="mt-1 mb-4 text-[13px] text-zinc-500">Time&apos;s up, so every test&apos;s files are open now.</p>
-                  <TestFiles key={questionId} questionId={questionId} files={files} groupByTest />
-                </section>
-              )}
-            </div>
+          </Card>
+          {shownExamples.length > 0 && (
+            <section className="animate-fade-in-up pt-12" aria-label="On your lecturer's screen">
+              <div className="mb-5 flex flex-wrap items-baseline gap-3">
+                <h2 className="text-[15px] font-bold tracking-tight text-zinc-950">Let's look at this together</h2>
+                <span className="text-[13px] text-zinc-400">
+                  {shownExamples.length > 1
+                    ? "attempts your lecturer picked from the class"
+                    : "an attempt your lecturer picked from the class"}
+                </span>
+              </div>
+              {exampleList}
+            </section>
           )}
         </StudentPage>
       </>
@@ -957,11 +956,11 @@ export default function App() {
           <div className="flex-none border-b border-zinc-200 px-5 pt-5 pb-4">
             <div className="flex items-center justify-between gap-3">
               <StatusLine
-                state={secondsRemaining === 0 ? "closed" : "live"}
+                state={locked || secondsRemaining === 0 ? "closed" : "live"}
                 label={taskNumber ? `Task ${taskNumber}` : "Task"}
                 items={[<span className="capitalize">{language}</span>]}
               />
-              {secondsRemaining != null && (
+              {secondsRemaining != null && !locked && (
                 <span
                   role="timer"
                   aria-label="Time left"
@@ -979,8 +978,39 @@ export default function App() {
             </h1>
           </div>
 
+          {locked && (
+            <div className="flex-none border-b border-brand-200 bg-brand-50 px-5 py-4" role="status">
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-brand-700">
+                  {submitting ? (
+                    <Spinner />
+                  ) : (
+                    <span className="size-1.5 animate-pulse-dot rounded-[2px] bg-brand-500" aria-hidden="true" />
+                  )}
+                  {submitting ? "Grading your code" : "Waiting for the next task"}
+                </span>
+                <Button variant="ghost" size="sm" className="-mr-2 text-brand-700" onClick={() => setDoneDialogOpen(true)}>
+                  {scored ? "Your result" : "Details"}
+                </Button>
+              </div>
+              <p className="mt-1 text-[13px] leading-relaxed text-brand-950/70">
+                This task is closed. Your lecturer will start the next one.
+              </p>
+            </div>
+          )}
+
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
             <div className="grid gap-7">
+              {locked && shownExamples.length > 0 && (
+                <section className="animate-fade-in-up" aria-label="On your lecturer's screen">
+                  <Eyebrow className="mb-1">On your lecturer&apos;s screen</Eyebrow>
+                  <p className="mb-4 text-[13px] text-zinc-500">
+                    {shownExamples.length > 1 ? "Attempts" : "An attempt"} picked from the class to look at together.
+                  </p>
+                  {exampleList}
+                </section>
+              )}
+
               {nudge && (
                 <div className="animate-fade-in-up rounded-lg bg-brand-50 px-4 py-3.5 ring-1 ring-brand-200" role="status">
                   <Eyebrow className="text-brand-700">A nudge</Eyebrow>
@@ -1128,12 +1158,92 @@ export default function App() {
                 statusText={statusText}
                 result={result}
                 submitError={errorMessage}
+                locked={locked}
               />
             )}
           </Suspense>
         </section>
       </main>
+      <DoneDialog
+        open={locked && doneDialogOpen}
+        onClose={() => setDoneDialogOpen(false)}
+        title={title}
+        message={message}
+        statusText={submitting ? statusText || "Grading..." : null}
+        result={scored ? result : null}
+      />
     </>
+  );
+}
+
+export interface DoneDialogProps {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  message: string;
+  /** Set while the submission is still being graded. */
+  statusText: string | null;
+  result: SubmitResponse | null;
+}
+
+// Pops up over the editor when the task ends for this student (solved, or
+// time's up). Escape, the backdrop or the button closes it onto the locked
+// editor; the task panel's "Your result" button brings it back.
+function DoneDialog({ open, onClose, title, message, statusText, result }: DoneDialogProps) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex animate-fade-in items-center justify-center bg-zinc-950/40 p-4 backdrop-blur-[2px]"
+      onPointerDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="done-dialog-title"
+        aria-describedby="done-dialog-message"
+        className="grid w-full max-w-xl animate-fade-in-up overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-2xl shadow-zinc-950/10 sm:grid-cols-[minmax(0,1fr)_auto]"
+      >
+        <div className="min-w-0 px-6 pt-6 pb-5 sm:px-7 sm:pt-7">
+          {statusText ? (
+            <div className="flex items-center gap-2 text-[13px] font-medium text-zinc-600" role="status">
+              <Spinner /> {statusText}
+            </div>
+          ) : (
+            <StatusLine state="live" label="Waiting for your lecturer" />
+          )}
+          <h2 id="done-dialog-title" className="mt-3 text-2xl font-bold tracking-tight text-balance text-zinc-950">
+            {title}
+          </h2>
+          <p id="done-dialog-message" className="mt-2 text-sm leading-relaxed text-zinc-500">
+            {message}
+          </p>
+          <Button ref={closeRef} variant="secondary" className="mt-6" onClick={onClose}>
+            Back to my code
+          </Button>
+        </div>
+        {result && (
+          <div className="flex flex-col justify-end border-t border-zinc-200 bg-zinc-50 px-6 py-5 sm:min-w-40 sm:border-t-0 sm:border-l sm:px-7 sm:py-7">
+            <VerdictBadge verdict={result.verdict} />
+            <div className="mt-3 font-mono text-5xl leading-none font-semibold tracking-tight text-zinc-950 tabular-nums">
+              {result.tests_passed}
+              <span className="text-2xl text-zinc-400">/{result.tests_total}</span>
+            </div>
+            <div className="mt-1.5 text-xs text-zinc-500">tests passed</div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

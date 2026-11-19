@@ -324,6 +324,8 @@ export interface WorkspaceProps {
   onOpenDataFilesChange?: (names: string[]) => void;
   /** Where this task's code and Run input are autosaved (see drafts.ts). */
   draftKey: string;
+  /** The task is over for this student: the code stays visible but can't be edited, run or submitted. */
+  locked?: boolean;
   ref?: Ref<WorkspaceHandle>;
 }
 
@@ -348,6 +350,7 @@ export function Workspace({
   submitError,
   onOpenDataFilesChange,
   draftKey,
+  locked = false,
   ref,
 }: WorkspaceProps) {
   const codeName = CODE_FILE_NAMES[language] ?? "main.txt";
@@ -517,7 +520,7 @@ export function Workspace({
   // ------------------------------------------------------------------ Run
 
   async function run() {
-    if (running) return;
+    if (running || locked) return;
     const stdin = usesStdin ? inputRef.current : "";
     const entryId = nextId.current++;
     setTerminalOpen(true);
@@ -599,8 +602,8 @@ export function Workspace({
           loading={<CodeSkeleton className="self-start" />}
           options={{
             ...editorOptions,
-            readOnly: file.readOnly,
-            domReadOnly: file.readOnly,
+            readOnly: file.readOnly || locked,
+            domReadOnly: file.readOnly || locked,
             lineNumbers: file.kind === "code" ? "on" : "off",
             placeholder:
               file.kind === "code"
@@ -723,7 +726,12 @@ export function Workspace({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-white shadow-card">
+    <div
+      className={cx(
+        "flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-white shadow-card transition-[filter,opacity] duration-300",
+        locked && "opacity-60 grayscale",
+      )}
+    >
       <div className="flex min-h-0 flex-1">{groups.map(renderGroup)}</div>
 
       {/* Terminal */}
@@ -795,7 +803,7 @@ export function Workspace({
           <Button
             variant="secondary"
             onClick={() => void run()}
-            disabled={running || submitting}
+            disabled={running || submitting || locked}
             title={`Run your code on ${usesStdin ? "the Run input" : dataFiles.length ? "the example's files" : "its own"} (Ctrl/⌘+Enter). Not graded.`}
           >
             {running ? (
@@ -808,7 +816,7 @@ export function Workspace({
             Run
             <kbd className="ml-0.5 hidden font-sans text-[11px] text-zinc-400 sm:inline">Ctrl+↵</kbd>
           </Button>
-          <Button onClick={onSubmit} disabled={submitting}>
+          <Button onClick={onSubmit} disabled={submitting || locked}>
             {submitting && <Spinner />}
             {submitting ? "Submitting..." : "Submit"}
           </Button>
