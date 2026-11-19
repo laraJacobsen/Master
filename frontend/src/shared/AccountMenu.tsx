@@ -102,7 +102,6 @@ export function AccountMenu({ onBand }: AccountMenuProps) {
           </div>
           <div className="py-1">
             <MenuLink href={ROUTES.history}>Lecture history</MenuLink>
-            <MenuLink href={ROUTES.help}>Help &amp; shortcuts</MenuLink>
             <MenuLink href={ROUTES.privacy}>Privacy</MenuLink>
           </div>
           {authRequired && (

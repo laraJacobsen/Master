@@ -275,7 +275,7 @@ def _run_classify_submission_checks():
     assert hints.classify_submission([compile_error]) == ("compile_error", None)
     graded = judge_and_feedback("", "", [compile_error], language="c")
     assert graded["exec_verdict"] == "compile_error" and graded["verdict"] == "error", graded
-    assert graded["hint_tier"] == 1 and "compiled" in graded["feedback"], graded
+    assert graded["hint_tier"] == 1 and "compiler reports" in graded["feedback"], graded
     assert graded["traceback"] == compile_error["compile_output"], graded  # shown to the student
 
     # An extra printed line: the whole-output test comparison fails, the last line matches.
@@ -339,7 +339,7 @@ def _run_c_java_classify_checks():
         key = hints._feedback.family_key_for("runtime_error", error_type)
         assert key[1] != "_fallback", error_type
         assert hints.discussion_point_for_cluster("runtime_error", error_type, 2), error_type
-    tier2 = hints.hint_for_verdict("runtime_error", "StringIndexOutOfBoundsException", 2)["hint_text"]
+    tier2 = hints.hint_for_verdict("runtime_error", "StringIndexOutOfBoundsException", 1)["hint_text"]
     assert tier2.startswith("StringIndexOutOfBoundsException:"), tier2
 
     graded = judge_and_feedback("", "", [{
@@ -347,7 +347,7 @@ def _run_c_java_classify_checks():
         "stdout": "", "stderr": no_main, "compile_output": None, "exit_code": 1,
         "expected_stdout": "7\n"}], language="java")
     assert graded["exec_verdict"] == "runtime_error" and graded["error_type"] == "MainNotFound", graded
-    assert "class named Main" in graded["feedback"], graded
+    assert "public class Main" in graded["feedback"], graded
 
     # The Python package allow-list must not reject Java's own imports.
     from backend.validation import pre_execution_check

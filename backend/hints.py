@@ -78,10 +78,25 @@ def classify_submission(test_results: list, expected_function_name: str = None,
     return verdict, error_type
 
 
+def _shipped_tiers(verdict: str, error_type: str) -> list:
+    """The feedback.py tiers a student actually sees, in order.
+
+    feedback.py's tier 1 only restates the verdict ("Your output didn't match...",
+    "Your program crashed..."), which the result badge and test count already say,
+    so a student's first failed submit felt like it got no hint at all. Students
+    start at tier 2 and go up to the family's last tier (the tier-4 "bottom-out"
+    is a directed next step, never code). A one-tier family keeps its only tier.
+    """
+    ceiling = _feedback.ceiling_for(verdict, error_type)
+    return list(range(2, ceiling + 1)) if ceiling > 1 else [1]
+
+
 def hint_for_verdict(verdict: str, error_type: str, attempt_number: int) -> dict:
-    """Escalates an already-classified (verdict, error_type) into hint text via
-    feedback.py's hint_for_attempt(). Returns hint_text=None (hint_tier/
-    hint_ceiling=None) for verdict == "pass" -- nothing to hint about.
+    """Escalates an already-classified (verdict, error_type) into hint text from
+    feedback.py's tier texts, skipping the restating tier 1 (see _shipped_tiers()).
+    hint_tier/hint_ceiling count the shipped hints, so the first one is "1 of N".
+    Returns hint_text=None (hint_tier/hint_ceiling=None) for verdict == "pass"
+    -- nothing to hint about.
 
     Callers should wrap this in try/except: if the taxonomy doesn't recognize
     the (verdict, error_type) pair (e.g. classify.py starts returning a verdict
@@ -92,11 +107,12 @@ def hint_for_verdict(verdict: str, error_type: str, attempt_number: int) -> dict
     if verdict == "pass":
         return {"hint_text": None, "hint_tier": None, "hint_ceiling": None}
 
-    shipped_ceiling = min(_feedback.ceiling_for(verdict, error_type), _feedback.SHIPPED_TIER_CAP)
+    tiers = _shipped_tiers(verdict, error_type)
+    shown = min(max(attempt_number, 1), len(tiers))
     return {
-        "hint_text": _feedback.hint_for_attempt(verdict, error_type, attempt_number, ship=True),
-        "hint_tier": min(attempt_number, shipped_ceiling),
-        "hint_ceiling": shipped_ceiling,
+        "hint_text": _feedback.get_hint(verdict, error_type, tiers[shown - 1]),
+        "hint_tier": shown,
+        "hint_ceiling": len(tiers),
     }
 
 

@@ -4,6 +4,7 @@ import { Footer } from "./Footer";
 import { ROUTES } from "./routes";
 import { cx } from "./cx";
 import { lastRole } from "./role";
+import { NavBar } from "./NavBar";
 
 export interface PublicLayoutProps {
   children: ReactNode;
@@ -11,55 +12,54 @@ export interface PublicLayoutProps {
   current?: "help" | "privacy";
 }
 
-// The frame for pages anyone can open -- help, privacy, 404 -- whether
-// they're a student or the lecturer. The lecturer's NavBar would be wrong
-// here (its account menu and lecture shortcut mean nothing to a student).
+// The frame for pages anyone can open -- help, privacy, 404. A lecturer gets
+// the same NavBar as on every other lecturer page (it was a different bar
+// here, which felt like leaving the app); students get a bar with the same
+// size and edges, minus the lecturer's links and account menu.
 export function PublicLayout({ children, current }: PublicLayoutProps) {
   const isLecturer = lastRole() === "lecturer";
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-50 border-b border-zinc-200 bg-zinc-50/85 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-5 sm:px-8">
-          <a
-            href={isLecturer ? ROUTES.home : ROUTES.join}
-            className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500"
-          >
-            <BrandMark />
-          </a>
-          <nav aria-label="Main" className="hidden items-center gap-1 sm:flex">
-            <BarLink href={ROUTES.help} current={current === "help"}>
-              Help
-            </BarLink>
-            <BarLink href={ROUTES.privacy} current={current === "privacy"}>
-              Privacy
-            </BarLink>
-          </nav>
-          <div className="ml-auto flex items-center gap-2">
-            {isLecturer ? (
-              <>
-                <LinkButton href={ROUTES.join} variant="ghost" size="sm">
-                  Student page
-                </LinkButton>
-                <LinkButton href={ROUTES.home} size="sm">
-                  Back to dashboard
-                </LinkButton>
-              </>
-            ) : (
-              <>
-                <LinkButton href={ROUTES.home} variant="ghost" size="sm">
-                  Lecturer
-                </LinkButton>
-                <LinkButton href={ROUTES.join} size="sm">
-                  Join a lecture
-                </LinkButton>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+      {isLecturer ? <NavBar /> : <StudentPublicBar current={current} />}
       <div className="flex-1">{children}</div>
       <Footer />
     </div>
+  );
+}
+
+interface StudentPublicBarProps {
+  current?: "help" | "privacy";
+}
+
+// Same dimensions as NavBar (h-14, full width up to 112rem, same padding).
+function StudentPublicBar({ current }: StudentPublicBarProps) {
+  return (
+    <header className="sticky top-0 z-50 border-b border-zinc-200 bg-zinc-50/85 backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-[112rem] items-center gap-6 px-5 sm:px-8">
+        <a
+          href={ROUTES.join}
+          className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500"
+        >
+          <BrandMark />
+        </a>
+        <nav aria-label="Main" className="flex items-center gap-1">
+          <BarLink href={ROUTES.help} current={current === "help"}>
+            Help
+          </BarLink>
+          <BarLink href={ROUTES.privacy} current={current === "privacy"}>
+            Privacy
+          </BarLink>
+        </nav>
+        <div className="ml-auto flex items-center gap-2">
+          <LinkButton href={ROUTES.home} variant="ghost" size="sm" className="hidden sm:inline-flex">
+            Lecturer
+          </LinkButton>
+          <LinkButton href={ROUTES.join} size="sm">
+            Join a lecture
+          </LinkButton>
+        </div>
+      </div>
+    </header>
   );
 }
 
@@ -75,11 +75,12 @@ function BarLink({ href, current, children }: BarLinkProps) {
       href={href}
       aria-current={current ? "page" : undefined}
       className={cx(
-        "rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
+        "relative rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
         current ? "text-zinc-950" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900",
       )}
     >
       {children}
+      {current && <span className="absolute inset-x-2.5 -bottom-[13px] h-0.5 rounded-full bg-brand-500" aria-hidden="true" />}
     </a>
   );
 }

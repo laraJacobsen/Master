@@ -85,6 +85,7 @@ export function NavBar({ overlayBandId }: NavBarProps) {
   const action = activeLectureAction(active);
   const onHome = isCurrentPage(ROUTES.home);
   const onHistory = isCurrentPage(ROUTES.history);
+  const onHelp = isCurrentPage(ROUTES.help);
   // "Resume lobby" is left off the nav bar's shortcut on purpose -- the home
   // page's own card already surfaces the join code for that state, and a
   // nav-bar link would just duplicate it without that context.
@@ -122,6 +123,9 @@ export function NavBar({ overlayBandId }: NavBarProps) {
           </NavLink>
           <NavLink href={ROUTES.history} current={onHistory} onBand={onBand}>
             History
+          </NavLink>
+          <NavLink href={ROUTES.help} current={onHelp} onBand={onBand}>
+            Help
           </NavLink>
         </div>
         <div className="ml-auto flex items-center gap-3">
