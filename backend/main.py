@@ -1041,10 +1041,8 @@ DEFAULT_IDLE_SECONDS = 180
 # task and any student, so it only points at first steps (tier-0 scaffolds in
 # hint-taxonomy-draft.md terms) and never at the answer.
 IDLE_NUDGE_MESSAGE = (
-    "Still with us? It's been a little while since you last typed. "
-    "A small first step helps: work through the example by hand, or write just the part "
-    "that reads the input and submit it to see which tests pass. "
-    "Stuck? Put your hand up, that's what the lecturer is here for."
+    "Try a small step: work the example by hand, or submit just the input-reading part "
+    "to see which tests pass. Stuck? Put your hand up."
 )
 
 
