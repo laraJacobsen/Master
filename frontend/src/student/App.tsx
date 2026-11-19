@@ -342,6 +342,39 @@ export default function App() {
     setNudge(null);
   }
 
+  // After a reload the page knows nothing about this task's earlier submits:
+  // put the latest one back as the result, and if it solved the task, lock it
+  // again instead of sending the student back to the editor.
+  async function restoreAttempts(qId: string) {
+    let rows: StudentAttempt[];
+    try {
+      rows = await fetchMyAttempts(qId);
+    } catch {
+      return;
+    }
+    // Moved on to another task, or submitted again, while this was loading.
+    if (questionIdRef.current !== qId || resultRef.current || submittingRef.current) return;
+    const mine = [...rows].sort((a, b) => a.attempt_number - b.attempt_number);
+    setHistory(mine.length === 0 ? null : mine);
+    const latest = mine.at(-1);
+    if (!latest) return;
+    const restored: SubmitResponse = {
+      submission_id: latest.id,
+      attempt_number: latest.attempt_number,
+      tests_passed: latest.tests_passed,
+      tests_total: latest.tests_total,
+      verdict: latest.verdict ?? "error",
+      feedback: latest.feedback ?? "",
+    };
+    setResult(restored);
+    resultRef.current = restored;
+    if (latest.verdict === "correct" && phaseRef.current === "answering") {
+      autoSubmittedRef.current = true; // nothing to auto-submit at time-up
+      setPhase("waiting");
+      setDoneDialogOpen(true);
+    }
+  }
+
   async function loadHistory(qId: string | null) {
     if (!qId) {
       setHistory(null);
@@ -512,7 +545,8 @@ export default function App() {
       setResult(null);
       resultRef.current = null;
       setErrorMessage(null);
-      loadHistory(q.id);
+      setHistory(null);
+      restoreAttempts(q.id);
       setPhase(q.seconds_remaining > 0 ? "answering" : "waiting");
       // A late joiner lands on a task that's already over: say so up front.
       setDoneDialogOpen(q.seconds_remaining <= 0);

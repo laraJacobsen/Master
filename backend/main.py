@@ -980,6 +980,8 @@ def api_lecture_attempts(question_id: str, student: dict = Depends(_student)):
             "tests_passed": row["tests_passed"],
             "tests_total": row["tests_total"],
             "created_at": row["created_at"],
+            # The student's own hint, so a reloaded page can show it again.
+            "feedback": row["feedback"],
         }
         for row in store.all_submissions(question_id)
         if row["student_name"] == name

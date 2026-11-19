@@ -33,6 +33,7 @@ export interface StudentAttempt {
   tests_passed: number;
   tests_total: number;
   created_at: string;
+  feedback: string | null;
 }
 
 // GET /api/questions -- student-facing, live questions only.

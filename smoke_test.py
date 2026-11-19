@@ -1676,7 +1676,7 @@ def _run_test_file_checks(client):
 
     mine = client.get("/api/lecture/attempts", params={"question_id": qid, "student_name": "Gus"}).json()
     assert [a["attempt_number"] for a in mine] == [2, 1], mine
-    assert set(mine[0]) == {"id", "attempt_number", "verdict", "tests_passed", "tests_total", "created_at"}, mine[0]
+    assert set(mine[0]) == {"id", "attempt_number", "verdict", "tests_passed", "tests_total", "created_at", "feedback"}, mine[0]
     assert "SECRET" not in json_lib.dumps(mine)
     print("Student attempts endpoint: own attempts only, no test data   OK")
 
