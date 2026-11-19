@@ -34,7 +34,7 @@ Two parts:
 Needs the backend (default http://localhost:8000) and Judge0 running.
 
 Options:
-    --students 14     class size (names from seed_demo_lectures.STUDENTS, max 22)
+    --students 14     class size (names from mock_class_data.STUDENTS, max 22)
     --spread 90       seconds over which a task's submissions arrive
     --idle 0          students who join but never submit (shown as idle)
     --solve 0.5       chance a student who starts wrong ends up fixing it
@@ -57,8 +57,8 @@ import requests
 
 REPO = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO))
-import seed_demo_lectures as stdin_seed  # noqa: E402
-import seed_file_lecture as file_seed  # noqa: E402
+import mock_class_data as stdin_seed  # noqa: E402
+import mock_class_data as file_seed  # noqa: E402
 
 SAMPLES_JSON = REPO / "frontend" / "src" / "setup" / "sampleQuestions.json"
 NAMES = stdin_seed.STUDENTS
@@ -69,8 +69,12 @@ LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
 
 # =============================================================== Sample questions
 
+def _task(title):
+    return next(t for t in file_seed.TASKS if t["title"] == title)
+
+
 def _starter(title):
-    return next(t for t in file_seed.TASKS if t["title"] == title)["starter"]
+    return _task(title)["starter"]
 
 
 C_SUM_REF = """#include <stdio.h>
@@ -109,7 +113,7 @@ def _stdin_sample(key):
 
 
 def _file_sample(title, rng):
-    task = next(t for t in file_seed.TASKS if t["title"] == title)
+    task = _task(title)
     ref = file_seed.reference(task)
     tests = []
     for files in task["tests"](rng):
@@ -191,7 +195,7 @@ BANK = {
     "Gradebook averages": {
         "starter": _starter("Gradebook averages"),
         "correct": [
-            file_seed.TASKS[0]["solution"],
+            _task("Gradebook averages")["solution"],
             "totals = {}\ncounts = {}\nfor name, subject, score in scores:\n    totals[name] = totals.get(name, 0) + score\n"
             "    counts[name] = counts.get(name, 0) + 1\nfor name in sorted(totals):\n"
             '    print(f"{name} {totals[name] / counts[name]:.1f}")\nall_scores = [s for _, _, s in scores]\n'
@@ -286,7 +290,7 @@ BANK = {
     "Warehouse restock": {
         "starter": _starter("Warehouse restock"),
         "correct": [
-            file_seed.TASKS[2]["solution"],
+            _task("Warehouse restock")["solution"],
             "left = {}\nfor item in stock:\n    left[item] = stock[item][0]\nfor item, amount in orders:\n"
             "    left[item] = left[item] - amount\nlines = []\nfor item in sorted(stock):\n    minimum = stock[item][1]\n"
             "    if left[item] < minimum:\n        lines.append(item + ' ' + str(2 * minimum - left[item]))\n"
