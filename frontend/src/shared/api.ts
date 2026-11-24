@@ -163,6 +163,11 @@ export function importTaskZip(file: File): Promise<QuestionRow & { replaced: boo
   );
 }
 
+// The frontend build the server serves now (shared/build.ts, UpdateBanner.tsx).
+export function fetchBuild(): Promise<{ build: string | null }> {
+  return apiFetch(`${API_BASE}/api/build`).then((res) => asJson(res));
+}
+
 // The example task folder, zipped: a template for writing a task (setup page link).
 export function exampleTaskUrl(): string {
   return `${API_BASE}/api/lecturer/example_task`;

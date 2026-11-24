@@ -18,6 +18,7 @@ def test_pages_carry_the_build_and_status_reports_it(tmp_path, monkeypatch):
         assert page.headers["cache-control"] == "no-cache"
         served = re.search(r'<meta name="app-build" content="(\w+)">', page.text).group(1)
         assert client.get("/api/lecture/status").json()["build"] == served
+        assert client.get("/api/build").json() == {"build": served}  # the lecturer pages' check
 
         # A rebuild changes the pages (their asset names): a new build id.
         (tmp_path / "student.html").write_text("<html><head><title>s2</title></head><body></body></html>")

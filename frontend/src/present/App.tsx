@@ -7,7 +7,6 @@ import { Editor, monaco } from "../shared/monaco";
 import { BrandMark, Button, CodeSkeleton, Eyebrow } from "../shared/ui";
 import { cx } from "../shared/cx";
 import { ROUTES } from "../shared/routes";
-import { isStaleBuild } from "../shared/build";
 
 // The lecturer's projector screen: whatever task is live, a big countdown,
 // and -- once time is up -- the attempts the lecturer queued on the live
@@ -178,19 +177,6 @@ export default function App() {
       )}
 
       {stepError && <p className="border-b border-red-200 bg-red-50 px-8 py-2 text-red-700">{stepError}</p>}
-      {/* Not an automatic reload, unlike the student page: the lecturer may have edited
-          or highlighted the code on screen, which only lives in this tab. */}
-      {isStaleBuild(status?.build) && (
-        <div
-          role="status"
-          className="flex items-center justify-between gap-4 border-b border-brand-200 bg-brand-50 px-8 py-2 text-brand-900"
-        >
-          <span>This page was updated. Reload to get the new version (edits on screen are lost).</span>
-          <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
-            Reload
-          </Button>
-        </div>
-      )}
       {/* The task screens shrink to fit; shown code scrolls, so a long
           attempt stays readable from the back of the room. */}
       <div ref={viewportRef} className={cx("min-h-0 flex-1", compact ? "overflow-y-auto" : "overflow-hidden")}>

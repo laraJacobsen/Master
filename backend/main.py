@@ -1007,6 +1007,13 @@ def _seconds_remaining(question: dict) -> int:
     return max(0, int(question["duration_seconds"] - elapsed))
 
 
+@app.get("/api/build")
+def api_build():
+    """The frontend build served now, for pages that don't poll the lecture status (the
+    lecturer's pages: frontend/src/shared/UpdateBanner.tsx). See frontend_build()."""
+    return {"build": frontend_build()}
+
+
 @app.get("/api/lecture/status")
 def api_lecture_status():
     """Polled by the student page (see live-submission-progress-decision-
