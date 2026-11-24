@@ -23,7 +23,7 @@ import os
 from datetime import datetime
 
 import anyio
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -42,7 +42,7 @@ from backend.aggregation import (
     session_summary,
     student_recap,
 )
-from backend import test_files
+from backend import task_format, task_import, test_files
 from backend.hint_ladder import clean_ladder, draft_hint_ladder
 from backend.ai_feedback import _traceback_for, judge_and_feedback
 from backend.judge0_client import Judge0Error, run_submission, run_test_cases
@@ -288,6 +288,39 @@ def api_lecturer_create_question(req: QuestionCreateRequest):
     _check_test_files_or_400(fields["test_cases"], fields["output_file"])
     question_id = store.create_question(fields)
     return store.get_question_row(question_id)
+
+
+@app.post("/api/lecturer/questions/import")
+async def api_lecturer_import_question(file: UploadFile):
+    """A task folder, zipped (see backend/task_format.py), becomes a new draft
+    question. A broken folder gets a 400 listing every problem found, one per line."""
+    data = await file.read(task_format.MAX_ZIP_BYTES + 1)
+    stem = os.path.splitext(os.path.basename(file.filename or "task"))[0].lower()
+    default_id = "-".join(filter(None, "".join(c if c.isalnum() else "-" for c in stem).split("-"))) or "task"
+    try:
+        spec = task_format.load_task_zip(data, default_id=default_id)
+    except task_format.TaskFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    fields = task_import.question_fields(spec)
+    if spec.grading == "stdout":
+        _check_test_files_or_400(fields["test_cases"], fields["output_file"])
+    question_id = store.create_question(fields)
+    return store.get_question_row(question_id)
+
+
+@app.get("/api/lecturer/questions/{question_id}/export")
+def api_lecturer_export_question(question_id: str):
+    """The question as a task folder, zipped -- the format the import above reads, so a
+    task made in the setup page can be kept in version control or shared."""
+    row = store.get_question_row(question_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Not found")
+    spec = task_import.spec_of_question(row)
+    return Response(
+        content=task_format.to_zip(spec),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{spec.id}.zip"'},
+    )
 
 
 @app.get("/api/lecturer/questions/{question_id}")

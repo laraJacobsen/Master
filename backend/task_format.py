@@ -26,6 +26,10 @@ task.yaml (only title, description and language are required):
       begin: "# BEGIN TASK"     # the markers of each editable file; everything else is
       end: "# END TASK"         # put back from the starter when the code is graded
     allowed_packages: [scipy]   # extra imports students may use (besides requirements.txt's)
+    line_limit: 200             # longest submission accepted (lines, all editable files together)
+    hints:                      # optional: the task's own wrong-answer hints, attempt 1 first
+      - Check what happens to rows with no units.
+    output_file: result.txt     # stdout grading only: grade this file instead of what's printed
 
 Grading "stdout" is the app's original model, so a task created in the setup page can
 be exported and re-imported: each test is a folder with stdin.txt, expected_stdout.txt
@@ -91,6 +95,7 @@ _IGNORED_PARTS = {"__MACOSX", "__pycache__", ".DS_Store", ".pytest_cache", "Thum
 _KNOWN_KEYS = {
     "id", "title", "description", "language", "grading", "editable", "time_limit_s",
     "memory_limit_mb", "test_timeout_s", "duration_minutes", "markers", "allowed_packages",
+    "line_limit", "hints", "output_file",
 }
 
 VERSIONS_ENV = os.path.join(os.path.dirname(__file__), "..", "runner", "judge0-python", "versions.env")
@@ -140,6 +145,9 @@ class TaskSpec:
     test_timeout_s: float = 2
     duration_seconds: int = 600
     markers: dict | None = None  # {"begin", "end"}
+    line_limit: int = 200
+    hints: list[str] = field(default_factory=list)
+    output_file: str | None = None
     requirements: list[str] = field(default_factory=list)
     allowed_packages: list[str] = field(default_factory=list)
     files: list[TaskFile] = field(default_factory=list)
@@ -430,7 +438,18 @@ def parse_task(raw: dict[str, bytes], default_id: str = "task") -> TaskSpec:
         test_timeout_s=_number(meta, "test_timeout_s", 2, problems, 0.5, 15),
         duration_seconds=int(_number(meta, "duration_minutes", 10, problems, 1, 180) * 60),
         allowed_packages=_string_list(meta, "allowed_packages", problems),
+        line_limit=int(_number(meta, "line_limit", 200, problems, 5, 5000)),
+        hints=_string_list(meta, "hints", problems),
     )
+
+    output_file = meta.get("output_file")
+    if output_file is not None:
+        if not isinstance(output_file, str) or _check_path(output_file.strip()):
+            problems.append(f"task.yaml: output_file must be a plain file name like result.txt (got {output_file!r}).")
+        elif grading != "stdout":
+            problems.append("task.yaml: output_file only works with grading: stdout.")
+        else:
+            spec.output_file = output_file.strip()
 
     markers = meta.get("markers")
     if markers is not None:
@@ -653,6 +672,12 @@ def task_yaml(spec: TaskSpec) -> str:
         meta["markers"] = dict(spec.markers)
     if spec.allowed_packages:
         meta["allowed_packages"] = spec.allowed_packages
+    if spec.line_limit != 200:
+        meta["line_limit"] = spec.line_limit
+    if spec.hints:
+        meta["hints"] = spec.hints
+    if spec.output_file:
+        meta["output_file"] = spec.output_file
 
     class _Dumper(yaml.SafeDumper):
         pass
@@ -688,3 +713,29 @@ def to_zip(spec: TaskSpec) -> bytes:
         for rel, content in sorted(to_folder_files(spec).items()):
             z.writestr(f"{spec.id}/{rel}", content)
     return buf.getvalue()
+
+
+if __name__ == "__main__":
+    # python -m backend.task_format tasks/<task-id> [more folders or zips...]
+    import sys
+
+    status = 0
+    for target in sys.argv[1:]:
+        try:
+            if os.path.isdir(target):
+                spec = load_task_dir(target)
+            else:
+                with open(target, "rb") as f:
+                    spec = load_task_zip(f.read(), default_id=os.path.splitext(os.path.basename(target))[0])
+        except TaskFormatError as e:
+            status = 1
+            print(f"{target}: {len(e.problems)} problem(s)")
+            for p in e.problems:
+                print(f"  - {p}")
+            continue
+        tests = {r: len(spec.files_with_role(r)) for r in ("test", "hidden_test")}
+        print(f"{target}: OK -- {spec.title!r}, {spec.language}, grading {spec.grading}, editable "
+              f"{', '.join(spec.editable)}, {tests['test']} visible / {tests['hidden_test']} hidden test file(s)"
+              if spec.grading == "tests" else
+              f"{target}: OK -- {spec.title!r}, {spec.language}, grading stdout, {len(spec.stdout_cases)} tests")
+    sys.exit(status)

@@ -1,0 +1,23 @@
+title: Revenue per region
+description: |
+  data/sales.csv has one row per sale: date, region, product, units and unit_price.
+  Finish the two functions in solution.py:
+
+  1. load_sales(path) reads the CSV into a DataFrame and adds a column "revenue"
+     (units * unit_price). Keep every row. A sale with no units recorded counts
+     as 0 units.
+  2. revenue_by_region(df) takes such a DataFrame and returns the total revenue
+     per region as a Series indexed by region, largest total first.
+
+  The tests in tests/ show how the functions are called.
+language: python
+grading: tests
+editable: [solution.py]
+time_limit_s: 5
+memory_limit_mb: 128
+test_timeout_s: 2
+duration_minutes: 10
+hints:
+  - Print df.head() and df.dtypes after reading the file. What does the sale with no units look like?
+  - A missing value in units makes revenue NaN for that row. Which pandas method replaces missing values?
+  - revenue_by_region gets its DataFrame as an argument. Group that DataFrame by region, sum revenue, then sort.

@@ -1,0 +1,13 @@
+date,region,product,units,unit_price
+2026-01-05,north,notebook,12,3.50
+2026-01-05,south,pen,40,1.20
+2026-01-06,east,notebook,5,3.50
+2026-01-07,north,stapler,2,8.00
+2026-01-08,west,pen,25,1.20
+2026-01-09,south,notebook,,3.50
+2026-01-12,east,stapler,4,8.00
+2026-01-13,north,pen,30,1.20
+2026-01-14,west,notebook,8,3.50
+2026-01-15,south,stapler,1,8.00
+2026-01-16,east,pen,10,1.20
+2026-01-19,north,notebook,6,3.50
