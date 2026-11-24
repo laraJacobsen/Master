@@ -98,7 +98,7 @@ def spec_of_question(q: dict) -> TaskSpec:
         editable=list(meta.get("editable") or [DEFAULT_FILE_NAMES.get(language, "solution.py")]),
         # task.yaml's ranges, so whatever the setup page allowed still loads back.
         cpu_time_limit_s=min(max(q["cpu_time_limit_s"], 0.5), 15),
-        memory_limit_kb=min(max(q["memory_limit_kb"] // 1000, 16), 256) * 1000,
+        memory_limit_kb=min(max(q["memory_limit_kb"], 16 * 1024), 250 * 1024),
         test_timeout_s=meta.get("test_timeout_s", 2),
         duration_seconds=min(max(q.get("duration_seconds") or 600, 60), 180 * 60),
         markers=meta.get("markers"),

@@ -79,7 +79,7 @@ def test_tests_task_loads():
     assert (spec.id, spec.title, spec.language, spec.grading) == ("revenue", "Revenue per region", "python", "tests")
     assert spec.description == "Sum revenue per region."
     assert spec.editable == ["solution.py"]
-    assert spec.cpu_time_limit_s == 4 and spec.memory_limit_kb == 200_000
+    assert spec.cpu_time_limit_s == 4 and spec.memory_limit_kb == 200 * 1024
     assert spec.requirements == ["pandas==2.2.3", "numpy"]
     assert spec.extra_packages == ["numpy", "pandas"]
     roles = {(f.role, f.sandbox_path) for f in spec.files}
@@ -97,7 +97,7 @@ def test_defaults_and_editable_defaults_to_every_starter_file():
     })
     spec = tf.parse_task(raw)
     assert spec.editable == ["solution.py"]
-    assert (spec.cpu_time_limit_s, spec.memory_limit_kb, spec.test_timeout_s, spec.duration_seconds) == (5, 128000, 2, 600)
+    assert (spec.cpu_time_limit_s, spec.memory_limit_kb, spec.test_timeout_s, spec.duration_seconds) == (5, 128 * 1024, 2, 600)
 
 
 def test_stdout_task_loads_visible_case_first_hidden_sorted():
@@ -149,7 +149,7 @@ def test_tests_grading_not_supported_for_java_yet():
 
 def test_limits_out_of_range():
     raw = pytest_task(**{"task.yaml": TASK_YAML.replace("memory_limit_mb: 200", "memory_limit_mb: 4096")})
-    assert_problem(raw, "memory_limit_mb must be a number from 16 to 256")
+    assert_problem(raw, "memory_limit_mb must be a number from 16 to 250")
 
 
 def test_editable_file_must_exist_and_reference_must_match():

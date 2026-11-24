@@ -19,7 +19,7 @@ task.yaml (only title, description and language are required):
     editable: [solution.py]     # starter files students may change; the rest are read-only.
                                 # Default: every starter file.
     time_limit_s: 5             # CPU time for one submission (the whole test run)
-    memory_limit_mb: 128
+    memory_limit_mb: 128        # MiB (x 1024 KB, as the setup page counts); at most 250
     test_timeout_s: 2           # tests mode: per test (pytest-timeout)
     duration_minutes: 10        # how long the task runs in the lecture
     markers:                    # optional BEGIN/END mode: students edit only between
@@ -434,7 +434,7 @@ def parse_task(raw: dict[str, bytes], default_id: str = "task") -> TaskSpec:
         id=task_id, title=title, description=description, language=language or "python",
         grading=grading if grading in GRADING_MODES else "stdout", editable=[],
         cpu_time_limit_s=_number(meta, "time_limit_s", 5, problems, 0.5, 15),
-        memory_limit_kb=int(_number(meta, "memory_limit_mb", 128, problems, 16, 256) * 1000),
+        memory_limit_kb=round(_number(meta, "memory_limit_mb", 128, problems, 16, 250) * 1024),
         test_timeout_s=_number(meta, "test_timeout_s", 2, problems, 0.5, 15),
         duration_seconds=int(_number(meta, "duration_minutes", 10, problems, 1, 180) * 60),
         allowed_packages=_string_list(meta, "allowed_packages", problems),
@@ -660,6 +660,13 @@ def splice_region(original: str, submitted: str, markers: dict) -> str:
 # --- writing ---------------------------------------------------------------------------------
 
 
+def _mib(kb: int):
+    """KB -> MiB for task.yaml: a whole number when it is one (131072 -> 128), else
+    exact to the KB (128000 -> 125, 64000 -> 62.5)."""
+    mib = kb / 1024
+    return int(mib) if mib == int(mib) else round(mib, 4)
+
+
 def task_yaml(spec: TaskSpec) -> str:
     meta = {
         "id": spec.id,
@@ -669,7 +676,7 @@ def task_yaml(spec: TaskSpec) -> str:
         "grading": spec.grading,
         "editable": spec.editable,
         "time_limit_s": spec.cpu_time_limit_s,
-        "memory_limit_mb": spec.memory_limit_kb // 1000,
+        "memory_limit_mb": _mib(spec.memory_limit_kb),
         "duration_minutes": max(1, round(spec.duration_seconds / 60)),
     }
     if spec.grading == "tests":
