@@ -104,6 +104,9 @@ def test_cluster_submissions_end_to_end(monkeypatch):
     monkeypatch.setattr(ag, "_llm_available", lambda: False)
     clusters = [c for c in ag.cluster_submissions(qid) if c["exec_verdict"] == "wrong_answer"]
     assert sorted(c["count"] for c in clusters) == [1, 2]
+    by_count = {c["count"]: c["failing_tests"] for c in clusters}
+    assert by_count[2] == [{"name": "test_a", "visibility": "visible"}]
+    assert by_count[1] == [{"name": "test_c", "visibility": "hidden"}]
     store.delete_question(qid)
 
 
@@ -184,3 +187,8 @@ def test_crash_keeps_the_error_specific_hint():
                                  message="KeyError: 'revenue'", details="E   KeyError: 'revenue'", error_type="KeyError")])
     fb = judge_and_feedback("p", "c", crash, grading_mode="tests")
     assert (fb["exec_verdict"], fb["error_type"]) == ("runtime_error", "KeyError")
+
+
+def test_stdout_groups_have_no_failing_tests():
+    stdout_row = {"raw_test_results": json.dumps([{"case_index": 0, "passed": False, "stdout": "5"}])}
+    assert ag._failing_tests_of_group([stdout_row]) is None

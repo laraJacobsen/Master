@@ -189,6 +189,21 @@ function IssueRow({
             )}
           </span>
           {action && <span className="mt-1 block text-[13px] leading-snug text-zinc-500">{action}</span>}
+          {c.failing_tests && c.failing_tests.length > 0 && (
+            <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+              Fails
+              {c.failing_tests.map((t) => (
+                <span key={t.name} className="inline-flex items-center gap-1">
+                  <span className="font-mono text-zinc-800">{t.name}</span>
+                  {t.visibility === "hidden" && (
+                    <span className="rounded-sm bg-zinc-100 px-1 py-px text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
+                      hidden
+                    </span>
+                  )}
+                </span>
+              ))}
+            </span>
+          )}
         </span>
         <span className="flex flex-none items-center gap-3">
           <span className="text-xs whitespace-nowrap text-zinc-400">

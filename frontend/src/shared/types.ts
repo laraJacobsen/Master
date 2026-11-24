@@ -461,6 +461,9 @@ export interface ClusterRow {
   // point even with a single student, and its example is on the students'
   // waiting screen. See aggregation.raise_issue().
   raised: boolean;
+  // Test-graded wrong answers: the tests every student in the group fails (hidden ones
+  // included -- this is the lecturer's view). Absent/null for other groups.
+  failing_tests?: { name: string; visibility: TestVisibility }[] | null;
 }
 
 // POST /api/lecture/activity -- the student editor's heartbeat reply.

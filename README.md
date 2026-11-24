@@ -363,10 +363,11 @@ tasks/<task-id>/
   hidden_tests/     tests students only see as a count ("1 of 2 hidden tests failed")
   reference/        the solved version of each editable file
   data/             data files (CSV etc.), at data/<name> next to the student's code
+  wrong/            optional: typical mistakes (wrong/<name>/solution.py) the tests must catch
 ```
 
 `tasks/pandas-sales-summary/` is a complete example (a CSV, 3 visible and 2 hidden
-tests). Every `task.yaml` key is documented at the top of `backend/task_format.py`.
+tests, 3 wrong solutions). Every `task.yaml` key is documented at the top of `backend/task_format.py`.
 
 **Creating a task**
 1. Copy `tasks/pandas-sales-summary/` and edit it. Tests import the student's module
@@ -378,8 +379,11 @@ tests). Every `task.yaml` key is documented at the top of `backend/task_format.p
    `hidden_tests/` and `data/` into a temporary folder and run `pytest` there.
 3. Zip the folder and use **Import task folder (.zip)** under the question list in
    setup. Step 2 then shows the folder read-only; **Check solution** runs the reference
-   against every test (all must pass) and the starter (must not pass them all), and
-   records the task's test list. To change the files, edit the folder and import again.
+   against every test (all must pass), the starter (must not pass them all) and each
+   wrong solution (must fail at least one test, and the ones `wrong_solutions` in
+   task.yaml lists for it), and records the task's test list. To change the files, edit
+   the folder and import it again: that replaces the draft (same task id: the folder
+   name inside the zip) until the task has run.
 4. **Export as task folder** on any question (setup-page ones too) downloads the same
    format; stdout tasks export as `tests/<name>/{stdin.txt,expected_stdout.txt,files/}`.
 
@@ -401,7 +405,9 @@ import the student's file is `syntax_error`/`runtime_error`, a test over its
 kill is `oom`. Wrong answers without the task's own hints get generic ones that point
 at the first failing visible test (never name a hidden one). Wrong answers cluster first
 by the **set of failing tests** (where stdout tasks use the printed output), then by the
-diff against the reference within each set.
+diff against the reference within each set. The dashboard names the tests each
+wrong-answer group fails, hidden ones marked. For a rehearsal, `mock_class.py` uses the
+folder's wrong solutions as its students' wrong answers.
 
 **The runner** (`backend/task_runner.py`, `run_tests(task, files) -> [TestResult]`) runs
 pytest with `--junitxml` inside Judge0, one submission per run, with the task's CPU and

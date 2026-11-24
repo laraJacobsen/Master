@@ -704,6 +704,18 @@ def _shared_failing_cases(group: list) -> list:
     return shared
 
 
+def _failing_tests_of_group(group: list):
+    """For a test-graded wrong-answer group: the tests its submissions fail, as
+    [{"name", "visibility"}] in test order -- the same for every row, since the group's
+    first level is the failing-test set. None for stdout-graded groups. Lecturer-side
+    (the dashboard), so hidden tests are named too."""
+    results = _parsed_results(group[0]) if group else None
+    if not _is_test_graded(results):
+        return None
+    return [{"name": r.get("test_name"), "visibility": r.get("visibility")}
+            for r in sorted(results, key=lambda r: r.get("case_index", 0)) if not r.get("passed")]
+
+
 def _shared_failing_tests(parsed: list) -> list:
     """_shared_failing_cases() for test-graded rows: every test all rows failed, in test
     order, with the same keys (stdin/expected_stdout empty; stdout holds the failure
@@ -1159,6 +1171,7 @@ def _wrong_answer_subclusters(members: list) -> list:
                 "submission_ids": _distinct_student_submission_ids(group),
                 "discussion_point": discussion_point,
                 "raised": raised,
+                "failing_tests": _failing_tests_of_group(group),
             }
         )
     return result
