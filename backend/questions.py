@@ -33,6 +33,7 @@ def list_questions():
             "language": q["language"],
             "example": without_contents(q["test_cases"][:1])[0] if q["test_cases"] else None,
             "output_file": q.get("output_file"),
+            "grading_mode": q.get("grading_mode", "stdout"),
         }
         for q in store.list_question_rows(status="live")
     ]

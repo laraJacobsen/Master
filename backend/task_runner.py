@@ -58,6 +58,7 @@ _PYTEST_RAN = (0, 1)
 
 @dataclass
 class TestResult:
+    __test__ = False  # a result type, not a pytest test class
     id: str  # "tests/test_sales.py::test_revenue_column" (class tests: file::Class::name)
     name: str  # "test_revenue_column"
     file: str  # "tests/test_sales.py"
@@ -112,7 +113,7 @@ class TestResult:
             "status_description": status,
             "stdin": "",
             "stdout": "",
-            "expected_stdout": None,
+            "expected_stdout": "",
             "stderr": stderr,
             "exit_code": exit_code,
             "time_s": self.time_s,
