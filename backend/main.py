@@ -297,8 +297,14 @@ def api_lecturer_create_question(req: QuestionCreateRequest):
 
 @app.post("/api/lecturer/questions/import")
 async def api_lecturer_import_question(file: UploadFile):
-    """A task folder, zipped (see backend/task_format.py), becomes a new draft
-    question. A broken folder gets a 400 listing every problem found, one per line."""
+    """A task folder, zipped (see backend/task_format.py), becomes a draft question. A
+    broken folder gets a 400 listing every problem found, one per line.
+
+    Importing a folder again replaces the draft it made before (same task id, as in the
+    setup list: not started yet), so fixing a test means edit, zip, import -- not a
+    second copy to clean up. The draft keeps its place in the run order and has to be
+    checked again. A task that has already run stays as it was; the import then makes
+    a new draft. "replaced" in the response says which happened."""
     data = await file.read(task_format.MAX_ZIP_BYTES + 1)
     stem = os.path.splitext(os.path.basename(file.filename or "task"))[0].lower()
     default_id = "-".join(filter(None, "".join(c if c.isalnum() else "-" for c in stem).split("-"))) or "task"
@@ -309,8 +315,13 @@ async def api_lecturer_import_question(file: UploadFile):
     fields = task_import.question_fields(spec)
     if spec.grading == "stdout":
         _check_test_files_or_400(fields["test_cases"], fields["output_file"])
+    earlier = next((q for q in store.list_question_rows(status="draft", current_lecture_only=True)
+                    if (q.get("task_meta") or {}).get("id") == spec.id), None)
+    if earlier:
+        store.update_question(earlier["id"], {**fields, "validated": 0})
+        return {**store.get_question_row(earlier["id"]), "replaced": True}
     question_id = store.create_question(fields)
-    return store.get_question_row(question_id)
+    return {**store.get_question_row(question_id), "replaced": False}
 
 
 @app.get("/api/lecturer/questions/{question_id}/export")

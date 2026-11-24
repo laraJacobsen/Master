@@ -154,7 +154,8 @@ export function draftHints(payload: HintDraftRequest): Promise<HintDraftResponse
 
 // A zipped task folder (task.yaml, starter/, tests/, ...) becomes a draft question.
 // A broken folder rejects with every problem, one per line.
-export function importTaskZip(file: File): Promise<QuestionRow> {
+// Importing the same folder again replaces the draft it made (replaced: true).
+export function importTaskZip(file: File): Promise<QuestionRow & { replaced: boolean }> {
   const form = new FormData();
   form.append("file", file);
   return apiFetch(`${API_BASE}/api/lecturer/questions/import`, { method: "POST", body: form }).then((res) =>

@@ -494,7 +494,11 @@ export default function App() {
       await waitForSave();
       if (dirty && canAutosave) await persist();
       const created = await importTaskZip(file);
-      toast(`Imported "${created.title}"`);
+      toast(
+        created.replaced
+          ? `Updated "${created.title}" from the folder. Check the solution again before starting it.`
+          : `Imported "${created.title}"`,
+      );
       loadQuestionList();
       loadQuestionIntoForm(created);
       setStep(1);

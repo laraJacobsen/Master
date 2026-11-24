@@ -107,6 +107,31 @@ def test_import_endpoint_creates_a_draft_and_export_round_trips():
     store.delete_question(q["id"])
 
 
+def test_reimport_replaces_the_draft_but_not_a_started_task(tmp_path):
+    import shutil
+    folder = tmp_path / "pandas-sales-summary"
+    shutil.copytree(EXAMPLE, folder)
+    post = lambda: client.post("/api/lecturer/questions/import",
+                               files={"file": ("t.zip", zip_dir(str(folder)), "application/zip")}).json()
+    first = post()
+    assert first["replaced"] is False
+    store.update_question(first["id"], {"validated": 1})
+    (folder / "task.yaml").write_text((folder / "task.yaml").read_text().replace(
+        "title: Revenue per region", "title: Revenue per region (fixed)"))
+    second = post()
+    assert (second["id"], second["replaced"], second["title"], second["validated"]) == (
+        first["id"], True, "Revenue per region (fixed)", False)
+    assert sum(q.get("task_meta", {}).get("id") == "pandas-sales-summary"
+               for q in store.list_question_rows(status="draft", current_lecture_only=True)) == 1
+
+    store.update_question(first["id"], {"status": "closed"})  # it ran: leave it alone
+    third = post()
+    assert third["replaced"] is False and third["id"] != first["id"]
+    assert store.get_question_row(first["id"])["title"] == "Revenue per region (fixed)"
+    for qid in (first["id"], third["id"]):
+        store.delete_question(qid)
+
+
 def test_import_endpoint_lists_every_problem():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:

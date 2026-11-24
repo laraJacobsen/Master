@@ -316,7 +316,26 @@ def load_task_dir(path: str) -> TaskSpec:
 
 
 def load_task_zip(data: bytes, default_id: str = "task") -> TaskSpec:
+    """Without an id in task.yaml, the task's id is the folder name inside the zip when
+    there is one (a zipped folder), else default_id (the upload's file name). The folder
+    name is the stable one: a browser saves a second download as "task (1).zip", and the
+    id is what makes a re-import replace the earlier draft."""
+    folder = _zip_folder_name(data)
+    if folder and re.match(r"^[a-z0-9][a-z0-9-]*$", folder):
+        default_id = folder
     return parse_task(read_zip(data), default_id=default_id)
+
+
+def _zip_folder_name(data: bytes) -> str | None:
+    try:
+        names = [i.filename for i in zipfile.ZipFile(io.BytesIO(data)).infolist()
+                 if not i.is_dir() and not _ignored(i.filename)]
+    except zipfile.BadZipFile:
+        return None
+    if "task.yaml" in names:
+        return None
+    tops = {n.split("/", 1)[0] for n in names}
+    return next(iter(tops)) if len(tops) == 1 else None
 
 
 # --- validation ----------------------------------------------------------------------------
