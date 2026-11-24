@@ -52,6 +52,7 @@ VISIBLE_DIR, HIDDEN_DIR = "tests", "hidden_tests"
 _MAX_REPORT_CHARS = 1_000_000
 _MESSAGE_CHARS = 300
 _DETAILS_CHARS = 2000
+_OUTPUT_CHARS = 4000
 # Exit codes of `pytest`: 0 all passed, 1 some failed -- a report exists either way.
 _PYTEST_RAN = (0, 1)
 
@@ -66,6 +67,7 @@ class TestResult:
     outcome: str  # "passed" | "failed" | "error" | "skipped"
     message: str = ""  # one short line: "assert 0 == 42.0", "KeyError: 'revenue'"
     details: str = ""  # pytest's short traceback (lecturer only)
+    output: str = ""  # what the code printed while this test ran (captured by pytest)
     error_type: str | None = None  # "AssertionError", "KeyError", "Timeout", "SyntaxError"...
     time_s: float | None = None
     # How the whole run ended in Judge0 (same for every test of one run).
@@ -107,6 +109,7 @@ class TestResult:
             "outcome": self.outcome,
             "message": self.message,
             "details": self.details,
+            "output": self.output,
             "error_type": self.error_type,
             "passed": self.passed,
             "status_id": None,
@@ -130,6 +133,15 @@ _MESSAGE_TYPE = re.compile(r"^(?:[\w.]+\.)?([A-Z]\w*(?:Error|Exception|Exit|Inte
 def _short(text: str, n: int) -> str:
     text = (text or "").strip()
     return text if len(text) <= n else text[: n - 3] + "..."
+
+
+def _short_tail(text: str, n: int) -> str:
+    """Captured output: pytest wraps it in "----- Captured stdout call -----" lines; keep
+    the printed text, and the start of it when it's long (the first prints are the
+    ones a student is usually looking for)."""
+    lines = [ln for ln in (text or "").splitlines() if not re.match(r"^-{3,} Captured .* -{3,}$", ln.strip())]
+    text = "\n".join(lines).strip("\n")
+    return text if len(text) <= n else text[:n] + "\n... (more output cut)"
 
 
 def _error_type(message: str, details: str) -> str | None:
@@ -184,6 +196,9 @@ def parse_junit_xml(xml_text: str) -> tuple[list[TestResult], dict[str, TestResu
         skipped = case.find("skipped")
         problem = failure if failure is not None else error
         message = problem.get("message", "") if problem is not None else ""
+        # junit_logging=system-out: what the test printed (the student's print() calls).
+        out_el = case.find("system-out")
+        printed = _short_tail(out_el.text or "", _OUTPUT_CHARS) if out_el is not None else ""
         details = (problem.text or "") if problem is not None else ""
 
         if not classname and error is not None:
@@ -224,6 +239,7 @@ def parse_junit_xml(xml_text: str) -> tuple[list[TestResult], dict[str, TestResu
         results.append(TestResult(
             id=test_id, name=name, file=path, visibility=_visibility(path), outcome=outcome,
             message=msg, details=_short(details, _DETAILS_CHARS), error_type=et, time_s=time_s,
+            output=printed,
         ))
     return results, collection_errors
 
@@ -388,6 +404,9 @@ class Judge0PytestRunner:
             "export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1\n"
             "export PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 MPLBACKEND=Agg\n"
             f"{PYTHON} -m pytest -q -p no:cacheprovider --rootdir=. --tb=short -o junit_family=xunit1 "
+            # Each test's captured prints go into the report, so students see their
+            # print() output under the (visible) test that ran it.
+            "-o junit_logging=system-out -o junit_log_passing_tests=true "
             f"--timeout={test_timeout:g} --junitxml={report} {' '.join(targets)} > {log} 2>&1\n"
             "status=$?\n"
             f"printf '\\n%s\\n' '{marker}'\n"

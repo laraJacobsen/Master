@@ -273,6 +273,11 @@ function TestLines({ results, hidden }: TestLinesProps) {
             {t.file}::{t.name}
           </span>
           {!t.passed && t.message && <div className="pl-[7ch] whitespace-pre-wrap text-zinc-400">{t.message}</div>}
+          {t.output && (
+            <pre className="pl-[7ch] whitespace-pre-wrap text-zinc-100" aria-label={`Printed during ${t.name}`}>
+              {t.output}
+            </pre>
+          )}
           {!t.passed && t.details && (
             <details className="pl-[7ch]">
               <summary className="cursor-pointer rounded-sm text-zinc-500 hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-brand-400">
@@ -936,7 +941,7 @@ export function Workspace({
               <div className="text-zinc-500">
                 Press <span className="text-zinc-300">Run</span>{" "}
                 {tasked ? (
-                  <>to run the visible tests in tests/ on your code</>
+                  <>to run the visible tests in tests/ on your code; what your code prints shows under the test that ran it</>
                 ) : (
                   <>to try your code on {usesStdin ? "the Run input" : dataFiles.length ? "the example's files" : "its own"}</>
                 )}

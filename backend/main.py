@@ -1420,7 +1420,10 @@ def _student_test_view(test_results: list) -> dict:
     return {
         "test_results": [
             {"name": r.get("test_name"), "file": r.get("test_file"), "outcome": r.get("outcome"),
-             "passed": r.get("passed"), "message": r.get("message") or "", "details": r.get("details") or ""}
+             "passed": r.get("passed"), "message": r.get("message") or "", "details": r.get("details") or "",
+             # Their own prints, from visible tests only: printed during a hidden test, the
+             # output could show that test's data.
+             "output": r.get("output") or ""}
             for r in visible
         ],
         "hidden_tests": {"total": len(hidden), "failed": sum(1 for r in hidden if not r.get("passed"))},
@@ -1597,7 +1600,7 @@ def _run_tests_mode(req: RunRequest, question: dict, lecturer: bool) -> dict:
     if lecturer:
         view["hidden_test_results"] = [
             {"name": r["test_name"], "file": r["test_file"], "outcome": r["outcome"], "passed": r["passed"],
-             "message": r["message"], "details": r["details"]}
+             "message": r["message"], "details": r["details"], "output": r.get("output") or ""}
             for r in results if r.get("visibility") == "hidden"
         ]
     return {"rejected": None, "grading_mode": "tests", **view}

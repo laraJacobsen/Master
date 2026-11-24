@@ -121,6 +121,20 @@ def test_run_without_a_report_without_known_ids_is_one_error():
     assert "stopped before" in rs[0].message
 
 
+def test_prints_are_kept_per_test_without_pytest_headers():
+    rs = {r.name: r for r in results("prints")}
+    assert rs["test_revenue_column"].output == "rows: 12"
+    assert rs["test_missing_units_count_as_zero"].output == "rows: 12"  # hidden: kept for the lecturer
+    assert rs["test_uses_the_dataframe_it_is_given"].output == ""  # never calls load_sales
+    assert all(r.passed for r in rs.values())
+    assert tr.as_dicts(list(rs.values()))[0]["output"] == "rows: 12"
+
+
+def test_long_output_is_cut():
+    assert tr._short_tail("x" * 5000, 100).endswith("... (more output cut)")
+    assert tr._short_tail("----- Captured stdout call -----\nhello\n", 100) == "hello"
+
+
 def test_visible_only_run():
     rs = results("no_fillna", include_hidden=False)
     assert [r.id for r in rs] == VISIBLE and all(r.passed for r in rs)

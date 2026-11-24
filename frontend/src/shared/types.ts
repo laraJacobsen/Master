@@ -230,6 +230,8 @@ export interface TestRunResult {
   passed: boolean;
   message: string;
   details: string;
+  // What the student's code printed while this test ran (visible tests only).
+  output?: string;
 }
 
 // Hidden tests: only how many there are and how many failed.

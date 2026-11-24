@@ -7,9 +7,9 @@
   "stderr": null,
   "compile_output": null,
   "message": "Time limit exceeded",
-  "time_s": "5.096",
-  "wall_time_s": "5.105",
-  "memory_kb": 51860,
+  "time_s": "5.106",
+  "wall_time_s": "5.107",
+  "memory_kb": 51900,
   "exit_code": 0
  }
 }

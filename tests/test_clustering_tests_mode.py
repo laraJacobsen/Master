@@ -120,6 +120,15 @@ def test_shared_example_hides_hidden_tests_from_the_class(monkeypatch):
     assert "secret" not in json.dumps(shown) and "test_c" not in json.dumps(shown)
 
 
+def test_student_view_shows_prints_of_visible_tests_only():
+    rs = results({})
+    rs[0]["output"] = "debug: 5"
+    rs[2]["output"] = "hidden input was 42"
+    view = _student_test_view(rs)
+    assert view["test_results"][0]["output"] == "debug: 5"
+    assert "42" not in json.dumps(view)
+
+
 def test_student_view_counts_hidden_tests_only():
     view = _student_test_view(results({V1: "assert 5 == 6", H1: "assert secret == 42"}))
     assert [(t["name"], t["passed"], t["message"]) for t in view["test_results"]] == [

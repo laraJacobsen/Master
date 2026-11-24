@@ -37,6 +37,7 @@ SCENARIOS = {
     "memory": reference.replace(
         '    df = pd.read_csv(path)\n', '    df = pd.read_csv(path)\n    junk = bytearray(400_000_000)\n', 1),
     "exits_early": "import os\nos._exit(0)\n" + reference,
+    "prints": reference.replace("    return df\n", "    print('rows:', len(df))\n    return df\n", 1),
 }
 
 

@@ -1,0 +1,15 @@
+{
+ "scenario": "prints",
+ "run": {
+  "status_id": 3,
+  "status_description": "Accepted",
+  "stdout": "\n@@REPORT-26a065a95f397c2c536b840a@@\n<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"5\" time=\"0.416\" timestamp=\"2026-11-24T11:15:50.602038+00:00\" hostname=\"7f6b0c973076\"><testcase classname=\"tests.test_sales\" name=\"test_revenue_column\" file=\"tests/test_sales.py\" line=\"3\" time=\"0.004\"><system-out>--------------------------------- Captured Out ---------------------------------\nrows: 12\n\n</system-out></testcase><testcase classname=\"tests.test_sales\" name=\"test_keeps_every_row\" file=\"tests/test_sales.py\" line=\"9\" time=\"0.003\"><system-out>--------------------------------- Captured Out ---------------------------------\nrows: 12\n\n</system-out></testcase><testcase classname=\"tests.test_sales\" name=\"test_largest_region_first\" file=\"tests/test_sales.py\" line=\"13\" time=\"0.003\"><system-out>--------------------------------- Captured Out ---------------------------------\nrows: 12\n\n</system-out></testcase><testcase classname=\"hidden_tests.test_sales_hidden\" name=\"test_missing_units_count_as_zero\" file=\"hidden_tests/test_sales_hidden.py\" line=\"5\" time=\"0.002\"><system-out>--------------------------------- Captured Out ---------------------------------\nrows: 12\n\n</system-out></testcase><testcase classname=\"hidden_tests.test_sales_hidden\" name=\"test_uses_the_dataframe_it_is_given\" file=\"hidden_tests/test_sales_hidden.py\" line=\"11\" time=\"0.001\"><system-out>--------------------------------- Captured Out ---------------------------------\n\n</system-out></testcase></testsuite></testsuites>\n@@REPORT-26a065a95f397c2c536b840a@@\n.....                                                                    [100%]\n-------- generated xml file: /box/.report-26a065a95f397c2c536b840a.xml ---------\n5 passed in 0.41s\n",
+  "stderr": null,
+  "compile_output": null,
+  "message": null,
+  "time_s": "0.958",
+  "wall_time_s": "0.962",
+  "memory_kb": 51736,
+  "exit_code": 0
+ }
+}
