@@ -4,10 +4,10 @@ description: |
   Finish the two functions in solution.py:
 
   1. load_sales(path) reads the CSV into a DataFrame and adds a column "revenue"
-     (units * unit_price). Keep every row. A sale with no units recorded counts
-     as 0 units.
-  2. revenue_by_region(df) takes such a DataFrame and returns the total revenue
-     per region as a Series indexed by region, largest total first.
+  (units * unit_price). Keep every row. A sale with no units recorded counts as 0 units.
+
+  2. revenue_by_region(df) takes such a DataFrame and returns the total revenue per
+  region as a Series indexed by region, largest total first.
 
   The tests in tests/ show how the functions are called.
 language: python
