@@ -1,13 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
-import type { LectureRow, QuestionRow, QuestionStatus, StarterProblem, ValidationTestResult } from "../shared/types";
+import type {
+  GradingMode,
+  LectureRow,
+  QuestionPayload,
+  QuestionRow,
+  QuestionStatus,
+  StarterProblem,
+  TaskFile,
+  TaskMeta,
+  ValidationTestResult,
+  WrongSolutionCheck,
+} from "../shared/types";
 import {
   createQuestion,
   deleteLecture as deleteLectureApi,
   deleteQuestion as deleteQuestionApi,
   draftHints,
+  exampleTaskUrl,
+  exportTaskUrl,
   fetchActiveLecture,
   fetchQuestionList,
+  importTaskZip,
   openLobby as openLobbyApi,
   startQuestion as startQuestionApi,
   updateQuestion,
@@ -15,7 +29,7 @@ import {
 } from "../shared/api";
 import { NavBar } from "../shared/NavBar";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-import { Badge, Button, Card, Code, Input, Label, LinkButton, Page, PageHeader, Select, Textarea } from "../shared/ui";
+import { Badge, Button, Card, Code, FileButton, Input, Label, LinkButton, Page, PageHeader, Select, Textarea } from "../shared/ui";
 import { cx } from "../shared/cx";
 import { defaultStarterCode } from "../shared/starterCode";
 import type { Tone } from "../shared/ui";
@@ -23,6 +37,7 @@ import sampleQuestions from "./sampleQuestions.json";
 import { ROUTES, liveTaskUrl, lobbyUrl } from "../shared/routes";
 import { Footer } from "../shared/Footer";
 import { toast } from "../shared/toast";
+import { TaskFolderSummary, TestCheckResults } from "./TaskFolderPanel";
 
 // Lecture preparation. Top: the lecture itself and its one next action (open
 // the lobby, or go back to it / the live dashboard). Left: the questions in
@@ -62,6 +77,10 @@ function formatBytes(n: number): string {
 interface ValidationResultState {
   total: number;
   failing: ValidationTestResult[];
+  // Every test's result (test-graded tasks list them all, hidden included).
+  results: ValidationTestResult[];
+  // Test-graded tasks: whether the tests catch each wrong solution (wrong/).
+  wrongChecks: WrongSolutionCheck[];
   // The check's verdict on the lecturer's starter code, if it found anything.
   starterProblem: StarterProblem | null;
 }
@@ -301,6 +320,13 @@ export default function App() {
   const [gradeFile, setGradeFile] = useState(false);
   const [outputFile, setOutputFile] = useState("result.txt");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Imported test-graded tasks (backend/task_format.py): the folder's files are
+  // shown, not edited here -- the folder is edited outside and imported again.
+  const [gradingMode, setGradingMode] = useState<GradingMode>("stdout");
+  const [taskFiles, setTaskFiles] = useState<TaskFile[]>([]);
+  const [taskMeta, setTaskMeta] = useState<TaskMeta>({});
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   // Autosave bookkeeping. editVersion counts edits; savedVersion is the edit
   // count the last successful save contained -- so a save that was in flight
   // while the lecturer kept typing doesn't mark those newer edits as saved,
@@ -459,6 +485,34 @@ export default function App() {
     }
   }
 
+  async function importTaskFolder(list: FileList | null) {
+    const file = list?.[0];
+    if (!file) return;
+    setImportError(null);
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      setImportError("Choose a .zip of the task folder (task.yaml, starter/, tests/, ...).");
+      return;
+    }
+    setImporting(true);
+    try {
+      await waitForSave();
+      if (dirty && canAutosave) await persist();
+      const created = await importTaskZip(file);
+      toast(
+        created.replaced
+          ? `Updated "${created.title}" from the folder. Check the solution again before starting it.`
+          : `Imported "${created.title}"`,
+      );
+      loadQuestionList();
+      loadQuestionIntoForm(created);
+      setStep(1);
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : "Import failed.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   function resetForm() {
     setCurrentId(null);
     setCurrentStatus("draft");
@@ -482,6 +536,9 @@ export default function App() {
     setGradeFile(false);
     setOutputFile("result.txt");
     setTestCases([emptyTestCase()]);
+    setGradingMode("stdout");
+    setTaskFiles([]);
+    setTaskMeta({});
     setShowAdvanced(false);
     generationRef.current += 1;
     setEditVersion(0);
@@ -518,6 +575,9 @@ export default function App() {
     }
     setGradeFile(Boolean(q.output_file));
     setOutputFile(q.output_file || "result.txt");
+    setGradingMode(q.grading_mode ?? "stdout");
+    setTaskFiles(q.task_files ?? []);
+    setTaskMeta(q.task_meta ?? {});
     setTestCases(
       q.test_cases.length
         ? q.test_cases.map((tc) => ({
@@ -664,6 +724,21 @@ export default function App() {
     };
   }
 
+  // What a save sends. A test-graded task's tests, solution and starter live in its
+  // imported folder, so its saves never send those (the form only has their joined
+  // text, and test_cases is empty by design).
+  function savePayload(): Partial<QuestionPayload> {
+    const payload: Partial<QuestionPayload> = formPayload();
+    if (gradingMode === "tests") {
+      delete payload.test_cases;
+      delete payload.reference_solution;
+      delete payload.starter_code;
+      delete payload.output_file;
+      delete payload.language;
+    }
+    return payload;
+  }
+
   // What each step still needs -- drives the step checkmarks.
   const payloadNow = formPayload();
 
@@ -680,7 +755,9 @@ export default function App() {
   const redirectedFile = exampleTest && !exampleTest.stdin.trim() ? exampleTest.files[0]?.name : undefined;
   const stepDone = [
     Boolean(payloadNow.title && payloadNow.prompt),
-    Boolean(payloadNow.test_cases.length && referenceSolution.trim() && currentValidated),
+    gradingMode === "tests"
+      ? currentValidated
+      : Boolean(payloadNow.test_cases.length && referenceSolution.trim() && currentValidated),
     // Defaults fill this step in already, so it only counts once the question is saved.
     Boolean(currentId && payloadNow.duration_seconds > 0),
   ];
@@ -699,8 +776,7 @@ export default function App() {
     const version = editVersion;
     const generation = generationRef.current;
     try {
-      const payload = formPayload();
-      const data = currentId ? await updateQuestion(currentId, payload) : await createQuestion(payload);
+      const data = currentId ? await updateQuestion(currentId, savePayload()) : await createQuestion(formPayload());
       if (generation === generationRef.current) {
         setCurrentId(data.id);
         setCurrentStatus(data.status);
@@ -785,12 +861,12 @@ export default function App() {
       setStatus("Add a title and task description first.", "bad");
       return;
     }
-    if (payload.test_cases.length < 2) {
+    if (gradingMode === "stdout" && payload.test_cases.length < 2) {
       // The first test is the example students see and isn't graded (main._graded).
       setStatus("Add at least 2 test cases. The first is shown to students and isn't graded.", "bad");
       return;
     }
-    if (!referenceSolution.trim()) {
+    if (gradingMode === "stdout" && !referenceSolution.trim()) {
       setStatus("Add a reference solution first.", "bad");
       return;
     }
@@ -811,6 +887,8 @@ export default function App() {
       setValidationResult({
         total: (data.results || []).length,
         failing: (data.results || []).filter((r) => !r.passed),
+        results: data.results || [],
+        wrongChecks: data.wrong_checks ?? [],
         starterProblem: data.starter_problem ?? null,
       });
       setCurrentValidated(data.validated);
@@ -1012,6 +1090,39 @@ export default function App() {
             >
               {addingTestQuestions ? "Adding..." : "Add sample questions"}
             </Button>
+            <div className="mt-5 border-t border-zinc-200 pt-4">
+              <FileButton
+                className="w-full"
+                accept=".zip,application/zip"
+                inputLabel="Task folder zip to import"
+                disabled={importing}
+                onFiles={(files) => void importTaskFolder(files)}
+              >
+                {importing ? "Importing..." : "Import task folder (.zip)"}
+              </FileButton>
+              <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                A zipped folder with <span className="font-mono">task.yaml</span>,{" "}
+                <span className="font-mono">starter/</span>, <span className="font-mono">tests/</span>,{" "}
+                <span className="font-mono">hidden_tests/</span>, <span className="font-mono">reference/</span> and{" "}
+                <span className="font-mono">data/</span>.{" "}
+                <a
+                  href={exampleTaskUrl()}
+                  download
+                  className="rounded-sm font-medium text-brand-700 underline decoration-brand-300 underline-offset-4 transition-colors hover:text-brand-800 hover:decoration-brand-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+                >
+                  Download an example
+                </a>{" "}
+                to start from.
+              </p>
+              {importError && (
+                <div
+                  role="alert"
+                  className="mt-3 max-h-64 overflow-auto rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-relaxed whitespace-pre-line text-red-900"
+                >
+                  {importError}
+                </div>
+              )}
+            </div>
           </section>
 
           <Card flush aria-label="Question editor" role="region">
@@ -1020,6 +1131,7 @@ export default function App() {
                 <h2 className="text-xl font-bold tracking-tight text-zinc-950">
                   {currentId ? title || "Untitled question" : "New question"}
                 </h2>
+                {currentId && gradingMode === "tests" && <Badge tone="info">pytest</Badge>}
                 {currentId && (
                   <StatusText kind={editorStatus}>
                     {currentStatus === "live"
@@ -1032,6 +1144,18 @@ export default function App() {
                   </StatusText>
                 )}
               </div>
+              {currentId && (
+                <LinkButton
+                  variant="ghost"
+                  size="sm"
+                  className="-ml-3 mt-1"
+                  href={exportTaskUrl(currentId)}
+                  download
+                  title="Download this question as a task folder (.zip), the format Import reads"
+                >
+                  Export as task folder
+                </LinkButton>
+              )}
               {locked && (
                 <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-3.5 py-2.5 text-[13px] text-zinc-600">
                   Already run, so it can't be edited.
@@ -1104,7 +1228,13 @@ export default function App() {
                   </div>
                   <div className="max-w-56">
                     <Label htmlFor="f-language">Language</Label>
-                    <Select id="f-language" value={language} onChange={(e) => setLanguage(e.target.value)}>
+                    <Select
+                      id="f-language"
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                      disabled={gradingMode === "tests"}
+                      title={gradingMode === "tests" ? "Set by the imported task folder" : undefined}
+                    >
                       <option value="python">Python</option>
                       <option value="c">C</option>
                       <option value="java">Java</option>
@@ -1113,7 +1243,51 @@ export default function App() {
                 </div>
               )}
 
-              {step === 1 && (
+              {step === 1 && gradingMode === "tests" && (
+                <>
+                  <TaskFolderSummary files={taskFiles} meta={taskMeta} />
+                  <Button variant="secondary" className="mt-5" onClick={checkSolution}>
+                    {busy === "checking" ? "Checking..." : "Check solution"}
+                  </Button>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Runs the reference solution against every test, the starter files to make sure they don&apos;t
+                    already pass, and each wrong solution to make sure the tests catch it.
+                  </p>
+                  {validationResult && (
+                    <TestCheckResults results={validationResult.results} wrongChecks={validationResult.wrongChecks} />
+                  )}
+                  {validationResult?.starterProblem && (
+                    <div
+                      className={cx(
+                        "mt-3 animate-fade-in rounded-lg border px-4 py-3 text-[13px] leading-relaxed",
+                        validationResult.starterProblem.blocking
+                          ? "border-red-200 bg-red-50 text-red-900"
+                          : "border-amber-200 bg-amber-50 text-amber-900",
+                      )}
+                      role="status"
+                    >
+                      <strong className="font-semibold">
+                        {validationResult.starterProblem.blocking ? "Starter files need fixing. " : "Heads-up. "}
+                      </strong>
+                      {validationResult.starterProblem.message}
+                    </div>
+                  )}
+                  <HintLadderEditor
+                    hints={hintLadder}
+                    draftBlockedReason={!prompt.trim() ? "Needs the task text (step 1)." : null}
+                    drafting={draftingHints}
+                    error={hintError}
+                    onDraft={() => void draftHintLadder()}
+                    onChange={updateHint}
+                    onRemove={() => {
+                      setHintLadder(null);
+                      markEdited();
+                    }}
+                  />
+                </>
+              )}
+
+              {step === 1 && gradingMode === "stdout" && (
                 <>
                   <div className="mb-2 text-[13px] font-semibold text-zinc-900">What&apos;s graded</div>
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-2" role="radiogroup" aria-label="What's graded">

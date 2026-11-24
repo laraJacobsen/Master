@@ -34,6 +34,9 @@ export interface StudentAttempt {
   tests_total: number;
   created_at: string;
   feedback: string | null;
+  // Test-graded tasks: the visible tests' results and the hidden count.
+  test_results?: TestRunResult[];
+  hidden_tests?: HiddenTestsSummary;
 }
 
 // GET /api/questions -- student-facing, live questions only.
@@ -46,6 +49,7 @@ export interface PublicQuestion {
   // Graded on what the program writes to this file (e.g. "result.txt") instead
   // of what it prints; null = printed output.
   output_file?: string | null;
+  grading_mode?: GradingMode;
 }
 
 // GET /api/lecture/status's `question` -- same shape as PublicQuestion plus
@@ -60,6 +64,24 @@ export interface LiveQuestion extends PublicQuestion {
   duration_seconds: number;
   started_at: string | null;
   seconds_remaining: number;
+  // Test-graded tasks: the editor's files, name and size only (contents come from
+  // GET /api/lecture/questions/{id}/workspace); null for stdout tasks.
+  workspace?: WorkspaceEntry[] | null;
+}
+
+// One file of a test-graded task's student workspace (backend/main._workspace).
+export interface WorkspaceEntry {
+  path: string;
+  kind: "code" | "test" | "data";
+  editable: boolean;
+  size: number;
+  // Code and visible tests from the workspace endpoint; data files load on demand.
+  content?: string;
+}
+
+export interface WorkspaceResponse {
+  files: WorkspaceEntry[];
+  markers: { begin: string; end: string } | null;
 }
 
 // GET /api/lecture/status -- polled by the student page so it can
@@ -77,6 +99,8 @@ export interface LectureStatus {
   // Where that entry sits in the screen queue (0-based index), for the
   // projector's Previous/Next; null before time is up or with nothing queued.
   shown_position: { index: number; total: number } | null;
+  // The frontend build the server serves now (shared/build.ts); null without a build.
+  build?: string | null;
 }
 
 // One thing the lecturer queued to show the class -- a raised discussion
@@ -114,7 +138,12 @@ export interface SharedExample {
     expected_stdout: string;
     stdout: string;
     stderr: string;
+    // Test-graded tasks: the first failing *visible* test.
+    test_name?: string;
+    message?: string;
   } | null;
+  // Test-graded tasks: hidden tests as a count only.
+  hidden_tests?: HiddenTestsSummary;
 }
 
 // POST /api/lecture/join -- the Kahoot-style entry gate on the student page.
@@ -162,6 +191,68 @@ export interface QuestionRow {
   starter_code: string | null;
   // The task's own wrong-answer hints, attempt 1 first; null = generic hints.
   hint_ladder: string[] | null;
+  // "stdout": compare printed output per test case (the setup page's own tasks).
+  // "tests": pytest files from an imported task folder (backend/task_format.py).
+  grading_mode: GradingMode;
+  // Test-graded tasks: the folder's files; null for stdout tasks.
+  task_files: TaskFile[] | null;
+  task_meta: TaskMeta;
+}
+
+export type GradingMode = "stdout" | "tests";
+
+export type TaskFileRole = "starter" | "test" | "hidden_test" | "reference" | "data" | "wrong";
+
+export interface TaskFile {
+  path: string;
+  role: TaskFileRole;
+  content: string;
+}
+
+// task.yaml settings without a column of their own (backend/task_import.py).
+export interface TaskMeta {
+  id?: string;
+  editable?: string[];
+  markers?: { begin: string; end: string } | null;
+  test_timeout_s?: number;
+  requirements?: string[];
+  // wrong/<name>/ -> the tests it must fail ([] = at least one).
+  wrong_solutions?: Record<string, string[]>;
+  // hidden test name -> the sentence students see when it fails.
+  hidden_test_hints?: Record<string, string>;
+  // The tests the reference run found when the task was last checked.
+  test_ids?: { id: string; visibility: TestVisibility }[] | null;
+}
+
+export type TestVisibility = "visible" | "hidden";
+
+export type TestOutcome = "passed" | "failed" | "error" | "skipped";
+
+// One test of a test-graded run as students see it (backend/main._student_test_view).
+export interface TestRunResult {
+  name: string;
+  file: string;
+  outcome: TestOutcome;
+  passed: boolean;
+  message: string;
+  details: string;
+  // What the student's code printed while this test ran (visible tests only).
+  output?: string;
+}
+
+// What was printed while the visible tests imported the student's code (top-level prints).
+export interface LoadOutput {
+  file: string;
+  output: string;
+}
+
+// Hidden tests: only how many there are and how many failed.
+export interface HiddenTestsSummary {
+  total: number;
+  failed: number;
+  // What the task's author wrote for the hidden tests that failed (task.yaml's
+  // hidden_test_hints), without their names. Usually empty.
+  hints?: string[];
 }
 
 export interface QuestionPayload {
@@ -251,7 +342,15 @@ export interface LectureReviewTask {
     students: number;
     discussion_point: string | null;
     // Wrong answers only: the most common first failing test among them.
-    example: { stdin: string; expected_stdout: string; stdout: string; students: number } | null;
+    example: {
+      stdin: string;
+      expected_stdout: string;
+      stdout: string;
+      students: number;
+      // Test-graded tasks: the failing test and its message instead of input/output.
+      test_name?: string;
+      message?: string;
+    } | null;
   } | null;
 }
 
@@ -288,6 +387,13 @@ export interface ValidationTestResult {
   stdin: string;
   expected_stdout: string;
   passed: boolean;
+  // Test-graded tasks (backend/task_runner.TestResult.to_result_dict).
+  test_name?: string;
+  test_file?: string;
+  visibility?: TestVisibility;
+  outcome?: TestOutcome;
+  message?: string;
+  details?: string;
   stdout?: string;
   stderr?: string;
   // C/Java only: what the compiler printed (a compile error has no stderr).
@@ -300,6 +406,16 @@ export interface ValidationResponse {
   // Something about the lecturer's starter code: blocking (every submission
   // that keeps it would be rejected) or a heads-up (it doesn't run as it is).
   starter_problem?: StarterProblem | null;
+  // Test-graded tasks: whether the tests catch each wrong solution in the folder.
+  wrong_checks?: WrongSolutionCheck[];
+}
+
+export interface WrongSolutionCheck {
+  name: string;
+  ok: boolean;
+  failing: string[];
+  expected: string[];
+  message: string;
 }
 
 export interface StarterProblem {
@@ -352,6 +468,9 @@ export interface ClusterRow {
   // point even with a single student, and its example is on the students'
   // waiting screen. See aggregation.raise_issue().
   raised: boolean;
+  // Test-graded wrong answers: the tests every student in the group fails (hidden ones
+  // included -- this is the lecturer's view). Absent/null for other groups.
+  failing_tests?: { name: string; visibility: TestVisibility }[] | null;
 }
 
 // POST /api/lecture/activity -- the student editor's heartbeat reply.
@@ -393,11 +512,17 @@ export interface SubmitResponse {
   // main._student_error_output.
   hidden_crash?: boolean;
   hidden_error?: string | null;
+  // Test-graded tasks: every visible test in full, the hidden ones as a count.
+  test_results?: TestRunResult[];
+  hidden_tests?: HiddenTestsSummary;
+  load_output?: LoadOutput[];
 }
 
 // POST /api/run -- one ungraded run on the student's own stdin (never stored).
+// Test-graded tasks: the visible tests on the student's files (TestsRunResponse).
 export type RunResponse =
   | { rejected: string }
+  | TestsRunResponse
   | {
       rejected: null;
       status: string;
@@ -412,6 +537,20 @@ export type RunResponse =
       output_file: string | null;
       output_file_content: string | null;
     };
+
+export interface TestsRunResponse {
+  rejected: null;
+  grading_mode: "tests";
+  test_results: TestRunResult[];
+  hidden_tests: HiddenTestsSummary;
+  load_output?: LoadOutput[];
+  // The lecturer's run only (projector).
+  hidden_test_results?: TestRunResult[];
+}
+
+export function isTestsRun(res: RunResponse): res is TestsRunResponse {
+  return res.rejected === null && "test_results" in res;
+}
 
 export interface ApiErrorBody {
   detail?: string;

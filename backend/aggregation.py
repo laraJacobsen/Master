@@ -562,6 +562,36 @@ def _cluster_by_similarity(rows: list, reference_solution: str) -> list:
     return list(groups.values())
 
 
+def _parsed_results(row: dict):
+    """raw_test_results as a non-empty list of dicts, or None."""
+    raw = row.get("raw_test_results")
+    if not raw:
+        return None
+    try:
+        results = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(results, list) or not results or not all(isinstance(r, dict) for r in results):
+        return None
+    return results
+
+
+def _is_test_graded(results) -> bool:
+    """Results from a test-graded task (backend/task_runner.py) carry each test's id."""
+    return bool(results) and "test_id" in results[0]
+
+
+def _failing_test_signature(row: dict):
+    """A test-graded submission's first-level signature: the set of tests it failed
+    (visible and hidden), as a sorted tuple of test ids -- the counterpart of
+    _output_signature() for tasks whose tests report pass/fail, not printed output.
+    None for stdout-graded rows or rows without results."""
+    results = _parsed_results(row)
+    if not _is_test_graded(results):
+        return None
+    return tuple(sorted(r["test_id"] for r in results if not r.get("passed")))
+
+
 def _output_signature(row: dict):
     """What this submission actually printed, as a tuple with one entry per test
     case in order: "PASS" for a passed case, otherwise its stdout with surrounding
@@ -576,14 +606,8 @@ def _output_signature(row: dict):
     missing, unparseable, or empty (a rejected submission stores "[]") -- such rows
     fall through to diff-based clustering instead of all sharing one empty
     signature."""
-    raw = row.get("raw_test_results")
-    if not raw:
-        return None
-    try:
-        results = json.loads(raw)
-    except (TypeError, ValueError):
-        return None
-    if not isinstance(results, list) or not results or not all(isinstance(r, dict) for r in results):
+    results = _parsed_results(row)
+    if results is None or _is_test_graded(results):
         return None
     results = sorted(results, key=lambda r: r.get("case_index", 0))
     return tuple(
@@ -599,20 +623,30 @@ def _group_wrong_answers(rows: list, reference_solution: str, question_id: str =
     splits a level-1 group further only when its signature is weak -- see
     MIN_TESTS_FOR_FINAL_SIGNATURE. Rows with no signature skip level 1 and are
     diff-clustered exactly as before. Returns a list of groups (lists of rows).
-    Each level's latency is logged, same as diff+cluster always was."""
+    Each level's latency is logged, same as diff+cluster always was.
+
+    Test-graded rows: level 1 is the set of failing tests (_failing_test_signature()),
+    and level 2 always runs inside each group. Unlike a printed-output signature, two
+    students failing the same tests may have produced different wrong values (an
+    assertion only says "not equal"), so the failing set alone is never final."""
     t0 = time.monotonic()
     by_signature = defaultdict(list)
+    by_failing_tests = defaultdict(list)
     unsigned = []
     for row in rows:
+        failing_tests = _failing_test_signature(row)
+        if failing_tests is not None:
+            by_failing_tests[failing_tests].append(row)
+            continue
         signature = _output_signature(row)
         if signature is None:
             unsigned.append(row)
         else:
             by_signature[signature].append(row)
     logger.info(
-        "wrong_answer signature: question=%s, %d submissions -> %d signature groups "
+        "wrong_answer signature: question=%s, %d submissions -> %d signature groups, %d failing-test groups "
         "(%d without a signature), %.3fs",
-        question_id, len(rows), len(by_signature), len(unsigned), time.monotonic() - t0,
+        question_id, len(rows), len(by_signature), len(by_failing_tests), len(unsigned), time.monotonic() - t0,
     )
 
     t0 = time.monotonic()
@@ -624,6 +658,9 @@ def _group_wrong_answers(rows: list, reference_solution: str, question_id: str =
             diffed += len(members)
         else:
             groups.append(members)
+    for members in by_failing_tests.values():
+        groups.extend(_cluster_by_similarity(members, reference_solution))
+        diffed += len(members)
     if unsigned:
         groups.extend(_cluster_by_similarity(unsigned, reference_solution))
         diffed += len(unsigned)
@@ -647,6 +684,8 @@ def _shared_failing_cases(group: list) -> list:
         if not isinstance(results, list) or not results:
             return []
         parsed.append({r.get("case_index", i): r for i, r in enumerate(results) if isinstance(r, dict)})
+    if _is_test_graded(list(parsed[0].values())):
+        return _shared_failing_tests(parsed)
     shared = []
     for index in sorted(parsed[0]):
         cases = [p.get(index) for p in parsed]
@@ -662,6 +701,42 @@ def _shared_failing_cases(group: list) -> list:
                     "stdout": outputs.pop(),
                 }
             )
+    return shared
+
+
+def _failing_tests_of_group(group: list):
+    """For a test-graded wrong-answer group: the tests its submissions fail, as
+    [{"name", "visibility"}] in test order -- the same for every row, since the group's
+    first level is the failing-test set. None for stdout-graded groups. Lecturer-side
+    (the dashboard), so hidden tests are named too."""
+    results = _parsed_results(group[0]) if group else None
+    if not _is_test_graded(results):
+        return None
+    return [{"name": r.get("test_name"), "visibility": r.get("visibility")}
+            for r in sorted(results, key=lambda r: r.get("case_index", 0)) if not r.get("passed")]
+
+
+def _shared_failing_tests(parsed: list) -> list:
+    """_shared_failing_cases() for test-graded rows: every test all rows failed, in test
+    order, with the same keys (stdin/expected_stdout empty; stdout holds the failure
+    message when every row's message is identical, else the first row's) plus the
+    test's name, id and visibility. Lecturer-side evidence: hidden tests included."""
+    shared = []
+    for index in sorted(parsed[0]):
+        cases = [p.get(index) for p in parsed]
+        if any(c is None or c.get("passed") or c.get("test_id") != cases[0].get("test_id") for c in cases):
+            continue
+        first = cases[0]
+        shared.append({
+            "stdin": "",
+            "expected_stdout": "",
+            "stdout": first.get("message") or "",
+            "test_id": first.get("test_id"),
+            "test_name": first.get("test_name"),
+            "visibility": first.get("visibility"),
+            "message": first.get("message") or "",
+            "same_message": len({c.get("message") for c in cases}) == 1,
+        })
     return shared
 
 
@@ -1096,6 +1171,7 @@ def _wrong_answer_subclusters(members: list) -> list:
                 "submission_ids": _distinct_student_submission_ids(group),
                 "discussion_point": discussion_point,
                 "raised": raised,
+                "failing_tests": _failing_tests_of_group(group),
             }
         )
     return result
@@ -1211,6 +1287,21 @@ def _shared_example(submission_id: int):
     if not row:
         return None
     results = json.loads(row.get("raw_test_results") or "[]")
+    if _is_test_graded(results):
+        # Students see this (their waiting screen) and so does the class (projector):
+        # the first failing visible test in full, hidden tests only as a count.
+        failing_visible = next((r for r in results if not r.get("passed") and r.get("visibility") != "hidden"), None)
+        hidden = [r for r in results if r.get("visibility") == "hidden"]
+        return {
+            "source_code": _strip_comments(row["source_code"]),
+            "correct": row.get("verdict") == "correct",
+            "failing_test": (
+                {"stdin": "", "expected_stdout": "", "stdout": "", "stderr": failing_visible.get("details") or "",
+                 "test_name": failing_visible.get("test_name"), "message": failing_visible.get("message") or ""}
+                if failing_visible else None
+            ),
+            "hidden_tests": {"total": len(hidden), "failed": sum(1 for r in hidden if not r.get("passed"))},
+        }
     failing = next((r for r in results if not r.get("passed")), None)
     return {
         "source_code": _strip_comments(row["source_code"]),
@@ -1367,9 +1458,9 @@ def _distinguishing_case(cases: list, sibling_cases: list):
     whose wrong output no other group on the same task also printed for that
     input -- so two different bugs that happen to print the same thing on the
     first test don't show identical evidence. Falls back to the first case."""
-    taken = {(c["stdin"], c["stdout"]) for sibling in sibling_cases for c in sibling}
+    taken = {(c.get("test_id"), c["stdin"], c["stdout"]) for sibling in sibling_cases for c in sibling}
     for case in cases:
-        if (case["stdin"], case["stdout"]) not in taken:
+        if (case.get("test_id"), case["stdin"], case["stdout"]) not in taken:
             return case
     return cases[0] if cases else None
 
@@ -1526,14 +1617,20 @@ def _most_common_wrong_output(rows: list):
         failing = next((r for r in results if isinstance(r, dict) and not r.get("passed")), None)
         if not failing:
             continue
+        if "test_id" in failing:  # test-graded: the failing test and its message
+            key = (failing.get("test_name") or "", failing.get("message") or "")
+            counts[key] += 1
+            detail[key] = {"stdin": "", "expected_stdout": "", "stdout": key[1], "test_name": key[0],
+                           "message": key[1]}
+            continue
         stdout = " ".join((failing.get("stdout") or "").split())
         key = (failing.get("stdin", ""), stdout)
         counts[key] += 1
-        detail[key] = failing.get("expected_stdout", "")
+        detail[key] = {"stdin": key[0], "expected_stdout": failing.get("expected_stdout", ""), "stdout": stdout}
     if not counts:
         return None
-    (stdin, stdout), n = max(counts.items(), key=lambda kv: kv[1])
-    return {"stdin": stdin, "expected_stdout": detail[(stdin, stdout)], "stdout": stdout, "students": n}
+    key, n = max(counts.items(), key=lambda kv: kv[1])
+    return {**detail[key], "students": n}
 
 
 def lecture_review(include_archived: bool = False) -> list:

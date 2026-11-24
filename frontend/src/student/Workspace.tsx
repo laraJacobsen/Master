@@ -1,8 +1,17 @@
 import { useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import { Editor, monaco } from "../shared/monaco";
-import { fetchTestFile, runCode } from "../shared/api";
-import type { RunResponse, SubmitResponse, VisibleTestFile } from "../shared/types";
+import { fetchTestFile, fetchWorkspaceFile, runCode } from "../shared/api";
+import { isTestsRun } from "../shared/types";
+import type {
+  HiddenTestsSummary,
+  LoadOutput,
+  RunResponse,
+  SubmitResponse,
+  TestRunResult,
+  VisibleTestFile,
+  WorkspaceEntry,
+} from "../shared/types";
 import { Button, CodeSkeleton, Spinner } from "../shared/ui";
 import { cx } from "../shared/cx";
 import { loadDraft, saveDraft } from "./drafts";
@@ -18,6 +27,11 @@ import { loadDraft, saveDraft } from "./drafts";
 // Run, the task's example data files (read-only), and, for tasks graded on an
 // output file, what the last run wrote to it (read-only).
 //
+// Test-graded tasks (taskFiles set) work on the task's own files instead: every
+// editable file is a pinned tab students type in, the other starter files and the
+// visible tests are open but locked, data files open from the task panel. There
+// is no Run input; Run runs the visible tests, Submit sends every editable file.
+//
 // Monaco keeps one model per file path (@monaco-editor/react's `path` prop),
 // so switching tabs keeps each file's undo history and scroll position, and
 // the same file open in both groups stays in sync. Paths include the question
@@ -25,7 +39,7 @@ import { loadDraft, saveDraft } from "./drafts";
 
 const MAX_GROUPS = 2;
 
-type FileKind = "code" | "input" | "data" | "output";
+type FileKind = "code" | "input" | "data" | "output" | "test";
 
 interface WsFile {
   id: string;
@@ -35,6 +49,37 @@ interface WsFile {
   language: string;
   /** Data files: which test they belong to (always the example, 0). */
   test?: number;
+  /** Test-graded tasks: the file's path in the task (solution.py, tests/test_x.py, data/a.csv). */
+  path?: string;
+  /** Test-graded tasks: a read-only file's content, from the workspace endpoint. */
+  content?: string;
+}
+
+const LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  py: "python",
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  hpp: "cpp",
+  java: "java",
+  json: "json",
+  md: "markdown",
+};
+
+function languageOf(path: string): string {
+  return LANGUAGE_BY_EXTENSION[path.split(".").pop()?.toLowerCase() ?? ""] ?? "plaintext";
+}
+
+function workspaceFiles(entries: WorkspaceEntry[]): WsFile[] {
+  return entries.map((e) => ({
+    id: e.kind === "data" ? `data:${e.path}` : `ws:${e.path}`,
+    name: e.path,
+    kind: e.kind,
+    readOnly: !e.editable,
+    language: languageOf(e.path),
+    path: e.path,
+    content: e.content,
+  }));
 }
 
 interface Group {
@@ -150,7 +195,15 @@ const editorOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
 
 function FileIcon({ kind }: { kind: FileKind }) {
   const tone =
-    kind === "code" ? "text-brand-500" : kind === "input" ? "text-violet-500" : kind === "output" ? "text-emerald-600" : "text-zinc-400";
+    kind === "code"
+      ? "text-brand-500"
+      : kind === "input"
+        ? "text-violet-500"
+        : kind === "output"
+          ? "text-emerald-600"
+          : kind === "test"
+            ? "text-zinc-600"
+            : "text-zinc-400";
   return (
     <svg className={cx("size-3.5 flex-none", tone)} viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <path d="M3 1.5h5l3 3v8H3z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
@@ -202,6 +255,71 @@ function IconButton({
 
 // --------------------------------------------------------------- Terminal
 
+export interface TestLinesProps {
+  results: TestRunResult[];
+  /** Hidden tests as a count; absent on a Run (only visible tests run). */
+  hidden?: HiddenTestsSummary;
+  /** Top-level prints, from when the tests loaded the student's code. */
+  loadOutput?: LoadOutput[];
+}
+
+/** pytest-style lines for a test-graded run, in the terminal's colours. */
+function TestLines({ results, hidden, loadOutput }: TestLinesProps) {
+  // Usually only the first test file to import the student's code has any, and when a
+  // module fails to import every test file re-imports it: show each distinct text once.
+  const loaded = Array.from(new Set((loadOutput ?? []).map((l) => l.output)));
+  return (
+    <div className="mt-0.5 grid gap-0.5">
+      {loaded.length > 0 && (
+        <div className="mb-1">
+          <div className="text-zinc-500">printed while loading your code:</div>
+          {loaded.map((text, i) => (
+            <pre key={i} className="whitespace-pre-wrap text-zinc-100">
+              {text}
+            </pre>
+          ))}
+        </div>
+      )}
+      {results.map((t) => (
+        <div key={`${t.file}::${t.name}`}>
+          <span className={t.passed ? "text-emerald-300" : "text-red-300"}>
+            {t.passed ? "PASSED" : t.outcome === "error" ? "ERROR " : "FAILED"}
+          </span>{" "}
+          <span className="text-zinc-300">
+            {t.file}::{t.name}
+          </span>
+          {!t.passed && t.message && <div className="pl-[7ch] whitespace-pre-wrap text-zinc-400">{t.message}</div>}
+          {t.output && (
+            <pre className="pl-[7ch] whitespace-pre-wrap text-zinc-100" aria-label={`Printed during ${t.name}`}>
+              {t.output}
+            </pre>
+          )}
+          {!t.passed && t.details && (
+            <details className="pl-[7ch]">
+              <summary className="cursor-pointer rounded-sm text-zinc-500 hover:text-zinc-300 focus-visible:outline-2 focus-visible:outline-brand-400">
+                traceback
+              </summary>
+              <pre className="whitespace-pre-wrap text-red-300">{t.details}</pre>
+            </details>
+          )}
+        </div>
+      ))}
+      {hidden && hidden.total > 0 && (
+        <div className={hidden.failed ? "text-amber-200" : "text-zinc-500"}>
+          {hidden.failed
+            ? `${hidden.failed} of ${hidden.total} hidden test${hidden.total === 1 ? "" : "s"} failed`
+            : `All ${hidden.total} hidden test${hidden.total === 1 ? "" : "s"} passed`}
+        </div>
+      )}
+      {hidden?.hints?.map((hint) => (
+        <div key={hint} className="pl-[7ch] text-amber-100">
+          hidden test: {hint}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export interface TerminalEntryViewProps {
   entry: TermEntry;
   language: string;
@@ -224,6 +342,7 @@ function TerminalEntryView({ entry, language, onOpenOutput }: TerminalEntryViewP
           {r.tests_passed}/{r.tests_total} tests passed
           {r.verdict === "correct" ? " -- all correct" : ""}
         </div>
+        {r.test_results && <TestLines results={r.test_results} hidden={r.hidden_tests} loadOutput={r.load_output} />}
         {r.traceback && <pre className="mt-1 whitespace-pre-wrap text-red-300">{r.traceback}</pre>}
         {r.hidden_crash && (
           <div className="mt-1 text-amber-200">
@@ -250,7 +369,16 @@ function TerminalEntryView({ entry, language, onOpenOutput }: TerminalEntryViewP
       {res && res.rejected !== null && (
         <div className="text-amber-200">Not run: {res.rejected.replace(/_/g, " ")}.</div>
       )}
-      {res && res.rejected === null && (
+      {res && isTestsRun(res) && (
+        <>
+          <TestLines results={res.test_results} loadOutput={res.load_output} />
+          <div className="mt-0.5 text-zinc-500">
+            {res.test_results.filter((t) => t.passed).length}/{res.test_results.length} visible tests passed. Hidden
+            tests run when you submit.
+          </div>
+        </>
+      )}
+      {res && res.rejected === null && !isTestsRun(res) && (
         <>
           {res.compile_output && <pre className="whitespace-pre-wrap text-red-300">{res.compile_output}</pre>}
           {res.stdout && <pre className="whitespace-pre-wrap text-zinc-100">{res.stdout}</pre>}
@@ -326,11 +454,18 @@ export interface WorkspaceProps {
   draftKey: string;
   /** The task is over for this student: the code stays visible but can't be edited, run or submitted. */
   locked?: boolean;
+  /** Test-graded tasks: the task's files (contents for code and tests). Switches the workspace to them. */
+  taskFiles?: WorkspaceEntry[] | null;
+  /** Test-graded tasks: what the editable files start with (a restored draft, else the starter). */
+  initialFiles?: Record<string, string>;
+  /** Test-graded tasks: every editable file after each edit. */
+  onFilesChange?: (files: Record<string, string>) => void;
   ref?: Ref<WorkspaceHandle>;
 }
 
 /** What the task panel can do to the workspace. */
 export interface WorkspaceHandle {
+  /** A data file by name (stdout tasks) or any task file by path (test-graded tasks). */
   openDataFile: (name: string) => void;
 }
 
@@ -351,10 +486,14 @@ export function Workspace({
   onOpenDataFilesChange,
   draftKey,
   locked = false,
+  taskFiles = null,
+  initialFiles,
+  onFilesChange,
   ref,
 }: WorkspaceProps) {
   const codeName = CODE_FILE_NAMES[language] ?? "main.txt";
-  const files: WsFile[] = [
+  const tasked = taskFiles !== null;
+  const files: WsFile[] = tasked ? workspaceFiles(taskFiles) : [
     { id: "code", name: codeName, kind: "code", readOnly: false, language },
     { id: "input", name: "input", kind: "input", readOnly: false, language: "plaintext" },
     ...dataFiles.map((f) => ({
@@ -373,7 +512,15 @@ export function Workspace({
   const fileById = (id: string) => files.find((f) => f.id === id);
 
   // Just the student's program to start with; everything else is opened on demand.
-  const [groups, setGroups] = useState<Group[]>([{ tabs: ["code"], active: "code" }]);
+  // Test-graded tasks open every code and test file (editable ones first), so the
+  // files students may and may not change are all in view from the start.
+  const [groups, setGroups] = useState<Group[]>(() => {
+    if (!tasked) return [{ tabs: ["code"], active: "code" }];
+    const tabs = files.filter((f) => f.kind === "code" || f.kind === "test").map((f) => f.id);
+    return [{ tabs, active: files.find((f) => f.kind === "code" && !f.readOnly)?.id ?? tabs[0] ?? null }];
+  });
+  // Test-graded tasks: the editable files as they are now, {path: content}.
+  const filesRef = useRef<Record<string, string>>({ ...(initialFiles ?? {}) });
   const [focused, setFocused] = useState(0);
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [dataContent, setDataContent] = useState<Record<string, string>>({});
@@ -423,7 +570,9 @@ export function Workspace({
   async function ensureLoaded(file: WsFile) {
     if (file.kind !== "data" || file.id in dataContent) return;
     try {
-      const text = await fetchTestFile(questionId, file.test ?? 0, file.name);
+      const text = file.path
+        ? await fetchWorkspaceFile(questionId, file.path)
+        : await fetchTestFile(questionId, file.test ?? 0, file.name);
       setDataContent((c) => ({ ...c, [file.id]: text }));
     } catch (e) {
       setDataError((c) => ({ ...c, [file.id]: e instanceof Error ? e.message : "Couldn't load the file." }));
@@ -470,7 +619,9 @@ export function Workspace({
     setFocused(0);
   }
 
-  useImperativeHandle(ref, () => ({ openDataFile: (name: string) => openFile(`data:${name}`) }));
+  useImperativeHandle(ref, () => ({
+    openDataFile: (name: string) => openFile(fileById(`data:${name}`) ? `data:${name}` : `ws:${name}`),
+  }));
 
   const openTabsKey = Array.from(new Set(groups.flatMap((g) => g.tabs))).join("\n");
   useEffect(() => {
@@ -493,7 +644,12 @@ export function Workspace({
   function saveNow() {
     window.clearTimeout(saveTimer.current);
     saveTimer.current = undefined;
-    const ok = saveDraft(draftKey, { code: codeRef.current, input: inputRef.current });
+    const ok = saveDraft(
+      draftKey,
+      tasked
+        ? { code: codeRef.current, input: "", files: filesRef.current }
+        : { code: codeRef.current, input: inputRef.current },
+    );
     setSave(ok ? { kind: "saved", at: new Date() } : { kind: "failed" });
   }
 
@@ -519,8 +675,26 @@ export function Workspace({
 
   // ------------------------------------------------------------------ Run
 
+  async function runTests() {
+    const entryId = nextId.current++;
+    setTerminalOpen(true);
+    setRunning(true);
+    setEntries((e) => [...e, { id: entryId, kind: "run", command: "pytest tests/", pending: true }]);
+    const patch = (p: Partial<Extract<TermEntry, { kind: "run" }>>) =>
+      setEntries((e) => e.map((x) => (x.id === entryId && x.kind === "run" ? { ...x, ...p } : x)));
+    try {
+      const res = await runCode({ question_id: questionId, source_code: "", stdin: "", files: { ...filesRef.current } });
+      patch({ pending: false, res, check: null });
+    } catch (e) {
+      patch({ pending: false, error: e instanceof Error ? e.message : "Couldn't run the tests." });
+    } finally {
+      setRunning(false);
+    }
+  }
+
   async function run() {
     if (running || locked) return;
+    if (tasked) return runTests();
     const stdin = usesStdin ? inputRef.current : "";
     const entryId = nextId.current++;
     setTerminalOpen(true);
@@ -534,7 +708,7 @@ export function Workspace({
     try {
       const res = await runCode({ question_id: questionId, source_code: codeRef.current, stdin });
       let check: ExampleCheck | null = null;
-      if (res.rejected === null) {
+      if (res.rejected === null && !isTestsRun(res)) {
         if (res.output_file) setLastOutput(res.output_file_content ?? "");
         const produced = res.output_file ? res.output_file_content : res.stdout;
         if (
@@ -591,20 +765,35 @@ export function Workspace({
       );
     } else {
       const readOnlyValue =
-        file.kind === "data" ? dataContent[file.id] : file.kind === "output" ? (lastOutput ?? "") : undefined;
+        file.kind === "data"
+          ? dataContent[file.id]
+          : file.kind === "output"
+            ? (lastOutput ?? "")
+            : file.path && file.readOnly
+              ? (file.content ?? "")
+              : undefined;
+      const editablePath = file.path && !file.readOnly ? file.path : null;
       body = (
         <Editor
           height="100%"
           path={`file:///${questionId}/${file.id === "code" || file.id === "input" ? file.id : file.id.replace(/[:/]/g, "_")}`}
           language={file.language}
-          defaultValue={file.kind === "code" ? initialCode : file.kind === "input" ? initialInput : undefined}
+          defaultValue={
+            editablePath !== null
+              ? (filesRef.current[editablePath] ?? "")
+              : file.kind === "code" && !file.path
+                ? initialCode
+                : file.kind === "input"
+                  ? initialInput
+                  : undefined
+          }
           value={readOnlyValue}
           loading={<CodeSkeleton className="self-start" />}
           options={{
             ...editorOptions,
             readOnly: file.readOnly || locked,
             domReadOnly: file.readOnly || locked,
-            lineNumbers: file.kind === "code" ? "on" : "off",
+            lineNumbers: file.kind === "code" || file.kind === "test" ? "on" : "off",
             placeholder:
               file.kind === "code"
                 ? language === "python"
@@ -613,10 +802,14 @@ export function Workspace({
                 : file.kind === "input"
                   ? "What your program reads when you press Run (stdin)."
                   : undefined,
-            ariaLabel: file.kind === "code" ? "Your code" : file.name,
+            ariaLabel: file.kind === "code" && !file.path ? "Your code" : file.name,
           }}
           onChange={(v) => {
-            if (file.kind === "code") {
+            if (editablePath !== null) {
+              filesRef.current = { ...filesRef.current, [editablePath]: v ?? "" };
+              onFilesChange?.(filesRef.current);
+              scheduleSave();
+            } else if (file.kind === "code" && !file.path) {
               codeRef.current = v ?? "";
               onCodeChange(v ?? "");
               scheduleSave();
@@ -667,7 +860,7 @@ export function Workspace({
                     </span>
                     {f.readOnly && <LockIcon />}
                   </button>
-                  {f.kind === "code" && gi === 0 ? (
+                  {f.kind === "code" && !f.readOnly && gi === 0 ? (
                     // The program stays pinned in the first group, so it's always one click away.
                     <span className="w-1" aria-hidden="true" />
                   ) : (
@@ -767,9 +960,13 @@ export function Workspace({
           >
             {entries.length === 0 ? (
               <div className="text-zinc-500">
-                Press <span className="text-zinc-300">Run</span> to try your code on{" "}
-                {usesStdin ? "the Run input" : dataFiles.length ? "the example's files" : "its own"}. Runs aren&apos;t
-                graded or seen by your lecturer, only Submit is.
+                Press <span className="text-zinc-300">Run</span>{" "}
+                {tasked ? (
+                  <>to run the visible tests in tests/ on your code; what your code prints shows under the test that ran it</>
+                ) : (
+                  <>to try your code on {usesStdin ? "the Run input" : dataFiles.length ? "the example's files" : "its own"}</>
+                )}
+                . Runs aren&apos;t graded or seen by your lecturer, only Submit is.
               </div>
             ) : (
               <div className="grid gap-3">
@@ -804,7 +1001,11 @@ export function Workspace({
             variant="secondary"
             onClick={() => void run()}
             disabled={running || submitting || locked}
-            title={`Run your code on ${usesStdin ? "the Run input" : dataFiles.length ? "the example's files" : "its own"} (Ctrl/⌘+Enter). Not graded.`}
+            title={
+              tasked
+                ? "Run the visible tests on your code (Ctrl/⌘+Enter). Not graded."
+                : `Run your code on ${usesStdin ? "the Run input" : dataFiles.length ? "the example's files" : "its own"} (Ctrl/⌘+Enter). Not graded.`
+            }
           >
             {running ? (
               <Spinner />

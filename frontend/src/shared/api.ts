@@ -27,6 +27,7 @@ import type {
   ValidationResponse,
   RunResponse,
   ScreenQueue,
+  WorkspaceResponse,
 } from "./types";
 
 const API_BASE = ""; // same origin as the page when served by the FastAPI backend
@@ -133,7 +134,8 @@ export function createQuestion(payload: QuestionPayload): Promise<QuestionRow> {
 
 export function updateQuestion(
   questionId: string,
-  payload: QuestionPayload
+  // Partial: a test-graded task never sends its test-related fields (see setup/App.tsx).
+  payload: Partial<QuestionPayload>
 ): Promise<QuestionRow> {
   return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}`, {
     method: "PUT",
@@ -148,6 +150,32 @@ export function draftHints(payload: HintDraftRequest): Promise<HintDraftResponse
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   }).then((res) => asJson(res));
+}
+
+// A zipped task folder (task.yaml, starter/, tests/, ...) becomes a draft question.
+// A broken folder rejects with every problem, one per line.
+// Importing the same folder again replaces the draft it made (replaced: true).
+export function importTaskZip(file: File): Promise<QuestionRow & { replaced: boolean }> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiFetch(`${API_BASE}/api/lecturer/questions/import`, { method: "POST", body: form }).then((res) =>
+    asJson(res)
+  );
+}
+
+// The frontend build the server serves now (shared/build.ts, UpdateBanner.tsx).
+export function fetchBuild(): Promise<{ build: string | null }> {
+  return apiFetch(`${API_BASE}/api/build`).then((res) => asJson(res));
+}
+
+// The example task folder, zipped: a template for writing a task (setup page link).
+export function exampleTaskUrl(): string {
+  return `${API_BASE}/api/lecturer/example_task`;
+}
+
+// Where a question downloads as a task-folder zip (same format the import reads).
+export function exportTaskUrl(questionId: string): string {
+  return `${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/export`;
 }
 
 export function validateQuestion(questionId: string): Promise<ValidationResponse> {
@@ -171,6 +199,8 @@ export function deleteQuestion(questionId: string): Promise<{ deleted: boolean }
 export function submitCode(payload: {
   question_id: string;
   source_code: string;
+  // Test-graded tasks: the editable files, {path: content}.
+  files?: Record<string, string>;
 }): Promise<SubmitResponse> {
   return apiFetch(`${API_BASE}/api/submit`, {
     method: "POST",
@@ -183,6 +213,7 @@ export function runCode(payload: {
   question_id: string;
   source_code: string;
   stdin: string;
+  files?: Record<string, string>;
 }): Promise<RunResponse> {
   return apiFetch(`${API_BASE}/api/run`, {
     method: "POST",
@@ -212,6 +243,24 @@ export function fetchMyAttempts(questionId: string): Promise<StudentAttempt[]> {
 }
 
 // One test file's content for the student's file viewer (plain text).
+// A test-graded task's editor files with their contents (once, when the task opens).
+export function fetchWorkspace(questionId: string): Promise<WorkspaceResponse> {
+  return apiFetch(`${API_BASE}/api/lecture/questions/${encodeURIComponent(questionId)}/workspace`).then((res) =>
+    asJson(res)
+  );
+}
+
+// One workspace file's content -- data files open through here.
+export function fetchWorkspaceFile(questionId: string, path: string): Promise<string> {
+  const p = path.split("/").map(encodeURIComponent).join("/");
+  return apiFetch(`${API_BASE}/api/lecture/questions/${encodeURIComponent(questionId)}/workspace/${p}`).then(
+    async (res) => {
+      if (!res.ok) throw new Error("Couldn't load the file.");
+      return res.text();
+    },
+  );
+}
+
 export function fetchTestFile(questionId: string, test: number, name: string): Promise<string> {
   const path = name.split("/").map(encodeURIComponent).join("/");
   return apiFetch(`${API_BASE}/api/lecture/questions/${encodeURIComponent(questionId)}/tests/${test}/files/${path}`).then(

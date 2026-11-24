@@ -95,6 +95,47 @@ BUG_D_LOOP_CODE = (
     "total = 10\nfor n in input().split():\n    total = total + int(n)\nprint(total)  # bug_d_plus_ten"
 )
 
+# Test-graded tasks (backend/task_runner.py): Judge0 runs pytest in a run script. The fake
+# answers with a real Judge0 run recorded for the same solution (tests/fixtures/judge0_runs.json,
+# see tests/fixtures/make_judge0_runs.py), with that run's random report marker
+# swapped for this one's -- so the JUnit parsing and crash mapping run on real output.
+EXAMPLE_TASK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "fixtures", "pandas-sales-summary")
+JUDGE0_RUNS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "fixtures", "judge0_runs.json")
+PYTEST_RUNS = {}  # solution.py text -> recorded scenario name; filled in _run_test_graded_checks
+pytest_runs = []  # scenario names the fake answered, in order
+
+
+def _example_solutions() -> dict:
+    """The example task's solutions by name, the same texts the fixtures were recorded from."""
+    with open(os.path.join(EXAMPLE_TASK, "reference", "solution.py")) as f:
+        reference = f.read()
+    with open(os.path.join(EXAMPLE_TASK, "starter", "solution.py")) as f:
+        starter = f.read()
+    out = {"all_pass": reference, "starter": starter,
+           "syntax_error": reference.replace("return df.groupby", "return (df.groupby")}
+    for name in os.listdir(os.path.join(EXAMPLE_TASK, "wrong")):
+        with open(os.path.join(EXAMPLE_TASK, "wrong", name, "solution.py")) as f:
+            out[f"wrong_{name}"] = f.read()
+    return out
+
+
+def _fake_pytest_run(json):
+    z = zipfile.ZipFile(io.BytesIO(base64.b64decode(json["additional_files"])))
+    marker = re.search(r"'(@@REPORT-[0-9a-f]{24}@@)'", z.read("run").decode()).group(1)
+    scenario = PYTEST_RUNS[z.read("solution.py").decode()]
+    pytest_runs.append(scenario)
+    with open(JUDGE0_RUNS) as f:
+        run = json_lib.load(f)[scenario]
+    recorded = re.search(r"@@REPORT-[0-9a-f]{24}@@", run["stdout"]).group(0)
+    b64 = lambda t: base64.b64encode(t.encode()).decode() if t is not None else None
+    return {
+        "status": {"id": run["status_id"], "description": run["status_description"]},
+        "stdout": b64(run["stdout"].replace(recorded, marker)), "stderr": b64(run["stderr"]),
+        "compile_output": None, "message": b64(run["message"]), "time": run["time_s"],
+        "wall_time": run.get("wall_time_s"), "memory": run["memory_kb"], "exit_code": run["exit_code"],
+    }
+
+
 _idun_state = {"available": True}
 idun_chat_calls = []  # Label request bodies sent to IDUN's /chat/completions, for the no-leakage assertion
 idun_headline_calls = []  # the dashboard's title/action calls (aggregation.HEADLINE_PROMPT), kept apart
@@ -118,6 +159,10 @@ def fake_post(url, params=None, json=None, headers=None, timeout=None):
             idun_chat_calls.append(json)
             answer = {"discussion_point": "All snippets share the same overall structure."}
         resp.json.return_value = {"choices": [{"message": {"content": json_lib.dumps(answer)}}]}
+        return resp
+
+    if json.get("language_id") == 89 and "enable_network" in json:
+        resp.json.return_value = _fake_pytest_run(json)  # a test-graded task's pytest run
         return resp
 
     if json.get("language_id") == 89:
@@ -485,6 +530,7 @@ def main():
             _run_checks(client)
             _run_test_file_checks(client)
             _run_output_file_checks(client)
+            _run_test_graded_checks(client)
 
     print("\nALL SMOKE TESTS PASSED")
 
@@ -532,6 +578,107 @@ def _issue_student_tokens(client):
 
     client.post, client.get = post, get
     client.student_token = token_for
+
+
+def _run_test_graded_checks(client):
+    """A test-graded task end to end (task folder -> pytest in Judge0 -> students ->
+    dashboard), with Judge0 answering from recorded real runs (see _fake_pytest_run)."""
+    import io as io_lib
+
+    from backend import store
+
+    PYTEST_RUNS.update({code: name for name, code in _example_solutions().items()})
+    buf = io_lib.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for root, _dirs, names in os.walk(EXAMPLE_TASK):
+            for n in names:
+                full = os.path.join(root, n)
+                z.write(full, os.path.relpath(full, os.path.dirname(EXAMPLE_TASK)))
+    upload = lambda: client.post("/api/lecturer/questions/import",
+                                 files={"file": ("pandas-sales-summary (1).zip", buf.getvalue(), "application/zip")})
+
+    r = upload()
+    assert r.status_code == 200, r.text
+    q = r.json()
+    qid = q["id"]
+    assert (q["grading_mode"], q["status"], q["replaced"], q["test_cases"]) == ("tests", "draft", False, [])
+    r = upload()
+    assert (r.json()["id"], r.json()["replaced"]) == (qid, True), r.json()
+    print("Test-graded task: import a folder zip, import again replaces the draft   OK")
+
+    r = client.post(f"/api/lecturer/questions/{qid}/validate")
+    assert r.status_code == 200, r.text
+    check = r.json()
+    assert check["validated"] is True, check
+    assert [x["test_name"] for x in check["results"]] == [
+        "test_revenue_column", "test_keeps_every_row", "test_largest_region_first",
+        "test_missing_units_count_as_zero", "test_uses_the_dataframe_it_is_given"]
+    assert {c["name"]: c["ok"] for c in check["wrong_checks"]} == {
+        "forgot_fillna": True, "reads_the_file_again": True, "sorted_ascending": True}
+    assert len(store.get_question_row(qid)["task_meta"]["test_ids"]) == 5
+    print("Test-graded task: Check solution (reference, starter, 3 wrong solutions)   OK")
+
+    lecture = store.current_lecture_row()
+    if not lecture or lecture["ended_at"]:
+        lecture = store.create_lecture("Smoke: test-graded")
+    if not lecture.get("lobby_opened_at"):
+        store.open_lobby(lecture["id"])
+    r = client.post(f"/api/lecturer/questions/{qid}/start")
+    assert r.status_code == 200, r.text
+
+    status = client.get("/api/lecture/status").json()
+    assert status["question"]["grading_mode"] == "tests" and "build" in status
+    ws = client.get(f"/api/lecture/questions/{qid}/workspace").json()["files"]
+    assert [(f["path"], f["editable"]) for f in ws] == [
+        ("solution.py", True), ("tests/test_sales.py", False), ("data/sales.csv", False)]
+    for secret in ("hidden_tests/test_sales_hidden.py", "reference/solution.py", "wrong/forgot_fillna/solution.py"):
+        assert client.get(f"/api/lecture/questions/{qid}/workspace/{secret}").status_code == 404, secret
+    print("Test-graded task: workspace has no hidden tests, reference or wrong solutions   OK")
+
+    solutions = _example_solutions()
+    r = client.post("/api/run", json={"student_name": "Tara", "question_id": qid, "source_code": "",
+                                      "files": {"solution.py": solutions["starter"]}})
+    assert r.status_code == 200, r.text
+    assert [t["passed"] for t in r.json()["test_results"]] == [False, True, False], r.json()
+    assert pytest_runs[-1] == "starter"
+    print("Test-graded task: Run = the visible tests only   OK")
+
+    plans = {"Tara": "all_pass", "Uma": "wrong_forgot_fillna", "Vic": "wrong_forgot_fillna",
+             "Wim": "wrong_sorted_ascending", "Xan": "syntax_error"}
+    replies = {}
+    for name, scenario in plans.items():
+        r = client.post("/api/submit", json={"student_name": name, "question_id": qid, "source_code": "",
+                                             "files": {"solution.py": solutions[scenario]}})
+        assert r.status_code == 200, r.text
+        replies[name] = r.json()
+    assert (replies["Tara"]["verdict"], replies["Tara"]["tests_passed"], replies["Tara"]["tests_total"]) == ("correct", 5, 5)
+    uma = replies["Uma"]
+    assert (uma["verdict"], uma["tests_passed"]) == ("partially_correct", 4), uma
+    assert uma["hidden_tests"] == {"total": 2, "failed": 1, "hints": ["Checks the sale with no units recorded."]}
+    assert uma["feedback"].startswith("Print df.head()")  # the task's own hint ladder
+    assert replies["Xan"]["verdict"] == "error"
+    for reply in replies.values():
+        text = json_lib.dumps(reply)
+        assert "test_missing_units_count_as_zero" not in text and "test_uses_the_dataframe" not in text, reply
+    attempts = client.get("/api/lecture/attempts", params={"student_name": "Uma", "question_id": qid}).json()
+    assert attempts[-1]["hidden_tests"]["failed"] == 1 and len(attempts[-1]["test_results"]) == 3
+    print("Test-graded task: submits graded, hidden tests only as a count + the task's hint   OK")
+
+    clusters = client.get("/api/lecturer/clusters", params={"question_id": qid}).json()
+    wrong = {tuple(t["name"] for t in c["failing_tests"]): c for c in clusters if c["exec_verdict"] == "wrong_answer"}
+    assert wrong[("test_missing_units_count_as_zero",)]["count"] == 2, wrong
+    assert wrong[("test_missing_units_count_as_zero",)]["failing_tests"][0]["visibility"] == "hidden"
+    assert ("test_largest_region_first", "test_uses_the_dataframe_it_is_given") in wrong
+    assert any(c["exec_verdict"] == "syntax_error" for c in clusters)
+    detail = client.get(f"/api/lecturer/submissions/{uma['submission_id']}").json()
+    assert detail["files"] == {"solution.py": solutions["wrong_forgot_fillna"]}
+    assert any(r["visibility"] == "hidden" for r in json_lib.loads(detail["raw_test_results"]))
+    print("Test-graded task: clusters by failing tests, lecturer sees hidden tests   OK")
+
+    exported = client.get(f"/api/lecturer/questions/{qid}/export")
+    assert exported.status_code == 200 and exported.headers["content-type"] == "application/zip"
+    assert client.get("/api/lecturer/example_task").status_code == 200
+    print("Test-graded task: export + example download   OK")
 
 
 def _run_lecturer_auth_checks(client):

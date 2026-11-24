@@ -333,6 +333,16 @@ export function LiveHero(props: LiveHeroProps) {
                 <p className="mt-2 max-h-72 overflow-y-auto pr-2 text-[15px] leading-relaxed whitespace-pre-wrap text-zinc-800">
                   {question.prompt}
                 </p>
+                {question.grading_mode === "tests" && (
+                  <p className="mt-3 text-[13px] text-zinc-500">
+                    Graded by <span className="font-mono text-zinc-900">pytest</span>:{" "}
+                    {question.task_meta.test_ids
+                      ? `${question.task_meta.test_ids.filter((t) => t.visibility === "visible").length} visible and ${
+                          question.task_meta.test_ids.filter((t) => t.visibility === "hidden").length
+                        } hidden tests. Students see hidden tests only as a count.`
+                      : "tests from the task folder."}
+                  </p>
+                )}
                 {question.output_file && (
                   <p className="mt-3 text-[13px] text-zinc-500">
                     Graded on the file <span className="font-mono text-zinc-900">{question.output_file}</span>, not

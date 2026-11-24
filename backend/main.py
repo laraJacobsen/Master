@@ -17,14 +17,16 @@ Run with:
 from the /root/prototype directory (see README.md).
 """
 
+import glob
+import hashlib
 import json
 import logging
 import os
 from datetime import datetime
 
 import anyio
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -42,7 +44,7 @@ from backend.aggregation import (
     session_summary,
     student_recap,
 )
-from backend import test_files
+from backend import task_format, task_import, task_runner, test_files
 from backend.hint_ladder import clean_ladder, draft_hint_ladder
 from backend.ai_feedback import _traceback_for, judge_and_feedback
 from backend.judge0_client import Judge0Error, run_submission, run_test_cases
@@ -136,6 +138,9 @@ def api_lecturer_logout(response: Response):
 class SubmitRequest(BaseModel):
     question_id: str
     source_code: str
+    # Test-graded tasks: the editable files, {path: content}. Without it, source_code
+    # is taken as the task's (first) editable file, so one-file clients keep working.
+    files: dict[str, str] | None = None
 
 
 class RunRequest(BaseModel):
@@ -143,6 +148,8 @@ class RunRequest(BaseModel):
     question_id: str
     source_code: str
     stdin: str = ""
+    # Test-graded tasks: Run runs the visible tests on these files (see _run_tests_mode).
+    files: dict[str, str] | None = None
 
 
 class TestFile(BaseModel):
@@ -290,6 +297,69 @@ def api_lecturer_create_question(req: QuestionCreateRequest):
     return store.get_question_row(question_id)
 
 
+@app.post("/api/lecturer/questions/import")
+async def api_lecturer_import_question(file: UploadFile):
+    """A task folder, zipped (see backend/task_format.py), becomes a draft question. A
+    broken folder gets a 400 listing every problem found, one per line.
+
+    Importing a folder again replaces the draft it made before (same task id, as in the
+    setup list: not started yet), so fixing a test means edit, zip, import -- not a
+    second copy to clean up. The draft keeps its place in the run order and has to be
+    checked again. A task that has already run stays as it was; the import then makes
+    a new draft. "replaced" in the response says which happened."""
+    data = await file.read(task_format.MAX_ZIP_BYTES + 1)
+    stem = os.path.splitext(os.path.basename(file.filename or "task"))[0].lower()
+    default_id = "-".join(filter(None, "".join(c if c.isalnum() else "-" for c in stem).split("-"))) or "task"
+    try:
+        spec = task_format.load_task_zip(data, default_id=default_id)
+    except task_format.TaskFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    fields = task_import.question_fields(spec)
+    if spec.grading == "stdout":
+        _check_test_files_or_400(fields["test_cases"], fields["output_file"])
+    earlier = next((q for q in store.list_question_rows(status="draft", current_lecture_only=True)
+                    if (q.get("task_meta") or {}).get("id") == spec.id), None)
+    if earlier:
+        store.update_question(earlier["id"], {**fields, "validated": 0})
+        return {**store.get_question_row(earlier["id"]), "replaced": True}
+    question_id = store.create_question(fields)
+    return {**store.get_question_row(question_id), "replaced": False}
+
+
+# The example task folder the setup page offers as a template (its "Download an example"
+# link). It doubles as the unit tests' fixture, so it lives under tests/fixtures/; a
+# deployment that leaves tests/ out just has no example to offer (404).
+EXAMPLE_TASK_DIR = os.path.join(os.path.dirname(__file__), "..", "tests", "fixtures", "pandas-sales-summary")
+
+
+@app.get("/api/lecturer/example_task")
+def api_lecturer_example_task():
+    """The example task folder, zipped -- the same format Import reads, to copy and edit."""
+    if not os.path.isdir(EXAMPLE_TASK_DIR):
+        raise HTTPException(status_code=404, detail="No example task on this server.")
+    spec = task_format.load_task_dir(EXAMPLE_TASK_DIR)
+    return Response(
+        content=task_format.to_zip(spec),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{spec.id}.zip"'},
+    )
+
+
+@app.get("/api/lecturer/questions/{question_id}/export")
+def api_lecturer_export_question(question_id: str):
+    """The question as a task folder, zipped -- the format the import above reads, so a
+    task made in the setup page can be kept in version control or shared."""
+    row = store.get_question_row(question_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Not found")
+    spec = task_import.spec_of_question(row)
+    return Response(
+        content=task_format.to_zip(spec),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{spec.id}.zip"'},
+    )
+
+
 @app.get("/api/lecturer/questions/{question_id}")
 def api_lecturer_question_detail(question_id: str, include_files: bool = False):
     """The live dashboard polls this every 3 s, so test files come back as name
@@ -397,6 +467,8 @@ def api_lecturer_validate_question(question_id: str):
     question = store.get_question_row(question_id)
     if not question:
         raise HTTPException(status_code=404, detail="Not found")
+    if question["grading_mode"] == "tests":
+        return _validate_tests_mode(question)
     if not question.get("reference_solution"):
         raise HTTPException(
             status_code=400, detail="Add a reference (known-correct) solution before validating."
@@ -430,6 +502,66 @@ def api_lecturer_validate_question(question_id: str):
     validated = all_passed and not (starter_problem and starter_problem["blocking"])
     store.set_validated(question_id, validated)
     return {"validated": validated, "results": results, "starter_problem": starter_problem}
+
+
+def _validate_tests_mode(question: dict) -> dict:
+    """The validation preview for a test-graded task: the reference solution must pass
+    every test (visible and hidden), and the starter must not -- otherwise students
+    are "correct" before writing anything. The reference run's tests become the task's
+    test list (task_meta["test_ids"]): every later run reports exactly those tests,
+    which the clustering's failing-test signature relies on.
+
+    Then each wrong solution in the folder (wrong/<name>/) must fail at least one test,
+    and every test task.yaml lists for it -- otherwise the tests don't catch a mistake
+    the lecturer expects students to make. Reported per wrong solution in
+    "wrong_checks"; any that slips through keeps the task from being ready."""
+    reference = task_runner.reference_files(question)
+    if not reference:
+        raise HTTPException(status_code=400, detail="This task has no reference solution (reference/ in its folder).")
+    # Without the stored test list: this run is what defines it.
+    unvalidated = {**question, "task_meta": {**question["task_meta"], "test_ids": None}}
+    try:
+        results = task_runner.run_tests(unvalidated, reference)
+        starter_problem = _starter_problem(unvalidated)
+    except Judge0Error as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    all_passed = bool(results) and all(r.outcome == "passed" for r in results)
+    test_ids = task_runner.expected_test_ids(results)
+    if all_passed and not any(t["visibility"] == "visible" for t in test_ids):
+        all_passed = False
+    try:
+        wrong_checks = _check_wrong_solutions(
+            {**question, "task_meta": {**question["task_meta"], "test_ids": test_ids}}) if all_passed else []
+    except Judge0Error as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    validated = (all_passed and not (starter_problem and starter_problem["blocking"])
+                 and all(c["ok"] for c in wrong_checks))
+    store.update_question(question["id"], {
+        "task_meta": {**question["task_meta"], "test_ids": test_ids if all_passed else None},
+        "validated": 1 if validated else 0,
+    })
+    return {"validated": validated, "results": task_runner.as_dicts(results), "starter_problem": starter_problem,
+            "wrong_checks": wrong_checks, "grading_mode": "tests"}
+
+
+def _check_wrong_solutions(question: dict) -> list:
+    """One run per wrong/<name>/ -- see _validate_tests_mode."""
+    expected = (question.get("task_meta") or {}).get("wrong_solutions") or {}
+    checks = []
+    for name, files in sorted(task_runner.wrong_solutions(question).items()):
+        results = task_runner.run_tests(question, files)
+        failing = [r.name for r in results if not r.passed]
+        must = list(expected.get(name) or [])
+        missed = [t for t in must if t not in failing]
+        if not failing:
+            message = f"{name} passes every test, so the tests don't catch this mistake."
+        elif missed:
+            message = f"{name} should fail {', '.join(missed)}, but passes {'it' if len(missed) == 1 else 'them'}."
+        else:
+            message = f"{name} fails {', '.join(failing)}."
+        checks.append({"name": name, "ok": bool(failing) and not missed, "failing": failing,
+                       "expected": must, "message": message})
+    return checks
 
 
 def _starter_problem(question: dict) -> dict | None:
@@ -473,6 +605,15 @@ def _starter_problem(question: dict) -> dict | None:
         }
     if reason:
         return {"blocking": True, "message": f"The starter code can't be submitted as it is ({reason.replace('_', ' ')})."}
+
+    if question["grading_mode"] == "tests":
+        editable = task_runner.editable_files(question)
+        starter = {p: c for p, c in task_runner.starter_files(question).items() if p in editable}
+        results = task_runner.run_tests(question, starter)
+        if results and all(r.passed for r in results):
+            return {"blocking": True, "message": "The starter files already pass every test, so students would be "
+                                                 "correct without changing anything. Check the tests."}
+        return None
 
     example = question["test_cases"][0]
     r = run_submission(
@@ -866,6 +1007,13 @@ def _seconds_remaining(question: dict) -> int:
     return max(0, int(question["duration_seconds"] - elapsed))
 
 
+@app.get("/api/build")
+def api_build():
+    """The frontend build served now, for pages that don't poll the lecture status (the
+    lecturer's pages: frontend/src/shared/UpdateBanner.tsx). See frontend_build()."""
+    return {"build": frontend_build()}
+
+
 @app.get("/api/lecture/status")
 def api_lecture_status():
     """Polled by the student page (see live-submission-progress-decision-
@@ -882,7 +1030,8 @@ def api_lecture_status():
     # of silently carrying the old join over.
     lecture_id = current_lecture["id"] if current_lecture else None
     if not question:
-        return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": [], "shown_position": None}
+        return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": [],
+                "shown_position": None, "build": frontend_build()}
 
     tests = test_files.without_contents(question["test_cases"])
     time_up = _seconds_remaining(question) <= 0
@@ -902,6 +1051,10 @@ def api_lecture_status():
             "output_file": question.get("output_file"),
             # The lecturer's own starter code; None = the student page's default.
             "starter_code": question.get("starter_code"),
+            "grading_mode": question["grading_mode"],
+            # Test-graded tasks: the files of the editor's tabs, name and size only --
+            # contents come from api_lecture_workspace (not polled).
+            "workspace": _workspace(question, with_content=False) if question["grading_mode"] == "tests" else None,
             # Data files the student may open in the viewer (name and size; the
             # content comes from api_lecture_test_file): the example's while the
             # task runs, every test's once time is up.
@@ -922,6 +1075,9 @@ def api_lecture_status():
         # Where that entry sits in the queue, for the projector's
         # Previous/Next controls; None before time is up or with nothing queued.
         "shown_position": screen_position(question["id"]) if time_up else None,
+        # The frontend build being served now: a tab whose page carries another one
+        # (its <meta name="app-build">) runs old code and reloads -- see frontend_build().
+        "build": frontend_build(),
     }
 
 
@@ -960,6 +1116,53 @@ def api_lecture_test_file(question_id: str, test_index: int, name: str):
     return PlainTextResponse(match["content"])
 
 
+def _workspace(question: dict, with_content: bool) -> list:
+    """The files a student sees in a test-graded task, in tab order: editable files,
+    the other starter files (read-only), visible tests, data files. Never hidden tests
+    or the reference. Data files carry content only when asked for one by name
+    (api_lecture_workspace_file): they can be megabytes."""
+    editable = task_runner.editable_files(question)
+    order = {"starter": 1, "test": 2, "data": 3}
+    out = []
+    for f in sorted((f for f in question.get("task_files") or [] if f["role"] in order),
+                    key=lambda f: (order[f["role"]], f["path"] not in editable, f["path"])):
+        path = {"test": "tests/", "data": "data/"}.get(f["role"], "") + f["path"]
+        entry = {
+            "path": path,
+            "kind": {"starter": "code", "test": "test", "data": "data"}[f["role"]],
+            "editable": f["role"] == "starter" and f["path"] in editable,
+            "size": len(f["content"].encode("utf-8")),
+        }
+        if with_content and f["role"] != "data":
+            entry["content"] = f["content"]
+        out.append(entry)
+    return out
+
+
+@app.get("/api/lecture/questions/{question_id}/workspace")
+def api_lecture_workspace(question_id: str):
+    """A test-graded task's editor files with their contents (starter files and visible
+    tests; data files by name and size), fetched once when the task opens. Same audience
+    as the status poll that announces the task."""
+    question = get_question(question_id)
+    if not question or question["status"] == "draft" or question["grading_mode"] != "tests":
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"files": _workspace(question, with_content=True), "markers": question["task_meta"].get("markers")}
+
+
+@app.get("/api/lecture/questions/{question_id}/workspace/{path:path}")
+def api_lecture_workspace_file(question_id: str, path: str):
+    """One file of a test-graded task's workspace with its content (data files open here)."""
+    question = get_question(question_id)
+    if not question or question["status"] == "draft" or question["grading_mode"] != "tests":
+        raise HTTPException(status_code=404, detail="Not found")
+    for f in question.get("task_files") or []:
+        shown = {"test": "tests/", "data": "data/"}.get(f["role"], "") + f["path"]
+        if f["role"] in ("starter", "test", "data") and shown == path:
+            return PlainTextResponse(f["content"])
+    raise HTTPException(status_code=404, detail="Not found")
+
+
 @app.get("/api/lecture/attempts")
 def api_lecture_attempts(question_id: str, student: dict = Depends(_student)):
     """The asking student's own attempts at a question, for the student page's
@@ -982,6 +1185,10 @@ def api_lecture_attempts(question_id: str, student: dict = Depends(_student)):
             "created_at": row["created_at"],
             # The student's own hint, so a reloaded page can show it again.
             "feedback": row["feedback"],
+            # Test-graded tasks: the visible tests' results and the hidden count.
+            **(_student_test_view(json.loads(row.get("raw_test_results") or "[]"),
+                                  (question.get("task_meta") or {}).get("hidden_test_hints"))
+               if question["grading_mode"] == "tests" else {}),
         }
         for row in store.all_submissions(question_id)
         if row["student_name"] == name
@@ -1137,6 +1344,8 @@ def _submit(req: SubmitRequest, student: dict):
     store.record_activity(req.question_id, student_name, edited=True)
 
     attempt_number = store.next_attempt_number(student_name, req.question_id)
+    if question["grading_mode"] == "tests":
+        return _submit_tests_mode(req, question, student_name, attempt_number)
     tests_total = len(_graded(question["test_cases"]))
 
     rejection_reason = pre_execution_check(
@@ -1276,6 +1485,108 @@ def _submit(req: SubmitRequest, student: dict):
     }
 
 
+def _student_test_view(test_results: list, hidden_hints: dict | None = None) -> dict:
+    """What a student may see of a test-graded run: every visible test in full (name,
+    outcome, message, pytest's short traceback), and of the hidden tests only how many
+    there are and how many failed -- no names, no messages: a hidden test's message can
+    quote its input or the expected value. The one exception is a sentence the task's
+    author wrote for a hidden test (task.yaml's hidden_test_hints), shown when that test
+    fails -- still without its name."""
+    visible = [r for r in test_results if r.get("visibility") != "hidden"]
+    hidden = [r for r in test_results if r.get("visibility") == "hidden"]
+    hints = hidden_hints or {}
+    hidden_failed_hints = [hints[r.get("test_name")] for r in hidden
+                           if not r.get("passed") and r.get("test_name") in hints]
+    return {
+        "test_results": [
+            {"name": r.get("test_name"), "file": r.get("test_file"), "outcome": r.get("outcome"),
+             "passed": r.get("passed"), "message": r.get("message") or "", "details": r.get("details") or "",
+             # Their own prints, from visible tests only: printed during a hidden test, the
+             # output could show that test's data.
+             "output": r.get("output") or ""}
+            for r in visible
+        ],
+        "hidden_tests": {"total": len(hidden), "failed": sum(1 for r in hidden if not r.get("passed")),
+                         "hints": hidden_failed_hints},
+        # Top-level prints: what was printed while the visible tests imported the
+        # student's code (never while a hidden test file was imported).
+        "load_output": [{"file": r.get("test_file"), "output": r["load_output"]}
+                        for r in visible if r.get("load_output")],
+    }
+
+
+def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, attempt_number: int) -> dict:
+    """/api/submit for a test-graded task: the same steps as a stdout task (pre-execution
+    checks, run, classify + hint, store), with pytest results in place of per-test-case
+    output. Every test counts toward the verdict, visible ones included."""
+    editable = task_runner.editable_files(question)
+    tests_total = len((question.get("task_meta") or {}).get("test_ids") or [])
+    files = req.files if req.files is not None else task_import.split_files(req.source_code, editable,
+                                                                            question["language"])
+
+    def rejected(reason_code: str, message: str) -> dict:
+        message = message.rstrip(".")
+        sub_id = store.save_submission({
+            "student_name": student_name, "question_id": req.question_id, "language": question["language"],
+            "source_code": task_import.join_files(files, editable, question["language"]),
+            "attempt_number": attempt_number, "tests_passed": 0, "tests_total": tests_total,
+            "verdict": "error", "error_type": None, "exec_verdict": "rejected", "rejection_reason": reason_code,
+            "feedback": f"Submission rejected before running: {message}.", "discussion_point": None,
+            "raw_test_results": json.dumps([]), "files": files,
+        })
+        return {"submission_id": sub_id, "tests_passed": 0, "tests_total": tests_total, "verdict": "error",
+                "feedback": f"Your submission wasn't run: {message}.", "attempt_number": attempt_number}
+
+    try:
+        prepared = task_runner.prepare_submission(question, files)
+    except task_runner.SubmissionFilesError as e:
+        return rejected("bad_files", str(e))
+    source_code = task_import.join_files(prepared, editable, question["language"])
+    reason = pre_execution_check(source_code, line_limit=question["line_limit"],
+                                 extra_packages=question["extra_packages"], language=question["language"])
+    if reason:
+        return rejected(reason, reason.replace("_", " "))
+
+    try:
+        results = task_runner.run_tests(question, prepared)
+    except Judge0Error as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    test_results = task_runner.as_dicts(results)
+
+    try:
+        feedback = judge_and_feedback(
+            question["prompt"], source_code, test_results, language=question["language"],
+            attempt_number=attempt_number, hint_ladder=question.get("hint_ladder"), grading_mode="tests",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI feedback failed: {e}")
+
+    sub_id = store.save_submission({
+        "student_name": student_name, "question_id": req.question_id, "language": question["language"],
+        "source_code": source_code, "attempt_number": attempt_number,
+        "tests_passed": feedback["tests_passed"], "tests_total": feedback["tests_total"],
+        "verdict": feedback["verdict"], "error_type": feedback["error_type"],
+        "exec_verdict": feedback["exec_verdict"], "rejection_reason": None, "feedback": feedback["feedback"],
+        "discussion_point": None, "raw_test_results": json.dumps(test_results), "files": prepared,
+    })
+    return {
+        "submission_id": sub_id,
+        "tests_passed": feedback["tests_passed"],
+        "tests_total": feedback["tests_total"],
+        "verdict": feedback["verdict"],
+        "feedback": feedback["feedback"],
+        "attempt_number": attempt_number,
+        "hint_tier": feedback.get("hint_tier"),
+        "hint_ceiling": feedback.get("hint_ceiling"),
+        # Visible tests carry their own tracebacks; a hidden crash says nothing more
+        # than the hidden count does.
+        "traceback": None,
+        "hidden_crash": False,
+        "hidden_error": None,
+        **_student_test_view(test_results, (question.get("task_meta") or {}).get("hidden_test_hints")),
+    }
+
+
 # Stdin a student can type into the Run input -- generous for an exercise, but
 # keeps a pasted novel from going to Judge0.
 MAX_RUN_STDIN_CHARS = 100_000
@@ -1308,6 +1619,8 @@ def _run(req: RunRequest, student: dict | None):
         raise HTTPException(status_code=409, detail="This question isn't live (not started yet, or already closed).")
     if student is not None:
         _check_student_question(student, question)
+    if question["grading_mode"] == "tests":
+        return _run_tests_mode(req, question, lecturer=student is None)
     if len(req.stdin) > MAX_RUN_STDIN_CHARS:
         raise HTTPException(status_code=400, detail=f"The input is too long (max {MAX_RUN_STDIN_CHARS:,} characters).")
 
@@ -1349,6 +1662,35 @@ def _run(req: RunRequest, student: dict | None):
     }
 
 
+def _run_tests_mode(req: RunRequest, question: dict, lecturer: bool) -> dict:
+    """Run for a test-graded task: the visible tests on the student's files, ungraded and
+    not stored. The lecturer's run (projector) includes the hidden tests too."""
+    editable = task_runner.editable_files(question)
+    files = req.files if req.files is not None else task_import.split_files(req.source_code, editable,
+                                                                            question["language"])
+    try:
+        prepared = task_runner.prepare_submission(question, files)
+    except task_runner.SubmissionFilesError as e:
+        return {"rejected": str(e)}
+    reason = pre_execution_check(task_import.join_files(prepared, editable, question["language"]),
+                                 line_limit=question["line_limit"], extra_packages=question["extra_packages"],
+                                 language=question["language"])
+    if reason:
+        return {"rejected": reason}
+    try:
+        results = task_runner.as_dicts(task_runner.run_tests(question, prepared, include_hidden=lecturer))
+    except Judge0Error as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    view = _student_test_view(results)
+    if lecturer:
+        view["hidden_test_results"] = [
+            {"name": r["test_name"], "file": r["test_file"], "outcome": r["outcome"], "passed": r["passed"],
+             "message": r["message"], "details": r["details"], "output": r.get("output") or ""}
+            for r in results if r.get("visibility") == "hidden"
+        ]
+    return {"rejected": None, "grading_mode": "tests", **view}
+
+
 def _student_error_output(test_results: list, feedback: dict) -> dict:
     """What a student sees of their program's error output. The full traceback
     only when it comes from the example test (test 1), whose input and files the
@@ -1383,6 +1725,8 @@ def api_lecturer_submission_detail(sub_id: int):
     row = store.get_submission(sub_id)
     if not row:
         raise HTTPException(status_code=404, detail="Not found")
+    row = dict(row)
+    row["files"] = json.loads(row["files"]) if row.get("files") else None
     return with_shape(row)
 
 
@@ -1482,11 +1826,41 @@ _PAGES = {
 _LEGACY_PAGES = {f"/{file}": path for path, file in _PAGES.items()} | {"/index.html": "/"}
 
 
+_build_cache: dict = {"key": None, "build": None}
+
+
+def frontend_build() -> str | None:
+    """A fingerprint of the frontend build being served: a hash of the built pages
+    (frontend/dist/*.html, which name every hashed asset). Each page is served with it
+    in a <meta name="app-build"> tag, and /api/lecture/status reports the current one,
+    so a tab left open across an `npm run build` notices it's running old code
+    (frontend/src/shared/build.ts) instead of misreading newer API responses. Rechecked
+    when a page file changes; None when there's no build (dev server)."""
+    files = sorted(glob.glob(os.path.join(_frontend_dir, "*.html")))
+    try:
+        key = tuple((f, os.path.getmtime(f)) for f in files)
+    except OSError:
+        return None
+    if key != _build_cache["key"]:
+        digest = hashlib.sha256()
+        for f in files:
+            with open(f, "rb") as fh:
+                digest.update(fh.read())
+        _build_cache.update(key=key, build=digest.hexdigest()[:12] if files else None)
+    return _build_cache["build"]
+
+
 # Factories, not default arguments: FastAPI would expose a handler's extra
 # parameters as query parameters (?file=... choosing what gets served).
 def _page_handler(file: str):
-    def page() -> FileResponse:
-        return FileResponse(os.path.join(_frontend_dir, file))
+    def page() -> HTMLResponse:
+        with open(os.path.join(_frontend_dir, file), encoding="utf-8") as f:
+            html = f.read()
+        build = frontend_build()
+        if build:
+            html = html.replace("<head>", f'<head>\n    <meta name="app-build" content="{build}">', 1)
+        # Never cached: a cached page would carry an old build id and old asset names.
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
     return page
 

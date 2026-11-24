@@ -2,3 +2,6 @@ fastapi
 uvicorn
 requests
 scikit-learn
+pyyaml
+packaging
+python-multipart

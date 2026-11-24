@@ -74,6 +74,55 @@ export function Button({ variant = "primary", size = "md", className, type = "bu
   return <button type={type} className={buttonClass(variant, size, className)} {...rest} />;
 }
 
+export interface FileButtonProps {
+  children: ReactNode;
+  /** The hidden file input's accessible name. */
+  inputLabel: string;
+  accept?: string;
+  disabled?: boolean;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  className?: string;
+  onFiles: (files: FileList | null) => void;
+}
+
+/** A Button that opens the file picker: a <label> around a visually hidden file
+ * input, so keyboard focus lands on the real input (focus-within draws the ring). */
+export function FileButton({
+  children,
+  inputLabel,
+  accept,
+  disabled = false,
+  variant = "secondary",
+  size = "md",
+  className,
+  onFiles,
+}: FileButtonProps) {
+  return (
+    <label
+      className={cx(
+        buttonClass(variant, size, className),
+        "relative cursor-pointer focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand-500",
+        disabled && "pointer-events-none cursor-not-allowed opacity-50",
+      )}
+      aria-disabled={disabled || undefined}
+    >
+      {children}
+      <input
+        type="file"
+        accept={accept}
+        disabled={disabled}
+        className="pointer-events-none absolute size-px opacity-0"
+        aria-label={inputLabel}
+        onChange={(e) => {
+          onFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+    </label>
+  );
+}
+
 export interface LinkButtonProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;

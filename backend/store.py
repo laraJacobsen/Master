@@ -70,6 +70,10 @@ def init_db():
             ("attempt_number", "INTEGER"),
             ("exec_verdict", "TEXT"),
             ("rejection_reason", "TEXT"),
+            # Test-graded tasks: JSON {path: content} of the editable files the
+            # student submitted (source_code then holds them joined, see
+            # backend/task_import.join_files). NULL for a one-file submission.
+            ("files", "TEXT"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE submissions ADD COLUMN {column} {sqltype}")
@@ -132,6 +136,21 @@ def init_db():
         # in setup. NULL: wrong answers get feedback.py's generic hints.
         if "hint_ladder" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN hint_ladder TEXT")
+        # How the task is graded: 'stdout' (compare printed output per test case,
+        # every task before test-graded tasks existed) or 'tests' (pytest; see
+        # backend/task_runner.py).
+        if "grading_mode" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN grading_mode TEXT NOT NULL DEFAULT 'stdout'")
+        # Test-graded tasks: JSON list of the task folder's files,
+        # [{"path", "role", "content"}] with role starter/test/hidden_test/
+        # reference/data (backend/task_format.py). NULL for stdout tasks.
+        if "task_files" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN task_files TEXT")
+        # JSON of the task.yaml settings that have no column of their own
+        # (editable files, BEGIN/END markers, per-test timeout, requirements,
+        # the folder's id), so a task exports back as it was imported.
+        if "task_meta" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN task_meta TEXT")
         # A question that was already `live` before started_at existed (e.g.
         # an existing checkout's seeded sum-ints) would otherwise have no
         # timer zero-point -- backfill it to "now" so its countdown starts
@@ -454,8 +473,9 @@ def _serialize_question(fields: dict) -> dict:
         row["test_cases"] = json.dumps(row["test_cases"])
     if "extra_packages" in row and not isinstance(row["extra_packages"], str):
         row["extra_packages"] = json.dumps(row["extra_packages"])
-    if row.get("hint_ladder") is not None and not isinstance(row["hint_ladder"], str):
-        row["hint_ladder"] = json.dumps(row["hint_ladder"])
+    for key in ("hint_ladder", "task_files", "task_meta"):
+        if row.get(key) is not None and not isinstance(row[key], str):
+            row[key] = json.dumps(row[key])
     return row
 
 
@@ -465,6 +485,9 @@ def _deserialize_question(row: dict) -> dict:
     q["extra_packages"] = json.loads(q["extra_packages"])
     q["validated"] = bool(q["validated"])
     q["hint_ladder"] = json.loads(q["hint_ladder"]) if q.get("hint_ladder") else None
+    q["task_files"] = json.loads(q["task_files"]) if q.get("task_files") else None
+    q["task_meta"] = json.loads(q["task_meta"]) if q.get("task_meta") else {}
+    q["grading_mode"] = q.get("grading_mode") or "stdout"
     return q
 
 
@@ -486,8 +509,8 @@ def create_question(fields: dict) -> str:
                 (id, title, prompt, language, test_cases, reference_solution,
                  cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
                  expected_students, duration_seconds, idle_nudge_seconds, output_file, starter_code,
-                 hint_ladder)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 hint_ladder, grading_mode, task_files, task_meta)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 question_id,
@@ -506,6 +529,9 @@ def create_question(fields: dict) -> str:
                 row.get("output_file"),
                 row.get("starter_code"),
                 row.get("hint_ladder"),
+                row.get("grading_mode") or "stdout",
+                row.get("task_files"),
+                row.get("task_meta"),
             ),
         )
         conn.commit()
@@ -1036,8 +1062,8 @@ def save_submission(row: dict) -> int:
             INSERT INTO submissions
                 (student_name, question_id, language, source_code, attempt_number,
                  tests_passed, tests_total, verdict, error_type, exec_verdict,
-                 rejection_reason, feedback, discussion_point, raw_test_results)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rejection_reason, feedback, discussion_point, raw_test_results, files)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row["student_name"],
@@ -1054,6 +1080,7 @@ def save_submission(row: dict) -> int:
                 row["feedback"],
                 row["discussion_point"],
                 row["raw_test_results"],
+                json.dumps(row["files"]) if row.get("files") else None,
             ),
         )
         conn.commit()

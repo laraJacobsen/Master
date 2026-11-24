@@ -107,6 +107,42 @@ def _example_diff_hint(example: dict, output_file: str = None) -> str:
             f"fix it.")
 
 
+def _tests_wrong_answer_hints(test_results: list) -> list:
+    """Generic wrong-answer hints for a test-graded task (no lecturer ladder), attempt 1
+    first. feedback.py's wrong_answer tiers talk about printed output and the example
+    input, which a pytest task doesn't have. These point at the first failing visible
+    test -- whose name and message the student already sees -- and only ever count
+    hidden tests, never name them."""
+    failing = [r for r in test_results if not r["passed"]]
+    visible = [r for r in failing if r.get("visibility") != "hidden"]
+    hidden = len(failing) - len(visible)
+    if visible:
+        first = visible[0]
+        where = f"{first.get('test_file')}" if first.get("test_file") else "the tests folder"
+        return [
+            f"Your code runs, but {len(failing)} test{'s' if len(failing) != 1 else ''} fail. Start with "
+            f"{first.get('test_name')}: its message shows what it checked and what your code gave.",
+            f"Open {where} and find {first.get('test_name')}. Call your function yourself with the same "
+            f"input it uses and print the result. Where does it differ from what the test expects?",
+            f"{first.get('test_name')} fails with: {_quote(first.get('message') or '')}. Find the line in your "
+            f"code that produces that value and fix it.",
+        ]
+    return [
+        f"Every visible test passes, but {hidden} hidden test{'s' if hidden != 1 else ''} "
+        f"fail{'' if hidden != 1 else 's'}. The hidden tests check cases the visible ones don't cover.",
+        TESTS_HIDDEN_HINT,
+        TESTS_HIDDEN_HINT,
+    ]
+
+
+# Last generic wrong-answer hint of a test-graded task when only hidden tests fail.
+TESTS_HIDDEN_HINT = (
+    "Re-read the task description for every case it mentions, then try your code on input the "
+    "visible tests don't use: missing or empty values, a single row or none, ties, or different "
+    "data than the example file. Which one gives a wrong result?"
+)
+
+
 def judge_and_feedback(
     question_prompt: str,
     source_code: str,
@@ -117,6 +153,7 @@ def judge_and_feedback(
     hint_ladder: list = None,
     example_result: dict = None,
     output_file: str = None,
+    grading_mode: str = "stdout",
 ) -> dict:
     """Returns a dict: verdict, error_type, feedback, tests_passed, tests_total,
     hint_tier, hint_ceiling, exec_verdict, traceback.
@@ -134,13 +171,19 @@ def judge_and_feedback(
     example_result is the example test's result (the test students can see). Without
     a ladder, a wrong answer's last hint quotes where the output differs from it
     (see _example_diff_hint()) instead of feedback.py's generic last tier.
+
+    grading_mode "tests": test_results are task_runner TestResult dicts (every test
+    counts, visible and hidden). A wrong answer without a ladder gets
+    _tests_wrong_answer_hints() instead of feedback.py's output-based ones; crashes keep
+    feedback.py's error-specific hints, as in stdout mode.
     """
     passed = sum(1 for r in test_results if r["passed"])
     total = len(test_results)
+    noun = "tests" if grading_mode == "tests" else "test cases"
     baseline_feedback = (
-        f"All {total} test cases passed!"
+        f"All {total} {noun} passed!"
         if total and passed == total
-        else f"{passed}/{total} test cases passed. Review the cases that didn't match."
+        else f"{passed}/{total} {noun} passed. Review the cases that didn't match."
     )
 
     try:
@@ -154,6 +197,10 @@ def judge_and_feedback(
     if exec_verdict == "wrong_answer" and hint_ladder:
         tier = min(attempt_number, len(hint_ladder))
         hint = {"hint_text": hint_ladder[tier - 1], "hint_tier": tier, "hint_ceiling": len(hint_ladder)}
+    elif exec_verdict == "wrong_answer" and grading_mode == "tests":
+        ladder = _tests_wrong_answer_hints(test_results)
+        tier = min(max(attempt_number, 1), len(ladder))
+        hint = {"hint_text": ladder[tier - 1], "hint_tier": tier, "hint_ceiling": len(ladder)}
     elif (exec_verdict == "wrong_answer" and example_result is not None
           and hint["hint_tier"] is not None and hint["hint_tier"] == hint["hint_ceiling"]):
         concrete = _example_diff_hint(example_result, output_file)

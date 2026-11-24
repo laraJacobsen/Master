@@ -45,6 +45,19 @@ export function IssueLine({ task, className }: IssueLineProps) {
     return task.submitted === 0 ? <p className={cx("mt-2 text-[13px] text-zinc-500", className)}>No submissions</p> : null;
   }
   const ex = issue.example;
+  if (ex?.test_name) {
+    return (
+      <p className={cx("mt-2 text-[13px] leading-relaxed text-zinc-700", className)}>
+        <strong className="font-semibold text-zinc-900">{plural(ex.students, "student")}</strong> failed{" "}
+        <Code>{ex.test_name}</Code>
+        {ex.message ? (
+          <>
+            : <Code>{ex.message}</Code>
+          </>
+        ) : null}
+      </p>
+    );
+  }
   if (ex) {
     return (
       <p className={cx("mt-2 text-[13px] leading-relaxed text-zinc-700", className)}>

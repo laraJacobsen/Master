@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
-import type { LectureStatus, LiveQuestion, RunResponse, SharedExample, TestCase } from "../shared/types";
+import { isTestsRun } from "../shared/types";
+import type { LectureStatus, LiveQuestion, RunResponse, SharedExample, TestCase, TestsRunResponse } from "../shared/types";
 import { fetchActiveLecture, fetchLectureStatus, lecturerRunCode, setScreenQueueCurrent } from "../shared/api";
 import { Editor, monaco } from "../shared/monaco";
 import { BrandMark, Button, CodeSkeleton, Eyebrow } from "../shared/ui";
@@ -653,7 +654,29 @@ function ExampleCard({ example, label, language, questionId, exampleTest }: Exam
             }}
           />
         </div>
-        {failing && (
+        {failing && failing.test_name && (
+          // Test-graded task: the first failing visible test; hidden tests only as a
+          // count -- this screen is in front of the whole class.
+          <IoTable
+            className="flex-none text-xl lg:max-w-[40%]"
+            rows={[
+              ["Test", failing.test_name],
+              ["Failed", failing.message?.trim() || "(no message)"],
+              ...(example.hidden_tests && example.hidden_tests.total > 0
+                ? ([["Hidden", `${example.hidden_tests.failed} of ${example.hidden_tests.total} failed`]] as Array<
+                    [string, string]
+                  >)
+                : []),
+            ]}
+          />
+        )}
+        {!failing && example.hidden_tests && example.hidden_tests.failed > 0 && (
+          <IoTable
+            className="flex-none text-xl lg:max-w-[40%]"
+            rows={[["Hidden tests", `${example.hidden_tests.failed} of ${example.hidden_tests.total} failed`]]}
+          />
+        )}
+        {failing && !failing.test_name && (
           <IoTable
             className="flex-none text-xl lg:max-w-[40%]"
             rows={[
@@ -681,6 +704,42 @@ function ExampleCard({ example, label, language, questionId, exampleTest }: Exam
   );
 }
 
+export interface TestsRunResultProps {
+  run: TestsRunResponse;
+}
+
+/** The projector's Run on a test-graded attempt: the visible tests by name, the
+ * hidden ones as a count (the lecturer's run includes them; the class sees numbers). */
+function TestsRunResult({ run }: TestsRunResultProps) {
+  const hidden = run.hidden_test_results ?? [];
+  const all = [...run.test_results, ...hidden];
+  const passed = all.filter((t) => t.passed).length;
+  const failingVisible = run.test_results.filter((t) => !t.passed);
+  return (
+    <div className="mt-4 border-t border-zinc-200 pt-4">
+      <div className="mb-3 flex items-center gap-3 text-xl font-bold tracking-tight">
+        Run result
+        <span className={cx("text-lg font-semibold", passed === all.length ? "text-emerald-600" : "text-red-600")}>
+          {passed === all.length ? `✓ All ${all.length} tests pass` : `${passed} of ${all.length} tests pass`}
+        </span>
+      </div>
+      {(failingVisible.length > 0 || hidden.some((t) => !t.passed)) && (
+        <IoTable
+          className="text-xl"
+          rows={[
+            ...failingVisible.map((t) => [t.name, t.message || t.outcome] as [string, string]),
+            ...(hidden.length
+              ? ([["Hidden", `${hidden.filter((t) => !t.passed).length} of ${hidden.length} failed`]] as Array<
+                  [string, string]
+                >)
+              : []),
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
 export interface RunResultProps {
   run: RunResponse | null;
   error: string | null;
@@ -697,6 +756,7 @@ function RunResult({ run, error, expected, input }: RunResultProps) {
   if (run.rejected !== null) {
     return <p className="mt-4 text-xl text-red-600">Not run: {run.rejected}</p>;
   }
+  if (isTestsRun(run)) return <TestsRunResult run={run} />;
   const output = run.output_file ? run.output_file_content : run.stdout;
   const errorText =
     (run.compile_output || run.stderr).trim().split("\n").pop() || (run.accepted ? "" : run.message || run.status);

@@ -48,6 +48,9 @@ export interface FailingTest {
   expected: string;
   got: string;
   error?: string | null;
+  // Test-graded tasks: which test failed and its message, instead of input/output.
+  testName?: string | null;
+  message?: string | null;
 }
 
 export interface FailingTestStripProps {
@@ -56,12 +59,17 @@ export interface FailingTestStripProps {
 }
 
 export function FailingTestStrip({ test, className }: FailingTestStripProps) {
-  const rows: Array<[string, string, boolean]> = [
-    ["Input", test.stdin.trimEnd() || "(none)", false],
-    ["Expected", test.expected.trimEnd(), false],
-    ["Got", test.got.trim() || "(nothing)", true],
-  ];
-  if (test.error) rows.push(["Error", test.error.trim().split("\n").pop() ?? "", true]);
+  const rows: Array<[string, string, boolean]> = test.testName
+    ? [
+        ["Test", test.testName, false],
+        ["Failed", test.message?.trim() || "(no message)", true],
+      ]
+    : [
+        ["Input", test.stdin.trimEnd() || "(none)", false],
+        ["Expected", test.expected.trimEnd(), false],
+        ["Got", test.got.trim() || "(nothing)", true],
+      ];
+  if (test.error && !test.testName) rows.push(["Error", test.error.trim().split("\n").pop() ?? "", true]);
   // A small two-column table: labels left, values in monospace. Long values
   // wrap inside their cell instead of stretching the page.
   return (
