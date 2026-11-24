@@ -1,0 +1,9 @@
+# Used by use_image.sh only: swaps the image of the Judge0 server and workers,
+# nothing else. Both need it: a submission sent with wait=true (as the backend
+# always does) runs inside the *server* container (IsolateJob.perform_now);
+# only wait=false submissions go to the workers.
+services:
+  server:
+    image: ${JUDGE0_WORKER_IMAGE}
+  workers:
+    image: ${JUDGE0_WORKER_IMAGE}
