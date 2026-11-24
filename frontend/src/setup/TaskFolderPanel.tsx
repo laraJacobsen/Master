@@ -1,4 +1,4 @@
-import type { TaskFile, TaskMeta, ValidationTestResult } from "../shared/types";
+import type { TaskFile, TaskMeta, ValidationTestResult, WrongSolutionCheck } from "../shared/types";
 import { cx } from "../shared/cx";
 
 // Step 2 of the setup editor for a test-graded task (imported from a task folder):
@@ -18,6 +18,13 @@ const GROUPS: { key: string; label: string; note: string; match: (f: TaskFile, e
   { key: "hidden", label: "Hidden tests", note: "Students only see how many failed.", folder: "hidden_tests/", match: (f) => f.role === "hidden_test" },
   { key: "data", label: "Data", note: "", folder: "data/", match: (f) => f.role === "data" },
   { key: "ref", label: "Reference solution", note: "Never sent to students.", folder: "reference/", match: (f) => f.role === "reference" },
+  {
+    key: "wrong",
+    label: "Wrong solutions",
+    note: "Mistakes the tests must catch. Never sent to students.",
+    folder: "wrong/",
+    match: (f) => f.role === "wrong",
+  },
 ];
 
 export interface TaskFolderSummaryProps {
@@ -97,12 +104,15 @@ export function TaskFolderSummary({ files, meta }: TaskFolderSummaryProps) {
 
 export interface TestCheckResultsProps {
   results: ValidationTestResult[];
+  /** Whether the tests catch each wrong solution in the folder (wrong/). */
+  wrongChecks?: WrongSolutionCheck[];
 }
 
-/** The reference solution's run, one row per test: every test must pass. */
-export function TestCheckResults({ results }: TestCheckResultsProps) {
+/** The reference solution's run, one row per test: every test must pass. Then one
+ * row per wrong solution: each must fail the tests task.yaml says it should. */
+export function TestCheckResults({ results, wrongChecks = [] }: TestCheckResultsProps) {
   const failing = results.filter((r) => !r.passed);
-  const ok = results.length > 0 && failing.length === 0;
+  const ok = results.length > 0 && failing.length === 0 && wrongChecks.every((c) => c.ok);
   return (
     <div
       className={cx(
@@ -130,6 +140,28 @@ export function TestCheckResults({ results }: TestCheckResultsProps) {
           </li>
         ))}
       </ul>
+      {wrongChecks.length > 0 && (
+        <div className="mt-3 border-t border-current/10 pt-2.5">
+          <strong className="font-semibold">
+            {wrongChecks.every((c) => c.ok)
+              ? `The tests catch all ${wrongChecks.length} wrong solutions.`
+              : `${wrongChecks.filter((c) => !c.ok).length} of ${wrongChecks.length} wrong solutions slip through.`}
+          </strong>
+          <ul className="mt-2 grid gap-1">
+            {wrongChecks.map((c) => (
+              <li key={c.name} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2">
+                <span aria-hidden className={cx("font-mono", c.ok ? "text-emerald-600" : "text-red-600")}>
+                  {c.ok ? "✓" : "✗"}
+                </span>
+                <span className="min-w-0">
+                  <span className="font-mono">{c.name}</span>
+                  <span className="block text-xs opacity-80">{c.message}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

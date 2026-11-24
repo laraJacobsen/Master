@@ -10,6 +10,7 @@ import type {
   TaskFile,
   TaskMeta,
   ValidationTestResult,
+  WrongSolutionCheck,
 } from "../shared/types";
 import {
   createQuestion,
@@ -77,6 +78,8 @@ interface ValidationResultState {
   failing: ValidationTestResult[];
   // Every test's result (test-graded tasks list them all, hidden included).
   results: ValidationTestResult[];
+  // Test-graded tasks: whether the tests catch each wrong solution (wrong/).
+  wrongChecks: WrongSolutionCheck[];
   // The check's verdict on the lecturer's starter code, if it found anything.
   starterProblem: StarterProblem | null;
 }
@@ -884,6 +887,7 @@ export default function App() {
         total: (data.results || []).length,
         failing: (data.results || []).filter((r) => !r.passed),
         results: data.results || [],
+        wrongChecks: data.wrong_checks ?? [],
         starterProblem: data.starter_problem ?? null,
       });
       setCurrentValidated(data.validated);
@@ -1237,10 +1241,12 @@ export default function App() {
                     {busy === "checking" ? "Checking..." : "Check solution"}
                   </Button>
                   <p className="mt-2 text-xs text-zinc-500">
-                    Runs the reference solution against every test, and the starter files to make sure they don&apos;t
-                    already pass.
+                    Runs the reference solution against every test, the starter files to make sure they don&apos;t
+                    already pass, and each wrong solution to make sure the tests catch it.
                   </p>
-                  {validationResult && <TestCheckResults results={validationResult.results} />}
+                  {validationResult && (
+                    <TestCheckResults results={validationResult.results} wrongChecks={validationResult.wrongChecks} />
+                  )}
                   {validationResult?.starterProblem && (
                     <div
                       className={cx(

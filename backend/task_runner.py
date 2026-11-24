@@ -400,6 +400,18 @@ def reference_files(task: dict) -> dict[str, str]:
     return {f["path"]: f["content"] for f in task.get("task_files") or [] if f["role"] == "reference"}
 
 
+def wrong_solutions(task: dict) -> dict[str, dict[str, str]]:
+    """{name: editable files} for each wrong/<name>/: the reference's editable files with
+    the ones the wrong solution has swapped in (it holds only what differs)."""
+    reference = reference_files(task)
+    out: dict[str, dict[str, str]] = {}
+    for f in task.get("task_files") or []:
+        if f["role"] == "wrong":
+            name, _, path = f["path"].partition("/")
+            out.setdefault(name, dict(reference))[path] = f["content"]
+    return out
+
+
 def prepare_submission(task: dict, files: dict[str, str]) -> dict[str, str]:
     """The editable files that will be graded: only files the task lets students edit,
     each one present (a missing one is taken from the starter), and in BEGIN/END marker

@@ -199,7 +199,7 @@ export interface QuestionRow {
 
 export type GradingMode = "stdout" | "tests";
 
-export type TaskFileRole = "starter" | "test" | "hidden_test" | "reference" | "data";
+export type TaskFileRole = "starter" | "test" | "hidden_test" | "reference" | "data" | "wrong";
 
 export interface TaskFile {
   path: string;
@@ -214,6 +214,8 @@ export interface TaskMeta {
   markers?: { begin: string; end: string } | null;
   test_timeout_s?: number;
   requirements?: string[];
+  // wrong/<name>/ -> the tests it must fail ([] = at least one).
+  wrong_solutions?: Record<string, string[]>;
   // The tests the reference run found when the task was last checked.
   test_ids?: { id: string; visibility: TestVisibility }[] | null;
 }
@@ -397,6 +399,16 @@ export interface ValidationResponse {
   // Something about the lecturer's starter code: blocking (every submission
   // that keeps it would be rejected) or a heads-up (it doesn't run as it is).
   starter_problem?: StarterProblem | null;
+  // Test-graded tasks: whether the tests catch each wrong solution in the folder.
+  wrong_checks?: WrongSolutionCheck[];
+}
+
+export interface WrongSolutionCheck {
+  name: string;
+  ok: boolean;
+  failing: string[];
+  expected: string[];
+  message: string;
 }
 
 export interface StarterProblem {

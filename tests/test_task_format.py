@@ -339,3 +339,36 @@ def test_splice_refuses_missing_markers():
 def test_editable_region():
     assert tf.editable_region(CPP, MARKERS) == "int solve() {\n  return 0;\n}\n"
     assert tf.editable_region("// BEGIN TASK\n// END TASK\n", MARKERS) == ""
+
+
+# --- wrong solutions ---------------------------------------------------------------------
+
+
+def test_wrong_solutions_load_and_round_trip():
+    raw = pytest_task(**{
+        "task.yaml": TASK_YAML + "wrong_solutions:\n  off_by_one: [test_sum]\n",
+        "wrong/off_by_one/solution.py": REFERENCE.replace("sum()", "sum() + 1"),
+        "wrong/no_return/solution.py": "def revenue(path):\n    pass\n",
+    })
+    spec = tf.parse_task(raw, default_id="t")
+    assert spec.wrong_solutions == {"no_return": [], "off_by_one": ["test_sum"]}
+    assert {f.path for f in spec.files_with_role("wrong")} == {"off_by_one/solution.py", "no_return/solution.py"}
+    assert tf.load_task_zip(tf.to_zip(spec)) == spec
+
+
+def test_wrong_solution_problems():
+    raw = pytest_task(**{
+        "task.yaml": TASK_YAML + "wrong_solutions:\n  ghost: [test_sum]\n  bad: [test_nope]\n",
+        "wrong/bad/solution.py": "x = 1\n",
+        "wrong/bad/helpers.py": "x = 1\n",
+        "wrong/loose.py": "x = 1\n",
+    })
+    assert_problem(raw, "wrong_solutions lists ghost, but wrong/ghost/ doesn't exist",
+                   "wrong_solutions.bad lists test_nope, which isn't a test",
+                   "wrong/bad/helpers.py: not an editable file",
+                   "wrong/loose.py: each wrong solution is a folder")
+
+
+def test_wrong_solution_may_be_a_syntax_error():
+    raw = pytest_task(**{"wrong/typo/solution.py": "def revenue(path:\n"})
+    assert tf.parse_task(raw).wrong_solutions == {"typo": []}

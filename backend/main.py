@@ -488,7 +488,12 @@ def _validate_tests_mode(question: dict) -> dict:
     every test (visible and hidden), and the starter must not -- otherwise students
     are "correct" before writing anything. The reference run's tests become the task's
     test list (task_meta["test_ids"]): every later run reports exactly those tests,
-    which the clustering's failing-test signature relies on."""
+    which the clustering's failing-test signature relies on.
+
+    Then each wrong solution in the folder (wrong/<name>/) must fail at least one test,
+    and every test task.yaml lists for it -- otherwise the tests don't catch a mistake
+    the lecturer expects students to make. Reported per wrong solution in
+    "wrong_checks"; any that slips through keeps the task from being ready."""
     reference = task_runner.reference_files(question)
     if not reference:
         raise HTTPException(status_code=400, detail="This task has no reference solution (reference/ in its folder).")
@@ -503,13 +508,39 @@ def _validate_tests_mode(question: dict) -> dict:
     test_ids = task_runner.expected_test_ids(results)
     if all_passed and not any(t["visibility"] == "visible" for t in test_ids):
         all_passed = False
-    validated = all_passed and not (starter_problem and starter_problem["blocking"])
+    try:
+        wrong_checks = _check_wrong_solutions(
+            {**question, "task_meta": {**question["task_meta"], "test_ids": test_ids}}) if all_passed else []
+    except Judge0Error as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    validated = (all_passed and not (starter_problem and starter_problem["blocking"])
+                 and all(c["ok"] for c in wrong_checks))
     store.update_question(question["id"], {
         "task_meta": {**question["task_meta"], "test_ids": test_ids if all_passed else None},
         "validated": 1 if validated else 0,
     })
     return {"validated": validated, "results": task_runner.as_dicts(results), "starter_problem": starter_problem,
-            "grading_mode": "tests"}
+            "wrong_checks": wrong_checks, "grading_mode": "tests"}
+
+
+def _check_wrong_solutions(question: dict) -> list:
+    """One run per wrong/<name>/ -- see _validate_tests_mode."""
+    expected = (question.get("task_meta") or {}).get("wrong_solutions") or {}
+    checks = []
+    for name, files in sorted(task_runner.wrong_solutions(question).items()):
+        results = task_runner.run_tests(question, files)
+        failing = [r.name for r in results if not r.passed]
+        must = list(expected.get(name) or [])
+        missed = [t for t in must if t not in failing]
+        if not failing:
+            message = f"{name} passes every test, so the tests don't catch this mistake."
+        elif missed:
+            message = f"{name} should fail {', '.join(missed)}, but passes {'it' if len(missed) == 1 else 'them'}."
+        else:
+            message = f"{name} fails {', '.join(failing)}."
+        checks.append({"name": name, "ok": bool(failing) and not missed, "failing": failing,
+                       "expected": must, "message": message})
+    return checks
 
 
 def _starter_problem(question: dict) -> dict | None:

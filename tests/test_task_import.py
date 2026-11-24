@@ -98,7 +98,7 @@ def test_import_endpoint_creates_a_draft_and_export_round_trips():
     assert r.status_code == 200, r.text
     q = r.json()
     assert q["status"] == "draft" and q["grading_mode"] == "tests" and not q["validated"]
-    assert {f["role"] for f in q["task_files"]} == {"starter", "test", "hidden_test", "reference", "data"}
+    assert {f["role"] for f in q["task_files"]} == {"starter", "test", "hidden_test", "reference", "data", "wrong"}
 
     r = client.get(f"/api/lecturer/questions/{q['id']}/export")
     assert r.status_code == 200
@@ -160,3 +160,59 @@ def test_seeded_question_exports(qid):
     spec = tf.load_task_zip(r.content)
     assert spec.grading == "stdout" and len(spec.stdout_cases) == 5
     assert not spec.files_with_role("starter")  # the seed has no starter: the language default
+
+
+# --- checking wrong solutions -------------------------------------------------------------
+
+
+def fake_runner(failing_by_code):
+    """run_tests stand-in: every test passes unless the solution's text is in
+    failing_by_code, which says which tests that code fails."""
+    from backend.task_runner import TestResult
+    names = [("tests/test_sales.py", "test_revenue_column", "visible"),
+             ("tests/test_sales.py", "test_largest_region_first", "visible"),
+             ("hidden_tests/test_sales_hidden.py", "test_missing_units_count_as_zero", "hidden")]
+
+    def run(task, files, include_hidden=True):
+        failing = failing_by_code.get(files.get("solution.py"), set())
+        return [TestResult(id=f"{f}::{n}", name=n, file=f, visibility=v,
+                           outcome="failed" if n in failing else "passed") for f, n, v in names]
+    return run
+
+
+def test_validation_checks_each_wrong_solution(monkeypatch):
+    from backend import main, task_runner
+    spec = tf.load_task_dir(EXAMPLE)
+    qid = store.create_question(ti.question_fields(spec))
+    q = store.get_question_row(qid)
+    wrong = task_runner.wrong_solutions(q)
+    assert set(wrong) == {"forgot_fillna", "sorted_ascending", "reads_the_file_again"}
+    starter = task_runner.starter_files(q)["solution.py"]
+
+    caught = {starter: {"test_revenue_column"},
+              wrong["forgot_fillna"]["solution.py"]: {"test_missing_units_count_as_zero"},
+              wrong["sorted_ascending"]["solution.py"]: {"test_largest_region_first"},
+              wrong["reads_the_file_again"]["solution.py"]: {"test_revenue_column"}}
+    monkeypatch.setattr(task_runner, "run_tests", fake_runner(caught))
+    out = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    checks = {c["name"]: c for c in out["wrong_checks"]}
+    assert checks["forgot_fillna"]["ok"] and checks["sorted_ascending"]["ok"]
+    # task.yaml says this one must fail test_uses_the_dataframe_it_is_given:
+    assert not checks["reads_the_file_again"]["ok"]
+    assert "should fail test_uses_the_dataframe_it_is_given" in checks["reads_the_file_again"]["message"]
+    assert out["validated"] is False
+
+    del caught[wrong["forgot_fillna"]["solution.py"]]  # now it slips through every test
+    out = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert {c["name"]: c["message"] for c in out["wrong_checks"]}["forgot_fillna"] == (
+        "forgot_fillna passes every test, so the tests don't catch this mistake.")
+    store.delete_question(qid)
+
+
+def test_wrong_solutions_never_reach_students():
+    from backend import main
+    q = {**ti.question_fields(tf.load_task_dir(EXAMPLE)), "status": "live"}
+    paths = [f["path"] for f in main._workspace(q, with_content=True)]
+    assert paths == ["solution.py", "tests/test_sales.py", "data/sales.csv"]
+    from backend import task_runner
+    assert not any("wrong" in p for p in task_runner.sandbox_files(q, {}, include_hidden=True))

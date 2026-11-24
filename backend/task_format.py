@@ -7,6 +7,9 @@
       hidden_tests/   tests students don't see
       reference/      the reference solution: replaces the editable starter files
       data/           data files (CSV etc.), placed at data/<name> next to the program
+      wrong/          optional: typical wrong solutions, one folder each (wrong/<name>/solution.py),
+                      holding only the editable files that differ from reference/. "Check
+                      solution" makes sure the tests catch each one; never sent to students
       requirements.txt  optional: what the task needs from the runner image
 
 task.yaml (only title, description and language are required):
@@ -30,6 +33,9 @@ task.yaml (only title, description and language are required):
     hints:                      # optional: the task's own wrong-answer hints, attempt 1 first
       - Check what happens to rows with no units.
     output_file: result.txt     # stdout grading only: grade this file instead of what's printed
+    wrong_solutions:            # optional: the tests each wrong/<name>/ must fail (by test
+      forgot_fillna: [test_missing_units_count_as_zero]   # name). A wrong solution not listed
+                                # here must still fail at least one test.
 
 Grading "stdout" is the app's original model, so a task created in the setup page can
 be exported and re-imported: each test is a folder with stdin.txt, expected_stdout.txt
@@ -80,9 +86,9 @@ GRADING_MODES = ("stdout", "tests")
 # backend/task_runner.py); C++ isn't a Judge0 language in judge0_client yet.
 SUPPORTED = {"stdout": ("python", "c", "java"), "tests": ("python",)}
 
-ROLES = ("starter", "test", "hidden_test", "reference", "data")
+ROLES = ("starter", "test", "hidden_test", "reference", "data", "wrong")
 _ROLE_DIRS = {"starter": "starter", "test": "tests", "hidden_test": "hidden_tests",
-              "reference": "reference", "data": "data"}
+              "reference": "reference", "data": "data", "wrong": "wrong"}
 _DIR_ROLES = {v: k for k, v in _ROLE_DIRS.items()}
 
 # Letters, digits, ".", "-", "_" per part, "/" between parts; no hidden files, no "..".
@@ -95,7 +101,7 @@ _IGNORED_PARTS = {"__MACOSX", "__pycache__", ".DS_Store", ".pytest_cache", "Thum
 _KNOWN_KEYS = {
     "id", "title", "description", "language", "grading", "editable", "time_limit_s",
     "memory_limit_mb", "test_timeout_s", "duration_minutes", "markers", "allowed_packages",
-    "line_limit", "hints", "output_file",
+    "line_limit", "hints", "output_file", "wrong_solutions",
 }
 
 VERSIONS_ENV = os.path.join(os.path.dirname(__file__), "..", "runner", "judge0-python", "versions.env")
@@ -148,6 +154,8 @@ class TaskSpec:
     line_limit: int = 200
     hints: list[str] = field(default_factory=list)
     output_file: str | None = None
+    # wrong/<name>/ -> the test names it must fail ([] = at least one, any).
+    wrong_solutions: dict[str, list[str]] = field(default_factory=dict)
     requirements: list[str] = field(default_factory=list)
     allowed_packages: list[str] = field(default_factory=list)
     files: list[TaskFile] = field(default_factory=list)
@@ -359,17 +367,61 @@ def _string_list(meta, key, problems) -> list[str]:
     return [v.strip() for v in value]
 
 
-def _count_pytest_tests(source: str) -> int:
+def _pytest_test_names(source: str) -> list[str]:
     """test_* functions at module level or in Test* classes (what pytest collects by default)."""
     tree = ast.parse(source)
-    count = 0
+    names = []
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
-            count += 1
+            names.append(node.name)
         elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
-            count += sum(1 for n in node.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-                         and n.name.startswith("test"))
-    return count
+            names += [n.name for n in node.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                      and n.name.startswith("test")]
+    return names
+
+
+def _count_pytest_tests(source: str) -> int:
+    return len(_pytest_test_names(source))
+
+
+def _check_wrong_solutions(spec: TaskSpec, meta: dict, problems: list[str]) -> None:
+    """wrong/<name>/<editable file> folders and task.yaml's wrong_solutions."""
+    variants: dict[str, set[str]] = {}
+    for f in spec.files_with_role("wrong"):
+        name, _, path = f.path.partition("/")
+        if not path:
+            problems.append(f"wrong/{f.path}: each wrong solution is a folder (wrong/<name>/solution.py).")
+            continue
+        if path not in spec.editable:
+            problems.append(f"wrong/{f.path}: not an editable file ({', '.join(spec.editable)}). A wrong solution "
+                            f"holds only the editable files that differ from reference/.")
+        variants.setdefault(name, set()).add(path)
+    if variants and spec.grading != "tests":
+        problems.append("wrong/: wrong solutions are only checked for grading: tests.")
+
+    listed = meta.get("wrong_solutions")
+    if listed is None:
+        listed = {}
+    if not isinstance(listed, dict) or not all(
+            isinstance(v, list) and all(isinstance(t, str) for t in v) or v is None for v in listed.values()):
+        problems.append("task.yaml: wrong_solutions maps a wrong/ folder name to a list of test names, e.g. "
+                        "wrong_solutions: {forgot_fillna: [test_missing_units_count_as_zero]}.")
+        listed = {}
+    test_names = set()
+    for f in spec.files_with_role("test") + spec.files_with_role("hidden_test"):
+        if posixpath.basename(f.path).startswith("test_") and f.path.endswith(".py"):
+            try:
+                test_names.update(_pytest_test_names(f.content))
+            except SyntaxError:
+                pass  # reported with its line number elsewhere
+    for name, tests in listed.items():
+        if name not in variants:
+            problems.append(f"task.yaml: wrong_solutions lists {name}, but wrong/{name}/ doesn't exist.")
+        for t in tests or []:
+            if t not in test_names:
+                problems.append(f"task.yaml: wrong_solutions.{name} lists {t}, which isn't a test in tests/ or "
+                                f"hidden_tests/.")
+    spec.wrong_solutions = {name: list(listed.get(name) or []) for name in sorted(variants)}
 
 
 def _marker_problem(text: str, markers: dict) -> str | None:
@@ -559,6 +611,7 @@ def parse_task(raw: dict[str, bytes], default_id: str = "task") -> TaskSpec:
         _check_pytest_tests(spec, problems)
     else:
         _load_stdout_cases(spec, problems)
+    _check_wrong_solutions(spec, meta, problems)
 
     if spec.language == "python":
         for f in spec.files:
@@ -706,6 +759,8 @@ def task_yaml(spec: TaskSpec) -> str:
         meta["allowed_packages"] = spec.allowed_packages
     if spec.line_limit != 200:
         meta["line_limit"] = spec.line_limit
+    if any(spec.wrong_solutions.values()):
+        meta["wrong_solutions"] = {k: v for k, v in spec.wrong_solutions.items() if v}
     if spec.hints:
         meta["hints"] = spec.hints
     if spec.output_file:

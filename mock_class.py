@@ -29,7 +29,9 @@ Two parts:
    lecture ends the script waits for the next one, so one run covers a whole demo.
 
    Tasks it doesn't know (a question you typed in yourself) get a generic mix built
-   from the task's reference solution.
+   from the task's reference solution. For an imported test-graded task, the wrong
+   answers are the task folder's own wrong solutions (wrong/<name>/), so a rehearsal
+   shows the wrong-answer groups the lecturer expects.
 
 Needs the backend (default http://localhost:8000) and Judge0 running.
 
@@ -460,8 +462,20 @@ def fallback_bank(question):
         "syntax_error": [body.rstrip() + "\nprint(\"done\"\n", "if True\n    pass\n" + body],
         "runtime_error": ["values = []\nprint(values[0])\n" + body, "print(undefined_name)\n" + body],
         "timeout": ["while True:\n    pass\n" + body],
-        "wrong_answer": [],
+        "wrong_answer": _folder_wrong_solutions(question),
     }
+
+
+def _folder_wrong_solutions(question):
+    """A test-graded task's wrong/<name>/ solutions as wrong answers, one bug each (as
+    the single code text a one-file client sends; the backend splits it back into the
+    task's files)."""
+    if question.get("grading_mode") != "tests":
+        return []
+    from backend import task_import, task_runner
+    editable = (question.get("task_meta") or {}).get("editable") or []
+    return [[task_import.join_files(files, editable, question["language"])]
+            for _name, files in sorted(task_runner.wrong_solutions(question).items())]
 
 
 # ====================================================================== Planning

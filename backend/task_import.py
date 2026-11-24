@@ -79,6 +79,7 @@ def question_fields(spec: TaskSpec) -> dict:
             "test_timeout_s": spec.test_timeout_s,
             "requirements": spec.requirements,
             "allowed_packages": spec.allowed_packages,
+            "wrong_solutions": spec.wrong_solutions,
         },
     }
     starter = {f.path: f.content for f in spec.files_with_role("starter")}
@@ -127,6 +128,7 @@ def spec_of_question(q: dict) -> TaskSpec:
         output_file=q.get("output_file"),
         requirements=list(meta.get("requirements") or []),
         allowed_packages=list(meta.get("allowed_packages") or []),
+        wrong_solutions={k: list(v or []) for k, v in (meta.get("wrong_solutions") or {}).items()},
     )
     if spec.grading == "tests":
         spec.files = [TaskFile(f["path"], f["role"], f["content"]) for f in q.get("task_files") or []]
