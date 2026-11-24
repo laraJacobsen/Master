@@ -216,6 +216,12 @@ def test_unsafe_names():
     assert sum("use only letters, digits" in p for p in problems) == 2, problems
 
 
+def test_editable_pytest_config_is_refused():
+    raw = pytest_task(**{"task.yaml": TASK_YAML.replace("[solution.py]", "[solution.py, conftest.py]"),
+                         "starter/conftest.py": "import pytest\n", "reference/conftest.py": "import pytest\n"})
+    assert_problem(raw, "editable includes conftest.py, which pytest reads as configuration")
+
+
 def test_reserved_and_colliding_starter_names():
     assert_problem(pytest_task(**{"starter/run": "#!/bin/bash\n", "starter/tests/x.py": "x = 1\n"}),
                    "starter/run: a name the grader uses", "starter/tests/x.py: would collide")

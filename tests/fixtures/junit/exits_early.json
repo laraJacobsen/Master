@@ -1,0 +1,15 @@
+{
+ "scenario": "exits_early",
+ "run": {
+  "status_id": 3,
+  "status_description": "Accepted",
+  "stdout": "\n@@REPORT-4108a139bdfb882adf6c0feb@@\n\n@@REPORT-4108a139bdfb882adf6c0feb@@\n",
+  "stderr": null,
+  "compile_output": null,
+  "message": null,
+  "time_s": "0.213",
+  "wall_time_s": "0.244",
+  "memory_kb": 23444,
+  "exit_code": 0
+ }
+}

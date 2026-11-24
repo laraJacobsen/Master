@@ -569,6 +569,12 @@ def _check_pytest_tests(spec: TaskSpec, problems: list[str]) -> None:
                 continue  # reported below with the line number
             if n == 0:
                 problems.append(f"{folder}/{f.path}: no test functions (def test_...).")
+    # A file students edit is imported by pytest itself if it's a conftest or pytest
+    # config, which would let them change how they're graded.
+    for path in spec.editable:
+        if posixpath.basename(path) in ("conftest.py", "pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini"):
+            problems.append(f"task.yaml: editable includes {path}, which pytest reads as configuration; "
+                            f"students could change how they're graded. Make it read-only.")
     # pytest (rootdir mode, no __init__.py) can't import two test modules with the same
     # file name, so tests/test_x.py and hidden_tests/test_x.py would break collection.
     visible = {posixpath.basename(f.path) for f in spec.files_with_role("test") if f.path.endswith(".py")}

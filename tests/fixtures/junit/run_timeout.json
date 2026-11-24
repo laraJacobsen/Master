@@ -1,0 +1,15 @@
+{
+ "scenario": "run_timeout",
+ "run": {
+  "status_id": 5,
+  "status_description": "Time Limit Exceeded",
+  "stdout": null,
+  "stderr": null,
+  "compile_output": null,
+  "message": "Time limit exceeded",
+  "time_s": "5.096",
+  "wall_time_s": "5.105",
+  "memory_kb": 51860,
+  "exit_code": 0
+ }
+}

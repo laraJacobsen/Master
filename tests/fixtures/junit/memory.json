@@ -1,0 +1,15 @@
+{
+ "scenario": "memory",
+ "run": {
+  "status_id": 11,
+  "status_description": "Runtime Error (NZEC)",
+  "stdout": "\n@@REPORT-d06106c3faf802d4134c69e5@@\n\n@@REPORT-d06106c3faf802d4134c69e5@@\n",
+  "stderr": "run: line 4:     3 Killed                  /usr/local/python-3.11/bin/python3.11 -m pytest -q -p no:cacheprovider --rootdir=. --tb=short -o junit_family=xunit1 --timeout=2 --junitxml=.report-d06106c3faf802d4134c69e5.xml tests hidden_tests > .pytest-d06106c3faf802d4134c69e5.log 2>&1\n",
+  "compile_output": null,
+  "message": "Exited with error status 137",
+  "time_s": "0.539",
+  "wall_time_s": "0.54",
+  "memory_kb": 128000,
+  "exit_code": 137
+ }
+}

@@ -1,0 +1,15 @@
+{
+ "scenario": "all_pass",
+ "run": {
+  "status_id": 3,
+  "status_description": "Accepted",
+  "stdout": "\n@@REPORT-3d467a0e58987c0e8e52e5b9@@\n<?xml version=\"1.0\" encoding=\"utf-8\"?><testsuites name=\"pytest tests\"><testsuite name=\"pytest\" errors=\"0\" failures=\"0\" skipped=\"0\" tests=\"5\" time=\"0.688\" timestamp=\"2026-11-24T10:24:47.471925+00:00\" hostname=\"7f6b0c973076\"><testcase classname=\"tests.test_sales\" name=\"test_revenue_column\" file=\"tests/test_sales.py\" line=\"3\" time=\"0.010\" /><testcase classname=\"tests.test_sales\" name=\"test_keeps_every_row\" file=\"tests/test_sales.py\" line=\"9\" time=\"0.004\" /><testcase classname=\"tests.test_sales\" name=\"test_largest_region_first\" file=\"tests/test_sales.py\" line=\"13\" time=\"0.009\" /><testcase classname=\"hidden_tests.test_sales_hidden\" name=\"test_missing_units_count_as_zero\" file=\"hidden_tests/test_sales_hidden.py\" line=\"5\" time=\"0.003\" /><testcase classname=\"hidden_tests.test_sales_hidden\" name=\"test_uses_the_dataframe_it_is_given\" file=\"hidden_tests/test_sales_hidden.py\" line=\"11\" time=\"0.001\" /></testsuite></testsuites>\n@@REPORT-3d467a0e58987c0e8e52e5b9@@\n.....                                                                    [100%]\n-------- generated xml file: /box/.report-3d467a0e58987c0e8e52e5b9.xml ---------\n5 passed in 0.68s\n",
+  "stderr": null,
+  "compile_output": null,
+  "message": null,
+  "time_s": "1.114",
+  "wall_time_s": "1.331",
+  "memory_kb": 109004,
+  "exit_code": 0
+ }
+}

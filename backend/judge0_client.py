@@ -204,6 +204,64 @@ def run_submission(
     }
 
 
+def run_archive(
+    files: dict,
+    run_script: str,
+    cpu_time_limit: float = None,
+    memory_limit_kb: int = None,
+    wall_time_limit: float = None,
+    timeout: int = 30,
+) -> dict:
+    """Run a whole folder in Judge0's sandbox: `files` ({path: text}, subfolders
+    allowed) is unpacked into the program's folder and `run_script` (bash) is run
+    there, via the "Multi-file program" language. Used by test-graded tasks
+    (backend/task_runner.py) to run pytest over the student's files and the tests.
+
+    Same limits as run_submission(): cpu_time_limit/memory_limit_kb clamped to
+    MAX_CPU_TIME_LIMIT/MAX_MEMORY_LIMIT_KB, and the network is off (Judge0's default,
+    sent explicitly so a changed server default can't turn it on). Returns the same
+    normalized dict as run_submission()."""
+    cpu_time_limit = min(cpu_time_limit if cpu_time_limit is not None else DEFAULT_CPU_TIME_LIMIT, MAX_CPU_TIME_LIMIT)
+    memory_limit_kb = min(memory_limit_kb if memory_limit_kb is not None else DEFAULT_MEMORY_LIMIT_KB, MAX_MEMORY_LIMIT_KB)
+    payload = {
+        "language_id": MULTI_FILE_LANGUAGE_ID,
+        "additional_files": _files_zip_b64(
+            [{"name": name, "content": content} for name, content in files.items()]
+            + [{"name": "run", "content": run_script}]
+        ),
+        "cpu_time_limit": cpu_time_limit,
+        "memory_limit": memory_limit_kb,
+        "enable_network": False,
+    }
+    if wall_time_limit is not None:
+        payload["wall_time_limit"] = wall_time_limit
+    timeout = max(timeout, (wall_time_limit or cpu_time_limit) + 15)
+    try:
+        resp = requests.post(
+            f"{JUDGE0_BASE_URL}/submissions",
+            params={"base64_encoded": "true", "wait": "true", "fields": RESPONSE_FIELDS + ",wall_time"},
+            json=payload,
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        raise Judge0Error(f"Could not reach Judge0 at {JUDGE0_BASE_URL}: {e}") from e
+    data = resp.json()
+    status = data.get("status") or {}
+    return {
+        "status_id": status.get("id"),
+        "status_description": status.get("description"),
+        "stdout": _un_b64(data.get("stdout")),
+        "stderr": _un_b64(data.get("stderr")),
+        "compile_output": _un_b64(data.get("compile_output")),
+        "message": _un_b64(data.get("message")),
+        "time_s": data.get("time"),
+        "wall_time_s": data.get("wall_time"),
+        "memory_kb": data.get("memory"),
+        "exit_code": data.get("exit_code"),
+    }
+
+
 def run_test_cases(
     source_code: str,
     test_cases: list,
