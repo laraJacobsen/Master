@@ -48,15 +48,55 @@ export interface SubmissionDetailProps {
   clamp?: boolean;
 }
 
+export interface TestListProps {
+  results: ValidationTestResult[];
+}
+
+/** A test-graded submission's tests, hidden ones included: this is the lecturer's view. */
+function TestList({ results }: TestListProps) {
+  return (
+    <ul className="mb-2 grid gap-1 text-xs" aria-label="Tests">
+      {results.map((r, i) => (
+        <li key={`${r.test_file}-${r.test_name}-${i}`} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-1.5">
+          <span aria-label={r.passed ? "passed" : "failed"} className={r.passed ? "text-emerald-600" : "text-red-600"}>
+            {r.passed ? "✓" : "✗"}
+          </span>
+          <span className="min-w-0">
+            <span className="font-mono text-zinc-900">{r.test_name}</span>
+            {r.visibility === "hidden" && (
+              <span className="ml-1.5 rounded-sm bg-zinc-100 px-1 py-px text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
+                hidden
+              </span>
+            )}
+            {!r.passed && r.message && <span className="block font-mono break-words text-red-700">{r.message}</span>}
+            {!r.passed && r.details && (
+              <details>
+                <summary className="cursor-pointer rounded-sm text-zinc-500 hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-brand-500">
+                  Traceback
+                </summary>
+                <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-zinc-50 p-2 font-mono whitespace-pre-wrap text-zinc-700">
+                  {r.details}
+                </pre>
+              </details>
+            )}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function SubmissionDetail({ sub, names, marks, clamp = true }: SubmissionDetailProps) {
   const results: ValidationTestResult[] = JSON.parse(sub.raw_test_results || "[]");
   const failing = results.find((r) => !r.passed);
   // A program that didn't compile has no stderr -- the compiler's message is the error output.
   const errorOutput = failing && (failing.stderr || failing.compile_output);
+  const testGraded = results.length > 0 && results[0].test_name !== undefined;
 
   return (
     <>
-      {failing && (
+      {testGraded && <TestList results={results} />}
+      {failing && !testGraded && (
         <FailingTestStrip
           className="mb-2"
           test={{

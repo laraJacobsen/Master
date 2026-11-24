@@ -325,7 +325,15 @@ export interface LectureReviewTask {
     students: number;
     discussion_point: string | null;
     // Wrong answers only: the most common first failing test among them.
-    example: { stdin: string; expected_stdout: string; stdout: string; students: number } | null;
+    example: {
+      stdin: string;
+      expected_stdout: string;
+      stdout: string;
+      students: number;
+      // Test-graded tasks: the failing test and its message instead of input/output.
+      test_name?: string;
+      message?: string;
+    } | null;
   } | null;
 }
 
