@@ -17,6 +17,7 @@ import {
   deleteLecture as deleteLectureApi,
   deleteQuestion as deleteQuestionApi,
   draftHints,
+  exampleTaskUrl,
   exportTaskUrl,
   fetchActiveLecture,
   fetchQuestionList,
@@ -1103,7 +1104,15 @@ export default function App() {
                 A zipped folder with <span className="font-mono">task.yaml</span>,{" "}
                 <span className="font-mono">starter/</span>, <span className="font-mono">tests/</span>,{" "}
                 <span className="font-mono">hidden_tests/</span>, <span className="font-mono">reference/</span> and{" "}
-                <span className="font-mono">data/</span>. See <span className="font-mono">tasks/</span> in the repo.
+                <span className="font-mono">data/</span>.{" "}
+                <a
+                  href={exampleTaskUrl()}
+                  download
+                  className="rounded-sm font-medium text-brand-700 underline decoration-brand-300 underline-offset-4 transition-colors hover:text-brand-800 hover:decoration-brand-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+                >
+                  Download an example
+                </a>{" "}
+                to start from.
               </p>
               {importError && (
                 <div

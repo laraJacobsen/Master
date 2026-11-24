@@ -1,6 +1,6 @@
 """Task-as-folder format: load, validate and write a task folder (or a zip of one).
 
-    tasks/<task-id>/
+    <task-id>/
       task.yaml       title, description, language, grading mode, limits, editable files...
       starter/        the files students get (may contain TODOs); several are fine
       tests/          visible tests
@@ -840,7 +840,7 @@ def to_zip(spec: TaskSpec) -> bytes:
 
 
 if __name__ == "__main__":
-    # python -m backend.task_format tasks/<task-id> [more folders or zips...]
+    # python -m backend.task_format path/to/<task-id> [more folders or zips...]
     import sys
 
     status = 0

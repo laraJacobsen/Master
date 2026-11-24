@@ -10,7 +10,7 @@ import pytest
 from backend import hints, task_format, task_import, task_runner as tr
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "junit")
-EXAMPLE = os.path.join(os.path.dirname(__file__), "..", "tasks", "pandas-sales-summary")
+EXAMPLE = os.path.join(os.path.dirname(__file__), "fixtures", "pandas-sales-summary")
 
 TASK = task_import.question_fields(task_format.load_task_dir(EXAMPLE))
 

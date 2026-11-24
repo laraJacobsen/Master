@@ -35,7 +35,7 @@ backend/
   questions.py        Question lookup, backed by store.py's `questions` table
   task_format.py       Task-as-folder format for test-graded tasks: load/validate a task
                         folder or zip (every problem with its path), write one back out
-                        (`python -m backend.task_format tasks/<id>` checks a folder)
+                        (`python -m backend.task_format path/to/<id>` checks a folder)
   task_import.py       Task folder <-> `questions` row, both directions (import/export)
   task_runner.py       run_tests(task, files) -> [TestResult]: pytest + JUnit XML inside
                         Judge0, crashes mapped onto classify.py's classes (see
@@ -124,9 +124,9 @@ load_test.py            Many students at once against a real Judge0 (its own bac
                           `--task pandas` for the test-graded example task
 tests/                  Unit tests (`python -m pytest`): task folder loader, JUnit
                           parsing + crash mapping on real Judge0 reports
-                          (tests/fixtures/junit/), clustering on failing-test sets
-tasks/                  Task folders for test-graded tasks; pandas-sales-summary/ is
-                          the example (see "Test-graded tasks" below)
+                          (tests/fixtures/junit/), clustering on failing-test sets.
+                          tests/fixtures/pandas-sales-summary/ is the example task folder
+                          (also the setup page's "Download an example")
 runner/judge0-python/   The Judge0 image test-graded tasks run on (Python 3.11 +
                           pinned pandas/numpy/pytest, versions.env), build/swap/measure
                           scripts
@@ -355,7 +355,7 @@ page. Python only for now; the format is the same one Java (Maven/JUnit 5) and C
 (BEGIN/END markers) will use.
 
 ```
-tasks/<task-id>/
+<task-id>/
   task.yaml         title, description, language, grading: tests, editable files, limits, hints
   requirements.txt  optional: what it needs from the runner image (checked, never installed)
   starter/          the files students get -- several are fine; non-editable ones are read-only
@@ -366,13 +366,16 @@ tasks/<task-id>/
   wrong/            optional: typical mistakes (wrong/<name>/solution.py) the tests must catch
 ```
 
-`tasks/pandas-sales-summary/` is a complete example (a CSV, 3 visible and 2 hidden
-tests, 3 wrong solutions). Every `task.yaml` key is documented at the top of `backend/task_format.py`.
+A complete example (a CSV, 3 visible and 2 hidden tests, 3 wrong solutions) is behind
+**Download an example** on the setup page; in the repo it's
+`tests/fixtures/pandas-sales-summary/`, which the unit tests and `load_test.py --task
+pandas` also use. Real course tasks don't belong in this repo: keep them in the course's
+own folder or repo and import them as zips. Every `task.yaml` key is documented at the top of `backend/task_format.py`.
 
 **Creating a task**
-1. Copy `tasks/pandas-sales-summary/` and edit it. Tests import the student's module
+1. Download the example (setup page) and edit it. Tests import the student's module
    by name (`from solution import ...`) and open data as `data/<name>`.
-2. Check it: `python -m backend.task_format tasks/<task-id>` lists every problem with
+2. Check it: `python -m backend.task_format path/to/<task-id>` lists every problem with
    its path (missing reference, a requirement the image doesn't have, a test file with
    no tests, the same test file name in tests/ and hidden_tests/, ...). Then run the
    tests locally against the reference if you like: copy `reference/*`, `tests/`,

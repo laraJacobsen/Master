@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from backend import judge0_client, task_format, task_import, task_runner  # noqa: E402
 
 HERE = os.path.dirname(__file__)
-EXAMPLE = os.path.join(HERE, "..", "..", "tasks", "pandas-sales-summary")
+EXAMPLE = os.path.join(HERE, "pandas-sales-summary")
 
 spec = task_format.load_task_dir(EXAMPLE)
 fields = task_import.question_fields(spec)

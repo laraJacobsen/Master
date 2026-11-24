@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from backend import store, task_format as tf, task_import as ti
 from backend.main import app
 
-EXAMPLE = os.path.join(os.path.dirname(__file__), "..", "tasks", "pandas-sales-summary")
+EXAMPLE = os.path.join(os.path.dirname(__file__), "fixtures", "pandas-sales-summary")
 
 client = TestClient(app)
 
@@ -216,3 +216,13 @@ def test_wrong_solutions_never_reach_students():
     assert paths == ["solution.py", "tests/test_sales.py", "data/sales.csv"]
     from backend import task_runner
     assert not any("wrong" in p for p in task_runner.sandbox_files(q, {}, include_hidden=True))
+
+
+def test_example_task_download(monkeypatch):
+    r = client.get("/api/lecturer/example_task")
+    assert r.status_code == 200
+    assert r.headers["content-disposition"] == 'attachment; filename="pandas-sales-summary.zip"'
+    assert tf.load_task_zip(r.content) == tf.load_task_dir(EXAMPLE)
+    from backend import main
+    monkeypatch.setattr(main, "EXAMPLE_TASK_DIR", "/nonexistent")
+    assert client.get("/api/lecturer/example_task").status_code == 404

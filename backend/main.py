@@ -324,6 +324,25 @@ async def api_lecturer_import_question(file: UploadFile):
     return {**store.get_question_row(question_id), "replaced": False}
 
 
+# The example task folder the setup page offers as a template (its "Download an example"
+# link). It doubles as the unit tests' fixture, so it lives under tests/fixtures/; a
+# deployment that leaves tests/ out just has no example to offer (404).
+EXAMPLE_TASK_DIR = os.path.join(os.path.dirname(__file__), "..", "tests", "fixtures", "pandas-sales-summary")
+
+
+@app.get("/api/lecturer/example_task")
+def api_lecturer_example_task():
+    """The example task folder, zipped -- the same format Import reads, to copy and edit."""
+    if not os.path.isdir(EXAMPLE_TASK_DIR):
+        raise HTTPException(status_code=404, detail="No example task on this server.")
+    spec = task_format.load_task_dir(EXAMPLE_TASK_DIR)
+    return Response(
+        content=task_format.to_zip(spec),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{spec.id}.zip"'},
+    )
+
+
 @app.get("/api/lecturer/questions/{question_id}/export")
 def api_lecturer_export_question(question_id: str):
     """The question as a task folder, zipped -- the format the import above reads, so a

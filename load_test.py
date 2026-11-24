@@ -29,7 +29,7 @@ student's attempt numbers are 1..k with no duplicates.
 Needs Judge0 running (JUDGE0_BASE_URL, default http://localhost:2358).
 
 --task stdout (default): the original stdin/stdout sum task, graded per test case.
---task pandas: the test-graded example task (tasks/pandas-sales-summary: pytest,
+--task pandas: the test-graded example task (tests/fixtures/pandas-sales-summary: pytest,
   3 visible + 2 hidden tests, a CSV), imported and validated like the setup page
   does; needs Judge0 on the judge0-pytest image (runner/judge0-python/). Same plans:
   correct, a shared wrong answer (forgot fillna: 4/5) then the fix, a crash then the
@@ -86,7 +86,7 @@ PLANS = [
 # errors. A typo inside load_sales() alone isn't one: the hidden test that never calls
 # it passes, which makes the attempt 1/5, partially correct. A misspelled import isn't
 # either: the package allow-list rejects it before it reaches Judge0).
-PANDAS_TASK = REPO / "tasks" / "pandas-sales-summary"
+PANDAS_TASK = REPO / "tests" / "fixtures" / "pandas-sales-summary"
 PANDAS_CORRECT = (PANDAS_TASK / "reference" / "solution.py").read_text()
 PANDAS_WRONG = PANDAS_CORRECT.replace('    df["units"] = df["units"].fillna(0)\n', "")
 PANDAS_CRASH = PANDAS_CORRECT.replace("return df.groupby", "return (df.groupby")

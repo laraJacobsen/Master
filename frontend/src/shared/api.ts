@@ -163,6 +163,11 @@ export function importTaskZip(file: File): Promise<QuestionRow & { replaced: boo
   );
 }
 
+// The example task folder, zipped: a template for writing a task (setup page link).
+export function exampleTaskUrl(): string {
+  return `${API_BASE}/api/lecturer/example_task`;
+}
+
 // Where a question downloads as a task-folder zip (same format the import reads).
 export function exportTaskUrl(questionId: string): string {
   return `${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/export`;
