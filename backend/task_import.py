@@ -35,6 +35,26 @@ def join_files(files: dict[str, str], order: list[str], language: str) -> str:
     return "\n".join(f"{file_header(p, language)}\n{files[p].rstrip()}\n" for p in paths)
 
 
+def split_files(text: str, editable: list[str], language: str) -> dict[str, str]:
+    """The inverse of join_files(): one text back into {path: content}. A single
+    editable file is the whole text. With several, each header line starts its file;
+    text before the first header, or a text without headers, goes to the first file.
+    Used when a client sends one code string for a multi-file task (the projector's
+    Run on a shown attempt, one-file scripts)."""
+    if len(editable) <= 1:
+        return {editable[0]: text} if editable else {}
+    headers = {file_header(p, language): p for p in editable}
+    out: dict[str, list[str]] = {}
+    current = editable[0]
+    for line in text.split("\n"):
+        if line.strip() in headers:
+            current = headers[line.strip()]
+            out.setdefault(current, [])
+            continue
+        out.setdefault(current, []).append(line)
+    return {p: "\n".join(lines).strip("\n") + "\n" for p, lines in out.items()}
+
+
 def task_files_of(spec: TaskSpec) -> list[dict]:
     return [{"path": f.path, "role": f.role, "content": f.content} for f in spec.files]
 

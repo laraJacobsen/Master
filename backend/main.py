@@ -1433,7 +1433,8 @@ def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, at
     output. Every test counts toward the verdict, visible ones included."""
     editable = task_runner.editable_files(question)
     tests_total = len((question.get("task_meta") or {}).get("test_ids") or [])
-    files = req.files if req.files is not None else {editable[0]: req.source_code}
+    files = req.files if req.files is not None else task_import.split_files(req.source_code, editable,
+                                                                            question["language"])
 
     def rejected(reason_code: str, message: str) -> dict:
         message = message.rstrip(".")
@@ -1577,7 +1578,8 @@ def _run_tests_mode(req: RunRequest, question: dict, lecturer: bool) -> dict:
     """Run for a test-graded task: the visible tests on the student's files, ungraded and
     not stored. The lecturer's run (projector) includes the hidden tests too."""
     editable = task_runner.editable_files(question)
-    files = req.files if req.files is not None else {editable[0]: req.source_code}
+    files = req.files if req.files is not None else task_import.split_files(req.source_code, editable,
+                                                                            question["language"])
     try:
         prepared = task_runner.prepare_submission(question, files)
     except task_runner.SubmissionFilesError as e:

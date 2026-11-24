@@ -75,6 +75,13 @@ def test_setup_page_question_exports_and_reimports():
     assert [c.name for c in again.stdout_cases] == ["example", "test_01"]
 
 
+def test_split_files_inverts_join_files():
+    files = {"a.py": "x = 1\n", "b.py": "def f():\n    return 2\n"}
+    assert ti.split_files(ti.join_files(files, ["a.py", "b.py"], "python"), ["a.py", "b.py"], "python") == files
+    assert ti.split_files("x = 1\n", ["a.py"], "python") == {"a.py": "x = 1\n"}
+    assert ti.split_files("no headers\n", ["a.py", "b.py"], "python") == {"a.py": "no headers\n"}
+
+
 def test_join_files_one_file_is_itself_several_get_headers():
     assert ti.join_files({"a.py": "x = 1\n"}, ["a.py"], "python") == "x = 1\n"
     joined = ti.join_files({"b.py": "y = 2\n", "a.py": "x = 1\n"}, ["a.py", "b.py"], "python")
