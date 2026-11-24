@@ -34,6 +34,9 @@ export interface StudentAttempt {
   tests_total: number;
   created_at: string;
   feedback: string | null;
+  // Test-graded tasks: the visible tests' results and the hidden count.
+  test_results?: TestRunResult[];
+  hidden_tests?: HiddenTestsSummary;
 }
 
 // GET /api/questions -- student-facing, live questions only.
@@ -46,6 +49,7 @@ export interface PublicQuestion {
   // Graded on what the program writes to this file (e.g. "result.txt") instead
   // of what it prints; null = printed output.
   output_file?: string | null;
+  grading_mode?: GradingMode;
 }
 
 // GET /api/lecture/status's `question` -- same shape as PublicQuestion plus
@@ -60,6 +64,24 @@ export interface LiveQuestion extends PublicQuestion {
   duration_seconds: number;
   started_at: string | null;
   seconds_remaining: number;
+  // Test-graded tasks: the editor's files, name and size only (contents come from
+  // GET /api/lecture/questions/{id}/workspace); null for stdout tasks.
+  workspace?: WorkspaceEntry[] | null;
+}
+
+// One file of a test-graded task's student workspace (backend/main._workspace).
+export interface WorkspaceEntry {
+  path: string;
+  kind: "code" | "test" | "data";
+  editable: boolean;
+  size: number;
+  // Code and visible tests from the workspace endpoint; data files load on demand.
+  content?: string;
+}
+
+export interface WorkspaceResponse {
+  files: WorkspaceEntry[];
+  markers: { begin: string; end: string } | null;
 }
 
 // GET /api/lecture/status -- polled by the student page so it can
@@ -114,7 +136,12 @@ export interface SharedExample {
     expected_stdout: string;
     stdout: string;
     stderr: string;
+    // Test-graded tasks: the first failing *visible* test.
+    test_name?: string;
+    message?: string;
   } | null;
+  // Test-graded tasks: hidden tests as a count only.
+  hidden_tests?: HiddenTestsSummary;
 }
 
 // POST /api/lecture/join -- the Kahoot-style entry gate on the student page.
@@ -447,11 +474,16 @@ export interface SubmitResponse {
   // main._student_error_output.
   hidden_crash?: boolean;
   hidden_error?: string | null;
+  // Test-graded tasks: every visible test in full, the hidden ones as a count.
+  test_results?: TestRunResult[];
+  hidden_tests?: HiddenTestsSummary;
 }
 
 // POST /api/run -- one ungraded run on the student's own stdin (never stored).
+// Test-graded tasks: the visible tests on the student's files (TestsRunResponse).
 export type RunResponse =
   | { rejected: string }
+  | TestsRunResponse
   | {
       rejected: null;
       status: string;
@@ -466,6 +498,19 @@ export type RunResponse =
       output_file: string | null;
       output_file_content: string | null;
     };
+
+export interface TestsRunResponse {
+  rejected: null;
+  grading_mode: "tests";
+  test_results: TestRunResult[];
+  hidden_tests: HiddenTestsSummary;
+  // The lecturer's run only (projector).
+  hidden_test_results?: TestRunResult[];
+}
+
+export function isTestsRun(res: RunResponse): res is TestsRunResponse {
+  return res.rejected === null && "test_results" in res;
+}
 
 export interface ApiErrorBody {
   detail?: string;

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
+  GradingMode,
   LectureStatus,
   SharedExample,
   StudentAttempt,
@@ -9,11 +10,13 @@ import type {
   TestCase,
   Verdict,
   VisibleTestFile,
+  WorkspaceEntry,
 } from "../shared/types";
 import {
   fetchLectureStatus,
   fetchMyAttempts,
   fetchStudentRecap,
+  fetchWorkspace,
   joinLecture as joinLectureApi,
   sendActivity,
   setStudentToken,
@@ -27,12 +30,23 @@ import { HERO_FILL, SCORE_LINE, TILE_TONE } from "../shared/verdictStyles";
 import { cx } from "../shared/cx";
 import type { Tone } from "../shared/ui";
 import type { WorkspaceHandle } from "./Workspace";
+import { TestResultsList } from "./TestResults";
 import { ROUTES } from "../shared/routes";
 import { Footer } from "../shared/Footer";
 import { rememberRole } from "../shared/role";
 // Monaco is most of this page's weight -- loaded only once a task is live,
 // so the join and waiting screens stay instant.
 const Workspace = lazy(() => import("./Workspace").then((m) => ({ default: m.Workspace })));
+
+// A test-graded task's editable files as one text, for what reads "the code" as a
+// string: the empty/untouched checks and the typing heartbeat. Never sent: Submit
+// sends the files themselves.
+function joinedFiles(files: Record<string, string>): string {
+  return Object.keys(files)
+    .sort()
+    .map((path) => files[path])
+    .join("\n");
+}
 
 function formatBytes(n: number): string {
   if (n < 1000) return `${n} B`;
@@ -293,6 +307,12 @@ export default function App() {
   const [files, setFiles] = useState<VisibleTestFile[]>([]);
   // The task is graded on this file (e.g. "result.txt") instead of printed output.
   const [outputFile, setOutputFile] = useState<string | null>(null);
+  // Test-graded tasks: the editor's files (fetched once per task), what the editable
+  // ones start with, and what they are now -- the latter is what Submit sends.
+  const [gradingMode, setGradingMode] = useState<GradingMode>("stdout");
+  const [taskWorkspace, setTaskWorkspace] = useState<WorkspaceEntry[] | null>(null);
+  const [initialFiles, setInitialFiles] = useState<Record<string, string>>({});
+  const filesRef = useRef<Record<string, string> | null>(null);
   // What the lecturer is going over with the class right now -- see the
   // "On your lecturer's screen" card below.
   const [shownExamples, setShownExamples] = useState<SharedExample[]>([]);
@@ -341,6 +361,29 @@ export default function App() {
     editedRef.current = true;
     setNudge(null);
   }
+  function handleFilesChange(files: Record<string, string>) {
+    filesRef.current = files;
+    handleEditorChange(joinedFiles(files));
+  }
+
+  // A test-graded task's files: the editable ones start as this browser's saved
+  // draft where there is one, else the starter.
+  async function loadTaskWorkspace(qId: string) {
+    try {
+      const ws = await fetchWorkspace(qId);
+      if (questionIdRef.current !== qId) return;
+      const starter = Object.fromEntries(ws.files.filter((f) => f.editable).map((f) => [f.path, f.content ?? ""]));
+      const saved = loadDraft(draftKey(qId, nameRef.current))?.files ?? {};
+      const start = { ...starter, ...Object.fromEntries(Object.entries(saved).filter(([path]) => path in starter)) };
+      filesRef.current = start;
+      starterRef.current = joinedFiles(starter);
+      setInitialFiles(start);
+      updateCode(joinedFiles(start));
+      setTaskWorkspace(ws.files);
+    } catch {
+      if (questionIdRef.current === qId) setErrorMessage("Couldn't load this task's files. Reload the page to try again.");
+    }
+  }
 
   // After a reload the page knows nothing about this task's earlier submits:
   // put the latest one back as the result, and if it solved the task, lock it
@@ -365,6 +408,8 @@ export default function App() {
       tests_total: latest.tests_total,
       verdict: latest.verdict ?? "error",
       feedback: latest.feedback ?? "",
+      test_results: latest.test_results,
+      hidden_tests: latest.hidden_tests,
     };
     setResult(restored);
     resultRef.current = restored;
@@ -408,6 +453,7 @@ export default function App() {
       const data = await submitCodeApi({
         question_id: qId,
         source_code: trimmedCode,
+        ...(filesRef.current ? { files: filesRef.current } : {}),
       });
       setResult(data);
       resultRef.current = data;
@@ -521,6 +567,9 @@ export default function App() {
       setRecap(null);
       setQuestionId(q.id);
       setHadTask(true);
+      setGradingMode(q.grading_mode ?? "stdout");
+      setTaskWorkspace(null);
+      filesRef.current = null;
       setPromptText(q.prompt);
       setTaskTitle(q.title);
       setTaskNumber(q.number ?? null);
@@ -546,6 +595,7 @@ export default function App() {
       resultRef.current = null;
       setErrorMessage(null);
       setHistory(null);
+      if (q.grading_mode === "tests") void loadTaskWorkspace(q.id);
       restoreAttempts(q.id);
       setPhase(q.seconds_remaining > 0 ? "answering" : "waiting");
       // A late joiner lands on a task that's already over: say so up front.
@@ -878,8 +928,15 @@ export default function App() {
               expected: ex.failing_test.expected_stdout,
               got: ex.failing_test.stdout,
               error: ex.failing_test.stderr,
+              testName: ex.failing_test.test_name,
+              message: ex.failing_test.message,
             }}
           />
+        )}
+        {ex.hidden_tests && ex.hidden_tests.failed > 0 && (
+          <p className="mb-2 text-xs text-amber-800">
+            {ex.hidden_tests.failed} of {ex.hidden_tests.total} hidden tests failed.
+          </p>
         )}
         <CodeBlock lines={ex.source_code.split("\n").length}>{ex.source_code}</CodeBlock>
       </div>
@@ -1095,6 +1152,13 @@ export default function App() {
                       </div>
                     ) : null}
                     <p className="mt-3 text-sm leading-relaxed text-zinc-900">{result.feedback}</p>
+                    {result.test_results && (
+                      <TestResultsList
+                        className="mt-3 border-t border-black/5 pt-3"
+                        results={result.test_results}
+                        hidden={result.hidden_tests}
+                      />
+                    )}
                   </div>
                 </div>
               )}
@@ -1127,6 +1191,37 @@ export default function App() {
                       shown when time is up.
                     </p>
                   )}
+                </section>
+              )}
+
+              {gradingMode === "tests" && taskWorkspace && (
+                <section aria-label="Task files">
+                  <Eyebrow className="mb-2">Files</Eyebrow>
+                  <ul className="grid gap-1">
+                    {taskWorkspace.map((f) => (
+                      <li key={f.path}>
+                        <button
+                          type="button"
+                          onClick={() => workspaceRef.current?.openDataFile(f.path)}
+                          className={cx(
+                            "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] ring-1 transition-colors",
+                            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
+                            "bg-zinc-50 text-zinc-800 ring-zinc-200 hover:bg-white hover:ring-zinc-300",
+                          )}
+                        >
+                          <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium">{f.path}</span>
+                          <span className="font-mono text-[11px] text-zinc-400">{formatBytes(f.size)}</span>
+                          <span className={cx("text-xs", f.editable ? "font-medium text-brand-700" : "text-zinc-500")}>
+                            {f.editable ? "Yours to edit" : f.kind === "test" ? "Test" : f.kind === "data" ? "Data" : "Read-only"}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2.5 text-[13px] leading-relaxed text-zinc-500">
+                    Run checks your code against the tests in <Code>tests/</Code>. Submit also runs hidden tests; you&apos;ll
+                    see how many of those pass, not what they check.
+                  </p>
                 </section>
               )}
 
@@ -1182,7 +1277,7 @@ export default function App() {
               </div>
             }
           >
-            {questionId && (
+            {questionId && (gradingMode !== "tests" || taskWorkspace) && (
               <Workspace
                 ref={workspaceRef}
                 onOpenDataFilesChange={handleOpenDataFilesChange}
@@ -1202,6 +1297,9 @@ export default function App() {
                 result={result}
                 submitError={errorMessage}
                 locked={locked}
+                taskFiles={gradingMode === "tests" ? taskWorkspace : null}
+                initialFiles={initialFiles}
+                onFilesChange={handleFilesChange}
               />
             )}
           </Suspense>

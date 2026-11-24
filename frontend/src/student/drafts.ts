@@ -10,6 +10,8 @@ const KEEP_MS = 14 * 24 * 60 * 60 * 1000;
 export interface Draft {
   code: string;
   input: string;
+  // Test-graded tasks: every editable file, {path: content}.
+  files?: Record<string, string>;
   savedAt: number;
 }
 
@@ -22,9 +24,12 @@ export function loadDraft(key: string): Draft | null {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const d = JSON.parse(raw) as Partial<Draft>;
-    return typeof d.code === "string"
-      ? { code: d.code, input: typeof d.input === "string" ? d.input : "", savedAt: d.savedAt ?? 0 }
-      : null;
+    if (typeof d.code !== "string") return null;
+    const files =
+      d.files && typeof d.files === "object" && Object.values(d.files).every((v) => typeof v === "string")
+        ? d.files
+        : undefined;
+    return { code: d.code, input: typeof d.input === "string" ? d.input : "", files, savedAt: d.savedAt ?? 0 };
   } catch {
     return null;
   }
