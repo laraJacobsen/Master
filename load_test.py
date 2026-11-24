@@ -28,14 +28,25 @@ student's attempt numbers are 1..k with no duplicates.
 
 Needs Judge0 running (JUDGE0_BASE_URL, default http://localhost:2358).
 
+--task stdout (default): the original stdin/stdout sum task, graded per test case.
+--task pandas: the test-graded example task (tasks/pandas-sales-summary: pytest,
+  3 visible + 2 hidden tests, a CSV), imported and validated like the setup page
+  does; needs Judge0 on the judge0-pytest image (runner/judge0-python/). Same plans:
+  correct, a shared wrong answer (forgot fillna: 4/5) then the fix, a crash then the
+  fix. Run both back to back on the same machine to compare them.
+
+--json-out FILE: also write the latency table and correctness counts as JSON.
+
 --watch: pauses before the run and again after it, so the pages can be looked at in a
   browser: join as a real student first (the code is printed) and submit during the
   burst, then look at the lecturer dashboard with the whole class's data in it.
 
-Run: python load_test.py [--students 40] [--mode burst|spread] [--spread 60] [--watch]
+Run: python load_test.py [--students 40] [--mode burst|spread] [--spread 60] [--task stdout|pandas] [--watch]
 """
 
 import argparse
+import io
+import json
 import os
 import random
 import statistics
@@ -44,6 +55,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -67,6 +79,23 @@ PLANS = [
     ("wrong_then_fix", 3, [(WRONG, "incorrect"), (CORRECT, "correct")]),
     ("crash_then_fix", 2, [(CRASH, "error"), (CORRECT, "correct")]),
 ]
+
+# --task pandas: the example task's own reference, a shared wrong answer (missing
+# units stay NaN: the visible tests pass, one hidden test fails) and a crash (a typo
+# that makes the file a SyntaxError, so the tests can't even import it and every test
+# errors. A typo inside load_sales() alone isn't one: the hidden test that never calls
+# it passes, which makes the attempt 1/5, partially correct. A misspelled import isn't
+# either: the package allow-list rejects it before it reaches Judge0).
+PANDAS_TASK = REPO / "tasks" / "pandas-sales-summary"
+PANDAS_CORRECT = (PANDAS_TASK / "reference" / "solution.py").read_text()
+PANDAS_WRONG = PANDAS_CORRECT.replace('    df["units"] = df["units"].fillna(0)\n', "")
+PANDAS_CRASH = PANDAS_CORRECT.replace("return df.groupby", "return (df.groupby")
+PANDAS_PLANS = [
+    ("correct", 5, [(PANDAS_CORRECT, "correct")]),
+    ("wrong_then_fix", 3, [(PANDAS_WRONG, "partially_correct"), (PANDAS_CORRECT, "correct")]),
+    ("crash_then_fix", 2, [(PANDAS_CRASH, "error"), (PANDAS_CORRECT, "correct")]),
+]
+TASK = "stdout"  # set from --task
 
 _lock = threading.Lock()
 latencies = defaultdict(list)  # endpoint name -> [seconds]
@@ -128,6 +157,18 @@ def api(method, path, **kwargs):
     return r.json()
 
 
+def import_pandas_task(students):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for path in PANDAS_TASK.rglob("*"):
+            if path.is_file():
+                z.write(path, path.relative_to(PANDAS_TASK.parent))
+    q = api("POST", "/api/lecturer/questions/import",
+            files={"file": ("pandas-sales-summary.zip", buf.getvalue(), "application/zip")})
+    api("PUT", f"/api/lecturer/questions/{q['id']}", json={"expected_students": students, "duration_seconds": 3600})
+    return q
+
+
 def setup_lecture(students):
     """A fresh lecture with one live question. The throwaway DB may start with a
     pre-seeded active lecture -- end it first."""
@@ -136,6 +177,11 @@ def setup_lecture(students):
         api("POST", "/api/lecturer/lecture/finish", json={})
     lecture = api("POST", "/api/lecturer/lectures", json={"label": f"Load test, {students} students"})
     lecture = api("POST", f"/api/lecturer/lectures/{lecture['id']}/open_lobby")
+    if TASK == "pandas":
+        q = import_pandas_task(students)
+        assert api("POST", f"/api/lecturer/questions/{q['id']}/validate")["validated"]
+        api("POST", f"/api/lecturer/questions/{q['id']}/start")
+        return lecture, q["id"]
     q = api(
         "POST",
         "/api/lecturer/questions",
@@ -176,8 +222,10 @@ def student(name, qid, plan, first_submit_at):
     for i, (code, expected) in enumerate(plan):
         if i:
             time.sleep(random.uniform(3, 8))  # read the hint, fix, resubmit
-        res = call("submit", "POST", "/api/submit",
-                   json={"question_id": qid, "source_code": code}, headers=as_student(name))
+        body = {"question_id": qid, "source_code": code}
+        if TASK == "pandas":
+            body["files"] = {"solution.py": code}
+        res = call("submit", "POST", "/api/submit", json=body, headers=as_student(name))
         with _lock:
             submit_results.append((name, expected, res["verdict"] if res else None))
 
@@ -196,8 +244,8 @@ def pct(values, p):
     return values[min(len(values) - 1, int(round(p / 100 * (len(values) - 1))))]
 
 
-def report(qid, n_students, wall):
-    print(f"\n=== Latency (s), {n_students} students, {wall:.1f}s wall-clock ===")
+def report(qid, n_students, wall, json_out=None, mode="burst"):
+    print(f"\n=== Latency (s), task {TASK}, {n_students} students, {mode}, {wall:.1f}s wall-clock ===")
     print(f"{'endpoint':<24}{'n':>6}{'p50':>9}{'p95':>9}{'max':>9}")
     for name in sorted(latencies):
         v = latencies[name]
@@ -228,6 +276,15 @@ def report(qid, n_students, wall):
         print(f"  {name}: {desc}")
     ok = ok and not failures
     print("\nPASS" if ok else "\nFAIL")
+    if json_out:
+        with open(json_out, "w") as f:
+            json.dump({
+                "task": TASK, "students": n_students, "mode": mode, "wall_s": wall, "ok": ok,
+                "latency": {name: {"n": len(v), "p50": statistics.median(v), "p95": pct(v, 95), "max": max(v)}
+                            for name, v in latencies.items()},
+                "submits": len(submit_results), "wrong_verdicts": len(wrong), "stored_rows": len(rows),
+                "failures": len(failures),
+            }, f, indent=1)
     return ok
 
 
@@ -238,8 +295,14 @@ def main():
     ap.add_argument("--spread", type=float, default=60, help="seconds, for --mode spread")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--watch", action="store_true", help="pause before and after, to look in a browser")
+    ap.add_argument("--task", choices=["stdout", "pandas"], default="stdout")
+    ap.add_argument("--json-out", default=None, help="also write the results as JSON to this file")
     args = ap.parse_args()
     random.seed(args.seed)
+    global TASK, PLANS
+    TASK = args.task
+    if TASK == "pandas":
+        PLANS = PANDAS_PLANS
 
     judge0 = os.environ.get("JUDGE0_BASE_URL", "http://localhost:2358")
     try:
@@ -256,8 +319,8 @@ def main():
             TOKENS[name] = api("POST", "/api/lecture/join", json={"code": lecture["join_code"], "student_name": name})["token"]
         print(f"Lecture #{lecture['id']}, question {qid!r}, {len(names)} students joined, mode={args.mode}")
         if args.watch:
-            print(f"\n  Student page:  {BASE}/student.html   (join code {lecture['join_code']})")
-            print(f"  Lecturer page: {BASE}/lecturer.html?question_id={qid}")
+            print(f"\n  Student page:  {BASE}/join   (join code {lecture['join_code']})")
+            print(f"  Lecturer page: {BASE}/live?question_id={qid}")
             input("\nJoin as a student, have code ready to submit, then press Enter to start the run...")
 
         weights = [w for _, w, _ in PLANS]
@@ -281,9 +344,9 @@ def main():
         for t in background:
             t.join(timeout=10)
 
-        ok = report(qid, args.students, wall)
+        ok = report(qid, args.students, wall, args.json_out, args.mode)
         if args.watch:
-            input(f"\nLook at {BASE}/lecturer.html?question_id={qid}, then press Enter to end the lecture...")
+            input(f"\nLook at {BASE}/live?question_id={qid}, then press Enter to end the lecture...")
         api("POST", "/api/lecturer/lecture/finish", json={"current_question_id": qid})
     finally:
         proc.terminate()

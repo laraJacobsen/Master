@@ -33,6 +33,13 @@ backend/
                         disallowed-package) run before code ever reaches Judge0 --
                         line limit and package allow-list are per-question knobs
   questions.py        Question lookup, backed by store.py's `questions` table
+  task_format.py       Task-as-folder format for test-graded tasks: load/validate a task
+                        folder or zip (every problem with its path), write one back out
+                        (`python -m backend.task_format tasks/<id>` checks a folder)
+  task_import.py       Task folder <-> `questions` row, both directions (import/export)
+  task_runner.py       run_tests(task, files) -> [TestResult]: pytest + JUnit XML inside
+                        Judge0, crashes mapped onto classify.py's classes (see
+                        "Test-graded tasks" below)
   test_files.py        Data files a test case attaches (e.g. numbers.txt) for the
                         student's program to open by name: limits (text, 1 MB,
                         10 per test, safe names) and who may read them -- the
@@ -113,7 +120,16 @@ smoke_test.py           Structural test with Judge0 + IDUN mocked out -- proves 
                           Already run; see "What's been verified" below.
 load_test.py            Many students at once against a real Judge0 (its own backend
                           on port 8100 + throwaway DB): latency per endpoint and a
-                          correctness check. `python load_test.py --students 150`
+                          correctness check. `python load_test.py --students 150`;
+                          `--task pandas` for the test-graded example task
+tests/                  Unit tests (`python -m pytest`): task folder loader, JUnit
+                          parsing + crash mapping on real Judge0 reports
+                          (tests/fixtures/junit/), clustering on failing-test sets
+tasks/                  Task folders for test-graded tasks; pandas-sales-summary/ is
+                          the example (see "Test-graded tasks" below)
+runner/judge0-python/   The Judge0 image test-graded tasks run on (Python 3.11 +
+                          pinned pandas/numpy/pytest, versions.env), build/swap/measure
+                          scripts
 requirements.txt
 ```
 
@@ -329,6 +345,120 @@ Polled endpoints send file names and sizes, not contents:
 - the lecturer's question detail every 3 s (`?include_files=true` returns the contents).
 
 Students fetch a file's content only when they open it.
+
+## Test-graded tasks (task folders)
+
+Besides stdout tasks (stdin in, compare what's printed), a task can be graded by
+**pytest**: the student edits one or more files, and the task's own tests decide the
+verdict. Such a task is a folder, kept in version control and imported in the setup
+page. Python only for now; the format is the same one Java (Maven/JUnit 5) and C++
+(BEGIN/END markers) will use.
+
+```
+tasks/<task-id>/
+  task.yaml         title, description, language, grading: tests, editable files, limits, hints
+  requirements.txt  optional: what it needs from the runner image (checked, never installed)
+  starter/          the files students get -- several are fine; non-editable ones are read-only
+  tests/            visible tests (test_*.py): students see them and their results
+  hidden_tests/     tests students only see as a count ("1 of 2 hidden tests failed")
+  reference/        the solved version of each editable file
+  data/             data files (CSV etc.), at data/<name> next to the student's code
+```
+
+`tasks/pandas-sales-summary/` is a complete example (a CSV, 3 visible and 2 hidden
+tests). Every `task.yaml` key is documented at the top of `backend/task_format.py`.
+
+**Creating a task**
+1. Copy `tasks/pandas-sales-summary/` and edit it. Tests import the student's module
+   by name (`from solution import ...`) and open data as `data/<name>`.
+2. Check it: `python -m backend.task_format tasks/<task-id>` lists every problem with
+   its path (missing reference, a requirement the image doesn't have, a test file with
+   no tests, the same test file name in tests/ and hidden_tests/, ...). Then run the
+   tests locally against the reference if you like: copy `reference/*`, `tests/`,
+   `hidden_tests/` and `data/` into a temporary folder and run `pytest` there.
+3. Zip the folder and use **Import task folder (.zip)** under the question list in
+   setup. Step 2 then shows the folder read-only; **Check solution** runs the reference
+   against every test (all must pass) and the starter (must not pass them all), and
+   records the task's test list. To change the files, edit the folder and import again.
+4. **Export as task folder** on any question (setup-page ones too) downloads the same
+   format; stdout tasks export as `tests/<name>/{stdin.txt,expected_stdout.txt,files/}`.
+
+**What everyone sees.** Students get tabs for the task's files: editable files pinned
+and editable, the other starter files and the visible tests open but locked, data files
+from the task panel. Run runs the visible tests; Submit runs everything and every test
+counts toward the verdict. Students see each visible test (name, message, traceback)
+and the hidden tests only as a count -- also on the waiting screen and the projector.
+The lecturer dashboard shows every test, hidden ones included.
+
+**Grading, hints and clustering.** A failing test maps onto the existing classes: a
+failed assertion is `wrong_answer`, any other exception is `runtime_error` with its
+name (`KeyError`, `AttributeError`, ...), a `SyntaxError`/`ImportError` while the tests
+import the student's file is `syntax_error`/`runtime_error`, a test over its
+`test_timeout_s` or the run over the task's time limit is `timeout`, `MemoryError` or a
+kill is `oom`. Wrong answers without the task's own hints get generic ones that point
+at the first failing visible test (never name a hidden one). Wrong answers cluster first
+by the **set of failing tests** (where stdout tasks use the printed output), then by the
+diff against the reference within each set.
+
+**The runner** (`backend/task_runner.py`, `run_tests(task, files) -> [TestResult]`) runs
+pytest with `--junitxml` inside Judge0, one submission per run, with the task's CPU and
+memory limits, no network, and pytest-timeout per test. It needs Judge0 on the
+`judge0-pytest` image: the stock image plus Python 3.11 with pinned pandas, numpy,
+pytest and pytest-timeout (`runner/judge0-python/`, versions in `versions.env` only):
+
+```bash
+runner/judge0-python/build.sh               # ~3 min
+runner/judge0-python/use_image.sh           # local Judge0 server + workers -> that image
+runner/judge0-python/use_image.sh --revert  # back to the stock image
+```
+
+Both the Judge0 server and its workers need the image: the backend submits with
+`wait=true`, which Judge0 1.13 runs in the server container. Stdout tasks keep using
+the stock Python 3.8 inside it. One pandas + pytest submission costs about 0.8 s of
+CPU and 52 MB (`runner/judge0-python/README.md`), against about 0.02 s per test case
+for a stdout task.
+
+**Known limitations**
+- The student's code runs in the same process as the tests: it can read
+  `hidden_tests/` or patch pytest. Only the test ids the reference run produced are
+  accepted and the report sits behind a random marker, but this is a classroom tool,
+  not an exam sandbox.
+- Nothing is installed per task: a task needing a package or version the image doesn't
+  have is refused at import. Change `versions.env`, rebuild, swap.
+- Text files only (CSV, JSON, .py ...); Excel/Parquet data isn't supported yet.
+- The CPU time limit covers the whole pytest run, not each test.
+- Discussion-point labels still see only code snippets (the prompt that was
+  spot-checked), not which tests failed.
+- Multi-file code is stored joined, with a `# ===== path =====` line before each file,
+  so "View code", the projector and the snippet clustering see one text.
+- BEGIN/END markers are validated and enforced on the server (edits outside them are
+  dropped), but the editor doesn't lock the lines outside them yet.
+- Exceptions outside classify.py's list (e.g. `FileNotFoundError`) come out as
+  `runtime_error`/`Unknown`, with the generic crash hint.
+
+**Concurrent submissions, test-graded** (provisional, 2026-11-24: this 8-core laptop
+with Chrome and VS Code open and ~4 GB of swap in use, so not for reporting; to be rerun
+on the VM). `load_test.py --task stdout` and `--task pandas` back to back, burst mode
+(every student's first submit within a second), then again in the opposite order (run
+b). Submit latency p50 / p95, in seconds:
+
+| Students | stdout task, run a | stdout task, run b | pandas task, run a | pandas task, run b |
+|---|---|---|---|---|
+| 40  | 3.1 / 7.3   | 2.4 / 4.9  | 9.8 / 19.9  | 8.3 / 18.8  |
+| 100 | 11.8 / 22.4 | 8.2 / 15.6 | 30.8 / 50.2 | 23.4 / 40.2 |
+
+The earlier stdout numbers (40: 2.2 / 4.3, 100: 5.4 / 12.5, see "What's been
+verified") were measured on a quieter machine; the same day's stdout runs are the fair
+baseline. Under a burst the pandas task is about 3x slower than the stdout task at the
+median, because each submission runs pytest with pandas (about 0.8 s of CPU against
+about 0.02 s per test case), and grading is CPU-bound: Judge0 runs at most 16
+synchronous jobs at once (2 server processes x 8 threads), on the same 8 cores as
+everything else. Status polls also slowed under the 100-student burst (p95 1.0-1.7 s,
+both tasks). Every request succeeded and every attempt was stored with attempt numbers
+1..k. In these runs the script's "crash" was a typo inside `load_sales()`, which the app
+grades 1/5 (partially correct, since one hidden test never calls it), so the script
+reported those 38 verdicts as unexpected; the script now uses a syntax error, which
+fails every test (checked at 20 students: 28/28 as expected).
 
 ## Known simplifications (MVP, not final)
 
