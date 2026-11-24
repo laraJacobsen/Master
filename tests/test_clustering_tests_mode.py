@@ -129,6 +129,15 @@ def test_student_view_shows_prints_of_visible_tests_only():
     assert "42" not in json.dumps(view)
 
 
+def test_student_view_shows_top_level_prints_from_visible_test_files_only():
+    rs = results({})
+    rs[0]["load_output"] = "loading my solution"
+    rs[2]["load_output"] = "hidden module printed this"
+    view = _student_test_view(rs)
+    assert view["load_output"] == [{"file": "tests/test_s.py", "output": "loading my solution"}]
+    assert "hidden module" not in json.dumps(view)
+
+
 def test_student_view_counts_hidden_tests_only():
     view = _student_test_view(results({V1: "assert 5 == 6", H1: "assert secret == 42"}))
     assert [(t["name"], t["passed"], t["message"]) for t in view["test_results"]] == [

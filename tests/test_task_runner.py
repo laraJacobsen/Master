@@ -130,6 +130,19 @@ def test_prints_are_kept_per_test_without_pytest_headers():
     assert tr.as_dicts(list(rs.values()))[0]["output"] == "rows: 12"
 
 
+def test_top_level_prints_land_on_the_first_test_of_the_importing_file():
+    rs = results("prints_top_level")
+    assert rs[0].load_output == "loading my solution"
+    assert all(r.load_output == "" for r in rs[1:])
+    assert rs[0].output == ""  # printed at import, not during the test
+    assert tr.as_dicts(rs)[0]["load_output"] == "loading my solution"
+
+
+def test_load_output_parsing_is_defensive():
+    assert tr._load_outputs(None) == {} and tr._load_outputs("not json") == {}
+    assert tr._load_outputs('[{"file": "tests/t.py", "output": "a"}, {"file": 3}]') == {"tests/t.py": "a"}
+
+
 def test_long_output_is_cut():
     assert tr._short_tail("x" * 5000, 100).endswith("... (more output cut)")
     assert tr._short_tail("----- Captured stdout call -----\nhello\n", 100) == "hello"
@@ -210,6 +223,7 @@ def test_prepare_submission_splices_markers_and_refuses_strangers():
 
 def test_sandbox_layout():
     files = tr.sandbox_files(MARKED, {"solution.py": "mine\n"}, include_hidden=False)
+    assert files.pop("_classloop_collect.py").startswith("import json")
     assert files == {"solution.py": "mine\n", "helpers.py": "H = 1\n", "tests/test_a.py": "def test_a(): pass\n",
                      "data/d.csv": "x\n"}
     assert "hidden_tests/test_b.py" in tr.sandbox_files(MARKED, {}, include_hidden=True)

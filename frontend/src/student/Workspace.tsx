@@ -5,6 +5,7 @@ import { fetchTestFile, fetchWorkspaceFile, runCode } from "../shared/api";
 import { isTestsRun } from "../shared/types";
 import type {
   HiddenTestsSummary,
+  LoadOutput,
   RunResponse,
   SubmitResponse,
   TestRunResult,
@@ -258,12 +259,27 @@ export interface TestLinesProps {
   results: TestRunResult[];
   /** Hidden tests as a count; absent on a Run (only visible tests run). */
   hidden?: HiddenTestsSummary;
+  /** Top-level prints, from when the tests loaded the student's code. */
+  loadOutput?: LoadOutput[];
 }
 
 /** pytest-style lines for a test-graded run, in the terminal's colours. */
-function TestLines({ results, hidden }: TestLinesProps) {
+function TestLines({ results, hidden, loadOutput }: TestLinesProps) {
+  // Usually only the first test file to import the student's code has any, and when a
+  // module fails to import every test file re-imports it: show each distinct text once.
+  const loaded = Array.from(new Set((loadOutput ?? []).map((l) => l.output)));
   return (
     <div className="mt-0.5 grid gap-0.5">
+      {loaded.length > 0 && (
+        <div className="mb-1">
+          <div className="text-zinc-500">printed while loading your code:</div>
+          {loaded.map((text, i) => (
+            <pre key={i} className="whitespace-pre-wrap text-zinc-100">
+              {text}
+            </pre>
+          ))}
+        </div>
+      )}
       {results.map((t) => (
         <div key={`${t.file}::${t.name}`}>
           <span className={t.passed ? "text-emerald-300" : "text-red-300"}>
@@ -321,7 +337,7 @@ function TerminalEntryView({ entry, language, onOpenOutput }: TerminalEntryViewP
           {r.tests_passed}/{r.tests_total} tests passed
           {r.verdict === "correct" ? " -- all correct" : ""}
         </div>
-        {r.test_results && <TestLines results={r.test_results} hidden={r.hidden_tests} />}
+        {r.test_results && <TestLines results={r.test_results} hidden={r.hidden_tests} loadOutput={r.load_output} />}
         {r.traceback && <pre className="mt-1 whitespace-pre-wrap text-red-300">{r.traceback}</pre>}
         {r.hidden_crash && (
           <div className="mt-1 text-amber-200">
@@ -350,7 +366,7 @@ function TerminalEntryView({ entry, language, onOpenOutput }: TerminalEntryViewP
       )}
       {res && isTestsRun(res) && (
         <>
-          <TestLines results={res.test_results} />
+          <TestLines results={res.test_results} loadOutput={res.load_output} />
           <div className="mt-0.5 text-zinc-500">
             {res.test_results.filter((t) => t.passed).length}/{res.test_results.length} visible tests passed. Hidden
             tests run when you submit.

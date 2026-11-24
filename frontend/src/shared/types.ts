@@ -234,6 +234,12 @@ export interface TestRunResult {
   output?: string;
 }
 
+// What was printed while the visible tests imported the student's code (top-level prints).
+export interface LoadOutput {
+  file: string;
+  output: string;
+}
+
 // Hidden tests: only how many there are and how many failed.
 export interface HiddenTestsSummary {
   total: number;
@@ -487,6 +493,7 @@ export interface SubmitResponse {
   // Test-graded tasks: every visible test in full, the hidden ones as a count.
   test_results?: TestRunResult[];
   hidden_tests?: HiddenTestsSummary;
+  load_output?: LoadOutput[];
 }
 
 // POST /api/run -- one ungraded run on the student's own stdin (never stored).
@@ -514,6 +521,7 @@ export interface TestsRunResponse {
   grading_mode: "tests";
   test_results: TestRunResult[];
   hidden_tests: HiddenTestsSummary;
+  load_output?: LoadOutput[];
   // The lecturer's run only (projector).
   hidden_test_results?: TestRunResult[];
 }

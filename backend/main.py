@@ -1427,6 +1427,10 @@ def _student_test_view(test_results: list) -> dict:
             for r in visible
         ],
         "hidden_tests": {"total": len(hidden), "failed": sum(1 for r in hidden if not r.get("passed"))},
+        # Top-level prints: what was printed while the visible tests imported the
+        # student's code (never while a hidden test file was imported).
+        "load_output": [{"file": r.get("test_file"), "output": r["load_output"]}
+                        for r in visible if r.get("load_output")],
     }
 
 

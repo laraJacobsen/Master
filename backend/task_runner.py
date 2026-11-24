@@ -36,6 +36,7 @@ proctor (README: "not a hostile sandbox").
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import secrets
@@ -68,6 +69,9 @@ class TestResult:
     message: str = ""  # one short line: "assert 0 == 42.0", "KeyError: 'revenue'"
     details: str = ""  # pytest's short traceback (lecturer only)
     output: str = ""  # what the code printed while this test ran (captured by pytest)
+    # What was printed while pytest imported this test's file -- the student's top-level
+    # prints land here, on the first test of the file that imported their module.
+    load_output: str = ""
     error_type: str | None = None  # "AssertionError", "KeyError", "Timeout", "SyntaxError"...
     time_s: float | None = None
     # How the whole run ended in Judge0 (same for every test of one run).
@@ -110,6 +114,7 @@ class TestResult:
             "message": self.message,
             "details": self.details,
             "output": self.output,
+            "load_output": self.load_output,
             "error_type": self.error_type,
             "passed": self.passed,
             "status_id": None,
@@ -309,19 +314,71 @@ def assemble(report_xml: str | None, run: dict, stderr_tail: str, expected: list
     return visible + [r for r in out if r.visibility == "hidden"]
 
 
+# A pytest plugin placed next to the student's code (sandbox_files): pytest captures what
+# is printed while it imports each test file -- including the student's module and its
+# top-level prints -- but never puts that in the JUnit report. This writes it, per test
+# file, to the JSON file the run script prints after the report.
+COLLECT_PLUGIN = "_classloop_collect"
+_COLLECT_PLUGIN_SOURCE = '''import json
+import os
+
+_printed = []
+
+
+def pytest_collectreport(report):
+    for name, content in report.sections:
+        if name.startswith("Captured stdout") and content.strip():
+            _printed.append({"file": report.nodeid, "output": content})
+
+
+def pytest_sessionfinish(session):
+    path = os.environ.get("CLASSLOOP_COLLECT_OUT")
+    if path:
+        with open(path, "w") as f:
+            json.dump(_printed, f)
+'''
+
+
+def _load_outputs(section: str | None) -> dict[str, str]:
+    """{test file: what was printed while pytest imported it} from the plugin's JSON."""
+    if not section:
+        return {}
+    try:
+        entries = json.loads(section)
+    except ValueError:
+        return {}
+    out = {}
+    for e in entries if isinstance(entries, list) else []:
+        if isinstance(e, dict) and isinstance(e.get("file"), str) and isinstance(e.get("output"), str):
+            out.setdefault(e["file"].split("::", 1)[0], _short_tail(e["output"], _OUTPUT_CHARS))
+    return out
+
+
 def results_from_run(run: dict, marker: str, expected: list[dict] | None,
                      include_hidden: bool = True) -> list[TestResult]:
     """A Judge0 run of the run script -> TestResults. Its stdout is: [newline] marker,
     the JUnit report (empty if pytest never wrote one), marker, the tail of pytest's
-    own output. Only text between the run's own random markers counts as the report."""
+    own output. Only text between the run's own random markers counts as the report.
+    Between "<marker>-LOAD" lines: what pytest captured while importing each test file
+    (COLLECT_PLUGIN), attached to the first test of that file as load_output."""
     stdout = run.get("stdout") or ""
+    load_marker = f"\n{marker}-LOAD\n"
+    load_section = None
+    if stdout.count(load_marker) >= 2:
+        before, load_section, after = stdout.split(load_marker, 2)
+        stdout = before + after
     parts = stdout.split(f"\n{marker}\n")
     report_xml = parts[1].strip() if len(parts) >= 3 else None
     log_tail = parts[2] if len(parts) >= 3 else stdout[-4000:]
     stderr_tail = "\n".join(filter(None, [log_tail.strip(), (run.get("stderr") or "").strip()]))[-4000:]
     if report_xml and len(report_xml) > _MAX_REPORT_CHARS:
         report_xml = None
-    return assemble(report_xml or None, run, stderr_tail, expected, include_hidden)
+    results = assemble(report_xml or None, run, stderr_tail, expected, include_hidden)
+    for path, printed in _load_outputs(load_section).items():
+        first = next((r for r in results if r.file == path), None)
+        if first is not None:
+            first.load_output = printed
+    return results
 
 
 # --- the student's files in the sandbox ----------------------------------------------------
@@ -380,6 +437,7 @@ def sandbox_files(task: dict, student_files: dict[str, str], include_hidden: boo
         elif role == "hidden_test" and include_hidden:
             files[f"{HIDDEN_DIR}/{path}"] = f["content"]
     files.update(student_files)
+    files[f"{COLLECT_PLUGIN}.py"] = _COLLECT_PLUGIN_SOURCE
     return files
 
 
@@ -392,7 +450,7 @@ class Judge0PytestRunner:
     def run_tests(self, task: dict, files: dict[str, str], include_hidden: bool = True) -> list[TestResult]:
         meta = task.get("task_meta") or {}
         token = secrets.token_hex(12)
-        report, log = f".report-{token}.xml", f".pytest-{token}.log"
+        report, log, loaded = f".report-{token}.xml", f".pytest-{token}.log", f".loaded-{token}.json"
         marker = f"@@REPORT-{token}@@"
         targets = [VISIBLE_DIR] + ([HIDDEN_DIR] if include_hidden and any(
             f["role"] == "hidden_test" for f in task.get("task_files") or []) else [])
@@ -403,7 +461,9 @@ class Judge0PytestRunner:
             # classroom exercise gains nothing from BLAS threads.
             "export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1\n"
             "export PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 MPLBACKEND=Agg\n"
-            f"{PYTHON} -m pytest -q -p no:cacheprovider --rootdir=. --tb=short -o junit_family=xunit1 "
+            f"export CLASSLOOP_COLLECT_OUT={loaded}\n"
+            f"{PYTHON} -m pytest -q -p no:cacheprovider -p {COLLECT_PLUGIN} --rootdir=. --tb=short "
+            "-o junit_family=xunit1 "
             # Each test's captured prints go into the report, so students see their
             # print() output under the (visible) test that ran it.
             "-o junit_logging=system-out -o junit_log_passing_tests=true "
@@ -411,6 +471,9 @@ class Judge0PytestRunner:
             "status=$?\n"
             f"printf '\\n%s\\n' '{marker}'\n"
             f"cat {report} 2>/dev/null\n"
+            f"printf '\\n%s\\n' '{marker}-LOAD'\n"
+            f"cat {loaded} 2>/dev/null\n"
+            f"printf '\\n%s\\n' '{marker}-LOAD'\n"
             f"printf '\\n%s\\n' '{marker}'\n"
             f"tail -c 4000 {log}\n"
             # pytest ran (all passed or some failed): the run itself succeeded.

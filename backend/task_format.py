@@ -88,7 +88,7 @@ _DIR_ROLES = {v: k for k, v in _ROLE_DIRS.items()}
 # Letters, digits, ".", "-", "_" per part, "/" between parts; no hidden files, no "..".
 _PART_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 # Names the test runner itself writes next to the program (see backend/task_runner.py).
-RESERVED_ROOT_NAMES = {"run", "compile", "report.xml"}
+RESERVED_ROOT_NAMES = {"run", "compile", "report.xml", "_classloop_collect.py"}
 # Junk a zip made on macOS/Windows or a used folder tends to carry: skipped, not errors.
 _IGNORED_PARTS = {"__MACOSX", "__pycache__", ".DS_Store", ".pytest_cache", "Thumbs.db", ".git"}
 

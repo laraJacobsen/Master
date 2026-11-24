@@ -388,6 +388,9 @@ and editable, the other starter files and the visible tests open but locked, dat
 from the task panel. Run runs the visible tests; Submit runs everything and every test
 counts toward the verdict. Students see each visible test (name, message, traceback)
 and the hidden tests only as a count -- also on the waiting screen and the projector.
+What the student's code prints shows in the terminal: under the visible test that ran
+it, and top-level prints (outside any function) under "printed while loading your
+code". Output printed during hidden tests is lecturer-only.
 The lecturer dashboard shows every test, hidden ones included.
 
 **Grading, hints and clustering.** A failing test maps onto the existing classes: a
