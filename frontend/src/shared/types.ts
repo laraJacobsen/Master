@@ -162,6 +162,53 @@ export interface QuestionRow {
   starter_code: string | null;
   // The task's own wrong-answer hints, attempt 1 first; null = generic hints.
   hint_ladder: string[] | null;
+  // "stdout": compare printed output per test case (the setup page's own tasks).
+  // "tests": pytest files from an imported task folder (backend/task_format.py).
+  grading_mode: GradingMode;
+  // Test-graded tasks: the folder's files; null for stdout tasks.
+  task_files: TaskFile[] | null;
+  task_meta: TaskMeta;
+}
+
+export type GradingMode = "stdout" | "tests";
+
+export type TaskFileRole = "starter" | "test" | "hidden_test" | "reference" | "data";
+
+export interface TaskFile {
+  path: string;
+  role: TaskFileRole;
+  content: string;
+}
+
+// task.yaml settings without a column of their own (backend/task_import.py).
+export interface TaskMeta {
+  id?: string;
+  editable?: string[];
+  markers?: { begin: string; end: string } | null;
+  test_timeout_s?: number;
+  requirements?: string[];
+  // The tests the reference run found when the task was last checked.
+  test_ids?: { id: string; visibility: TestVisibility }[] | null;
+}
+
+export type TestVisibility = "visible" | "hidden";
+
+export type TestOutcome = "passed" | "failed" | "error" | "skipped";
+
+// One test of a test-graded run as students see it (backend/main._student_test_view).
+export interface TestRunResult {
+  name: string;
+  file: string;
+  outcome: TestOutcome;
+  passed: boolean;
+  message: string;
+  details: string;
+}
+
+// Hidden tests: only how many there are and how many failed.
+export interface HiddenTestsSummary {
+  total: number;
+  failed: number;
 }
 
 export interface QuestionPayload {
@@ -288,6 +335,13 @@ export interface ValidationTestResult {
   stdin: string;
   expected_stdout: string;
   passed: boolean;
+  // Test-graded tasks (backend/task_runner.TestResult.to_result_dict).
+  test_name?: string;
+  test_file?: string;
+  visibility?: TestVisibility;
+  outcome?: TestOutcome;
+  message?: string;
+  details?: string;
   stdout?: string;
   stderr?: string;
   // C/Java only: what the compiler printed (a compile error has no stderr).

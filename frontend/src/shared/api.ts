@@ -133,7 +133,8 @@ export function createQuestion(payload: QuestionPayload): Promise<QuestionRow> {
 
 export function updateQuestion(
   questionId: string,
-  payload: QuestionPayload
+  // Partial: a test-graded task never sends its test-related fields (see setup/App.tsx).
+  payload: Partial<QuestionPayload>
 ): Promise<QuestionRow> {
   return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}`, {
     method: "PUT",
@@ -148,6 +149,21 @@ export function draftHints(payload: HintDraftRequest): Promise<HintDraftResponse
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   }).then((res) => asJson(res));
+}
+
+// A zipped task folder (task.yaml, starter/, tests/, ...) becomes a draft question.
+// A broken folder rejects with every problem, one per line.
+export function importTaskZip(file: File): Promise<QuestionRow> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiFetch(`${API_BASE}/api/lecturer/questions/import`, { method: "POST", body: form }).then((res) =>
+    asJson(res)
+  );
+}
+
+// Where a question downloads as a task-folder zip (same format the import reads).
+export function exportTaskUrl(questionId: string): string {
+  return `${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/export`;
 }
 
 export function validateQuestion(questionId: string): Promise<ValidationResponse> {

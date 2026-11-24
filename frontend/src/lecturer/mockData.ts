@@ -217,6 +217,9 @@ export function buildMock(ended = false) {
     output_file: null,
     starter_code: null,
     hint_ladder: null,
+    grading_mode: "stdout",
+    task_files: null,
+    task_meta: {},
   };
 
   const progress: ProgressResponse = {
