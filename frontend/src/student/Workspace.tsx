@@ -311,6 +311,11 @@ function TestLines({ results, hidden, loadOutput }: TestLinesProps) {
             : `All ${hidden.total} hidden test${hidden.total === 1 ? "" : "s"} passed`}
         </div>
       )}
+      {hidden?.hints?.map((hint) => (
+        <div key={hint} className="pl-[7ch] text-amber-100">
+          hidden test: {hint}
+        </div>
+      ))}
     </div>
   );
 }

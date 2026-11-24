@@ -38,6 +38,13 @@ export function TestResultsList({ results, hidden, className }: TestResultsListP
             : `All ${hidden.total} hidden test${hidden.total === 1 ? "" : "s"} passed.`}
         </p>
       )}
+      {hidden?.hints && hidden.hints.length > 0 && (
+        <ul className="grid gap-0.5 text-xs text-amber-900" aria-label="About the hidden tests that failed">
+          {hidden.hints.map((hint) => (
+            <li key={hint}>Hidden test: {hint}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

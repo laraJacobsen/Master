@@ -25,3 +25,6 @@ wrong_solutions:
   forgot_fillna: [test_missing_units_count_as_zero]
   sorted_ascending: [test_largest_region_first]
   reads_the_file_again: [test_uses_the_dataframe_it_is_given]
+hidden_test_hints:
+  test_missing_units_count_as_zero: Checks the sale with no units recorded.
+  test_uses_the_dataframe_it_is_given: Calls revenue_by_region with a different DataFrame than the one from the CSV.

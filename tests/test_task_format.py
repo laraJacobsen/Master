@@ -372,3 +372,14 @@ def test_wrong_solution_problems():
 def test_wrong_solution_may_be_a_syntax_error():
     raw = pytest_task(**{"wrong/typo/solution.py": "def revenue(path:\n"})
     assert tf.parse_task(raw).wrong_solutions == {"typo": []}
+
+
+def test_hidden_test_hints():
+    raw = pytest_task(**{"task.yaml": TASK_YAML + "hidden_test_hints:\n  test_type: Checks the result is positive.\n"})
+    spec = tf.parse_task(raw, default_id="t")
+    assert spec.hidden_test_hints == {"test_type": "Checks the result is positive."}
+    assert tf.load_task_zip(tf.to_zip(spec)) == spec
+    bad = pytest_task(**{"task.yaml": TASK_YAML + "hidden_test_hints:\n  test_sum: Visible, not hidden.\n"
+                                                  "  test_type: " + "x" * 300 + "\n"})
+    assert_problem(bad, "hidden_test_hints lists test_sum, which isn't a test in hidden_tests/",
+                   "hidden_test_hints.test_type is longer than 200 characters")

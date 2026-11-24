@@ -1154,7 +1154,8 @@ def api_lecture_attempts(question_id: str, student: dict = Depends(_student)):
             # The student's own hint, so a reloaded page can show it again.
             "feedback": row["feedback"],
             # Test-graded tasks: the visible tests' results and the hidden count.
-            **(_student_test_view(json.loads(row.get("raw_test_results") or "[]"))
+            **(_student_test_view(json.loads(row.get("raw_test_results") or "[]"),
+                                  (question.get("task_meta") or {}).get("hidden_test_hints"))
                if question["grading_mode"] == "tests" else {}),
         }
         for row in store.all_submissions(question_id)
@@ -1452,13 +1453,18 @@ def _submit(req: SubmitRequest, student: dict):
     }
 
 
-def _student_test_view(test_results: list) -> dict:
+def _student_test_view(test_results: list, hidden_hints: dict | None = None) -> dict:
     """What a student may see of a test-graded run: every visible test in full (name,
     outcome, message, pytest's short traceback), and of the hidden tests only how many
     there are and how many failed -- no names, no messages: a hidden test's message can
-    quote its input or the expected value."""
+    quote its input or the expected value. The one exception is a sentence the task's
+    author wrote for a hidden test (task.yaml's hidden_test_hints), shown when that test
+    fails -- still without its name."""
     visible = [r for r in test_results if r.get("visibility") != "hidden"]
     hidden = [r for r in test_results if r.get("visibility") == "hidden"]
+    hints = hidden_hints or {}
+    hidden_failed_hints = [hints[r.get("test_name")] for r in hidden
+                           if not r.get("passed") and r.get("test_name") in hints]
     return {
         "test_results": [
             {"name": r.get("test_name"), "file": r.get("test_file"), "outcome": r.get("outcome"),
@@ -1468,7 +1474,8 @@ def _student_test_view(test_results: list) -> dict:
              "output": r.get("output") or ""}
             for r in visible
         ],
-        "hidden_tests": {"total": len(hidden), "failed": sum(1 for r in hidden if not r.get("passed"))},
+        "hidden_tests": {"total": len(hidden), "failed": sum(1 for r in hidden if not r.get("passed")),
+                         "hints": hidden_failed_hints},
         # Top-level prints: what was printed while the visible tests imported the
         # student's code (never while a hidden test file was imported).
         "load_output": [{"file": r.get("test_file"), "output": r["load_output"]}
@@ -1544,7 +1551,7 @@ def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, at
         "traceback": None,
         "hidden_crash": False,
         "hidden_error": None,
-        **_student_test_view(test_results),
+        **_student_test_view(test_results, (question.get("task_meta") or {}).get("hidden_test_hints")),
     }
 
 

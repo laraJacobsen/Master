@@ -36,6 +36,9 @@ task.yaml (only title, description and language are required):
     wrong_solutions:            # optional: the tests each wrong/<name>/ must fail (by test
       forgot_fillna: [test_missing_units_count_as_zero]   # name). A wrong solution not listed
                                 # here must still fail at least one test.
+    hidden_test_hints:          # optional: one sentence a student sees when that hidden test
+      test_missing_units_count_as_zero: Checks a sale with no units recorded.   # fails. Only
+                                # what's written here is shown; other hidden tests stay a count.
 
 Grading "stdout" is the app's original model, so a task created in the setup page can
 be exported and re-imported: each test is a folder with stdin.txt, expected_stdout.txt
@@ -101,7 +104,7 @@ _IGNORED_PARTS = {"__MACOSX", "__pycache__", ".DS_Store", ".pytest_cache", "Thum
 _KNOWN_KEYS = {
     "id", "title", "description", "language", "grading", "editable", "time_limit_s",
     "memory_limit_mb", "test_timeout_s", "duration_minutes", "markers", "allowed_packages",
-    "line_limit", "hints", "output_file", "wrong_solutions",
+    "line_limit", "hints", "output_file", "wrong_solutions", "hidden_test_hints",
 }
 
 VERSIONS_ENV = os.path.join(os.path.dirname(__file__), "..", "runner", "judge0-python", "versions.env")
@@ -156,6 +159,8 @@ class TaskSpec:
     output_file: str | None = None
     # wrong/<name>/ -> the test names it must fail ([] = at least one, any).
     wrong_solutions: dict[str, list[str]] = field(default_factory=dict)
+    # hidden test name -> the sentence students see when it fails.
+    hidden_test_hints: dict[str, str] = field(default_factory=dict)
     requirements: list[str] = field(default_factory=list)
     allowed_packages: list[str] = field(default_factory=list)
     files: list[TaskFile] = field(default_factory=list)
@@ -382,6 +387,35 @@ def _pytest_test_names(source: str) -> list[str]:
 
 def _count_pytest_tests(source: str) -> int:
     return len(_pytest_test_names(source))
+
+
+MAX_HIDDEN_HINT_CHARS = 200
+
+
+def _check_hidden_test_hints(spec: TaskSpec, meta: dict, problems: list[str]) -> None:
+    """task.yaml's hidden_test_hints: {hidden test name: one sentence}."""
+    hints = meta.get("hidden_test_hints")
+    if hints is None:
+        return
+    if not isinstance(hints, dict) or not all(isinstance(k, str) and isinstance(v, str) and v.strip()
+                                              for k, v in hints.items()):
+        problems.append("task.yaml: hidden_test_hints maps a hidden test's name to one sentence, e.g. "
+                        "hidden_test_hints: {test_missing_units_count_as_zero: Checks a sale with no units.}")
+        return
+    hidden_names = set()
+    for f in spec.files_with_role("hidden_test"):
+        if posixpath.basename(f.path).startswith("test_") and f.path.endswith(".py"):
+            try:
+                hidden_names.update(_pytest_test_names(f.content))
+            except SyntaxError:
+                pass
+    for name, text in hints.items():
+        if name not in hidden_names:
+            problems.append(f"task.yaml: hidden_test_hints lists {name}, which isn't a test in hidden_tests/.")
+        elif len(text.strip()) > MAX_HIDDEN_HINT_CHARS:
+            problems.append(f"task.yaml: hidden_test_hints.{name} is longer than {MAX_HIDDEN_HINT_CHARS} "
+                            f"characters; keep it to one sentence.")
+    spec.hidden_test_hints = {k: v.strip() for k, v in sorted(hints.items())}
 
 
 def _check_wrong_solutions(spec: TaskSpec, meta: dict, problems: list[str]) -> None:
@@ -612,6 +646,7 @@ def parse_task(raw: dict[str, bytes], default_id: str = "task") -> TaskSpec:
     else:
         _load_stdout_cases(spec, problems)
     _check_wrong_solutions(spec, meta, problems)
+    _check_hidden_test_hints(spec, meta, problems)
 
     if spec.language == "python":
         for f in spec.files:
@@ -759,6 +794,8 @@ def task_yaml(spec: TaskSpec) -> str:
         meta["allowed_packages"] = spec.allowed_packages
     if spec.line_limit != 200:
         meta["line_limit"] = spec.line_limit
+    if spec.hidden_test_hints:
+        meta["hidden_test_hints"] = dict(spec.hidden_test_hints)
     if any(spec.wrong_solutions.values()):
         meta["wrong_solutions"] = {k: v for k, v in spec.wrong_solutions.items() if v}
     if spec.hints:

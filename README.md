@@ -395,7 +395,11 @@ and the hidden tests only as a count -- also on the waiting screen and the proje
 What the student's code prints shows in the terminal: under the visible test that ran
 it, and top-level prints (outside any function) under "printed while loading your
 code". Output printed during hidden tests is lecturer-only.
-The lecturer dashboard shows every test, hidden ones included.
+The lecturer dashboard shows every test, hidden ones included. A task can give a hidden
+test one student-facing sentence (`hidden_test_hints` in task.yaml, e.g. "Checks the sale
+with no units recorded."): shown, without the test's name, only when that test fails.
+Nothing else about a hidden test reaches students -- not its docstring, not its message.
+In setup, every file of the folder opens read-only by clicking it.
 
 **Grading, hints and clustering.** A failing test maps onto the existing classes: a
 failed assertion is `wrong_answer`, any other exception is `runtime_error` with its

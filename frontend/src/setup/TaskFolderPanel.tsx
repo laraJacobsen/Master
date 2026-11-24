@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { TaskFile, TaskMeta, ValidationTestResult, WrongSolutionCheck } from "../shared/types";
+import { Button } from "../shared/ui";
 import { cx } from "../shared/cx";
 
 // Step 2 of the setup editor for a test-graded task (imported from a task folder):
@@ -15,7 +17,7 @@ const GROUPS: { key: string; label: string; note: string; match: (f: TaskFile, e
   { key: "edit", label: "Students edit", note: "", folder: "", match: (f, e) => f.role === "starter" && e.has(f.path) },
   { key: "ro", label: "Read-only for students", note: "", folder: "", match: (f, e) => f.role === "starter" && !e.has(f.path) },
   { key: "test", label: "Visible tests", note: "Students see these and their results.", folder: "tests/", match: (f) => f.role === "test" },
-  { key: "hidden", label: "Hidden tests", note: "Students only see how many failed.", folder: "hidden_tests/", match: (f) => f.role === "hidden_test" },
+  { key: "hidden", label: "Hidden tests", note: "Students see how many failed, plus the sentences below if there are any.", folder: "hidden_tests/", match: (f) => f.role === "hidden_test" },
   { key: "data", label: "Data", note: "", folder: "data/", match: (f) => f.role === "data" },
   { key: "ref", label: "Reference solution", note: "Never sent to students.", folder: "reference/", match: (f) => f.role === "reference" },
   {
@@ -32,9 +34,49 @@ export interface TaskFolderSummaryProps {
   meta: TaskMeta;
 }
 
+// The viewer shows this many lines of a big file (a data file can be megabytes).
+const VIEWER_MAX_LINES = 400;
+
+export interface TaskFileViewerProps {
+  label: string;
+  content: string;
+  onClose: () => void;
+}
+
+/** One task file, read-only, under the file list -- so the tests can be read before the
+ * task is started in front of the class. */
+function TaskFileViewer({ label, content, onClose }: TaskFileViewerProps) {
+  const lines = content.split("\n");
+  const shown = lines.length > VIEWER_MAX_LINES ? lines.slice(0, VIEWER_MAX_LINES).join("\n") : content;
+  return (
+    <div className="mt-4 animate-fade-in overflow-hidden rounded-lg border border-zinc-200" role="region" aria-label={label}>
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-zinc-50 px-3 py-1.5">
+        <span className="truncate font-mono text-xs text-zinc-800">{label}</span>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+      <pre className="max-h-96 overflow-auto bg-white px-3 py-2.5 font-mono text-xs leading-relaxed text-zinc-800">
+        {shown}
+      </pre>
+      {lines.length > VIEWER_MAX_LINES && (
+        <p className="border-t border-zinc-200 px-3 py-1.5 text-xs text-zinc-500">
+          First {VIEWER_MAX_LINES} of {lines.length} lines.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function TaskFolderSummary({ files, meta }: TaskFolderSummaryProps) {
   const editable = new Set(meta.editable ?? []);
   const testCount = meta.test_ids?.length ?? null;
+  const hiddenHints = Object.entries(meta.hidden_test_hints ?? {});
+  // The file open in the viewer, as "<folder><path>".
+  const [openLabel, setOpenLabel] = useState<string | null>(null);
+  const openFile = GROUPS.flatMap((g) =>
+    files.filter((f) => g.match(f, editable)).map((f) => ({ label: g.folder + f.path, file: f })),
+  ).find((x) => x.label === openLabel);
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -67,11 +109,21 @@ export function TaskFolderSummary({ files, meta }: TaskFolderSummaryProps) {
               <dd className="mt-1.5">
                 <ul className="grid gap-1">
                   {inGroup.map((f) => (
-                    <li key={f.path} className="flex items-baseline justify-between gap-3 text-[13px]">
-                      <span className="truncate font-mono text-zinc-800">
+                    <li key={f.path} className="flex min-w-0 items-baseline justify-between gap-3 text-[13px]">
+                      <button
+                        type="button"
+                        onClick={() => setOpenLabel((cur) => (cur === group.folder + f.path ? null : group.folder + f.path))}
+                        aria-pressed={openLabel === group.folder + f.path}
+                        title="Show this file"
+                        className={cx(
+                          "min-w-0 truncate rounded-sm text-left font-mono underline-offset-4 transition-colors hover:underline",
+                          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500",
+                          openLabel === group.folder + f.path ? "text-brand-700 underline" : "text-zinc-800",
+                        )}
+                      >
                         <span className="text-zinc-400">{group.folder}</span>
                         {f.path}
-                      </span>
+                      </button>
                       <span className="flex-none font-mono text-[11px] tabular-nums text-zinc-400">
                         {formatSize(new TextEncoder().encode(f.content).length)}
                       </span>
@@ -97,6 +149,22 @@ export function TaskFolderSummary({ files, meta }: TaskFolderSummaryProps) {
             </span>
           )}
         </div>
+      )}
+      {hiddenHints.length > 0 && (
+        <div className="mt-4 border-t border-zinc-200 pt-3">
+          <div className="text-xs font-semibold text-zinc-700">What students see when a hidden test fails</div>
+          <dl className="mt-1.5 grid gap-1 text-xs">
+            {hiddenHints.map(([name, hint]) => (
+              <div key={name} className="grid gap-x-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
+                <dt className="truncate font-mono text-zinc-500">{name}</dt>
+                <dd className="text-zinc-800">{hint}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+      {openFile && (
+        <TaskFileViewer label={openFile.label} content={openFile.file.content} onClose={() => setOpenLabel(null)} />
       )}
     </div>
   );

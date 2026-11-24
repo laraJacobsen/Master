@@ -216,6 +216,8 @@ export interface TaskMeta {
   requirements?: string[];
   // wrong/<name>/ -> the tests it must fail ([] = at least one).
   wrong_solutions?: Record<string, string[]>;
+  // hidden test name -> the sentence students see when it fails.
+  hidden_test_hints?: Record<string, string>;
   // The tests the reference run found when the task was last checked.
   test_ids?: { id: string; visibility: TestVisibility }[] | null;
 }
@@ -246,6 +248,9 @@ export interface LoadOutput {
 export interface HiddenTestsSummary {
   total: number;
   failed: number;
+  // What the task's author wrote for the hidden tests that failed (task.yaml's
+  // hidden_test_hints), without their names. Usually empty.
+  hints?: string[];
 }
 
 export interface QuestionPayload {

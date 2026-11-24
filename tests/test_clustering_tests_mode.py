@@ -145,8 +145,16 @@ def test_student_view_counts_hidden_tests_only():
     view = _student_test_view(results({V1: "assert 5 == 6", H1: "assert secret == 42"}))
     assert [(t["name"], t["passed"], t["message"]) for t in view["test_results"]] == [
         ("test_a", False, "assert 5 == 6"), ("test_b", True, "")]
-    assert view["hidden_tests"] == {"total": 1, "failed": 1}
+    assert view["hidden_tests"] == {"total": 1, "failed": 1, "hints": []}
     assert "secret" not in json.dumps(view) and "test_c" not in json.dumps(view)
+
+
+def test_hidden_test_hint_shows_only_when_that_test_fails_and_never_its_name():
+    hints = {"test_c": "Checks a list with a missing value."}
+    failing = _student_test_view(results({H1: "assert secret == 42"}), hints)
+    assert failing["hidden_tests"]["hints"] == ["Checks a list with a missing value."]
+    assert "test_c" not in json.dumps(failing) and "secret" not in json.dumps(failing)
+    assert _student_test_view(results({}), hints)["hidden_tests"]["hints"] == []
 
 
 # --- verdict and hints ----------------------------------------------------------------------
