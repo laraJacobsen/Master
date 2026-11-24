@@ -124,7 +124,7 @@ load_test.py            Many students at once against a real Judge0 (its own bac
                           `--task pandas` for the test-graded example task
 tests/                  Unit tests (`python -m pytest`): task folder loader, JUnit
                           parsing + crash mapping on real Judge0 reports
-                          (tests/fixtures/junit/), clustering on failing-test sets.
+                          (tests/fixtures/judge0_runs.json), clustering on failing-test sets.
                           tests/fixtures/pandas-sales-summary/ is the example task folder
                           (also the setup page's "Download an example")
 runner/judge0-python/   The Judge0 image test-graded tasks run on (Python 3.11 +
@@ -277,7 +277,10 @@ VPN needed), and checks: the questions endpoint, a full submit -> grade ->
 feedback -> store round trip, the lecturer submissions list, a submission
 detail lookup, a 404 on an unknown question, the question-setup and lecture
 flows, issue clustering (including that the IDUN call never sees student
-names or comments), and that the frontend pages are served. All of that
+names or comments), and that the frontend pages are served. For test-graded tasks it
+walks import (and re-import) -> Check solution with the wrong solutions -> start ->
+workspace -> Run -> five students' submits -> clusters -> export, with Judge0 answering
+from real pytest runs recorded in tests/fixtures/judge0_runs.json. All of that
 passes as of this build.
 
 The student page's join -> task -> waiting-screen flow (correct answer,

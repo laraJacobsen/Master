@@ -17,6 +17,8 @@ Run with:
 from the /root/prototype directory (see README.md).
 """
 
+import glob
+import hashlib
 import json
 import logging
 import os
@@ -24,7 +26,7 @@ from datetime import datetime
 
 import anyio
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -1021,7 +1023,8 @@ def api_lecture_status():
     # of silently carrying the old join over.
     lecture_id = current_lecture["id"] if current_lecture else None
     if not question:
-        return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": [], "shown_position": None}
+        return {"finished": finished, "lecture_id": lecture_id, "question": None, "shown_examples": [],
+                "shown_position": None, "build": frontend_build()}
 
     tests = test_files.without_contents(question["test_cases"])
     time_up = _seconds_remaining(question) <= 0
@@ -1065,6 +1068,9 @@ def api_lecture_status():
         # Where that entry sits in the queue, for the projector's
         # Previous/Next controls; None before time is up or with nothing queued.
         "shown_position": screen_position(question["id"]) if time_up else None,
+        # The frontend build being served now: a tab whose page carries another one
+        # (its <meta name="app-build">) runs old code and reloads -- see frontend_build().
+        "build": frontend_build(),
     }
 
 
@@ -1813,11 +1819,41 @@ _PAGES = {
 _LEGACY_PAGES = {f"/{file}": path for path, file in _PAGES.items()} | {"/index.html": "/"}
 
 
+_build_cache: dict = {"key": None, "build": None}
+
+
+def frontend_build() -> str | None:
+    """A fingerprint of the frontend build being served: a hash of the built pages
+    (frontend/dist/*.html, which name every hashed asset). Each page is served with it
+    in a <meta name="app-build"> tag, and /api/lecture/status reports the current one,
+    so a tab left open across an `npm run build` notices it's running old code
+    (frontend/src/shared/build.ts) instead of misreading newer API responses. Rechecked
+    when a page file changes; None when there's no build (dev server)."""
+    files = sorted(glob.glob(os.path.join(_frontend_dir, "*.html")))
+    try:
+        key = tuple((f, os.path.getmtime(f)) for f in files)
+    except OSError:
+        return None
+    if key != _build_cache["key"]:
+        digest = hashlib.sha256()
+        for f in files:
+            with open(f, "rb") as fh:
+                digest.update(fh.read())
+        _build_cache.update(key=key, build=digest.hexdigest()[:12] if files else None)
+    return _build_cache["build"]
+
+
 # Factories, not default arguments: FastAPI would expose a handler's extra
 # parameters as query parameters (?file=... choosing what gets served).
 def _page_handler(file: str):
-    def page() -> FileResponse:
-        return FileResponse(os.path.join(_frontend_dir, file))
+    def page() -> HTMLResponse:
+        with open(os.path.join(_frontend_dir, file), encoding="utf-8") as f:
+            html = f.read()
+        build = frontend_build()
+        if build:
+            html = html.replace("<head>", f'<head>\n    <meta name="app-build" content="{build}">', 1)
+        # Never cached: a cached page would carry an old build id and old asset names.
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
     return page
 

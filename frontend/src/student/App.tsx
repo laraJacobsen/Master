@@ -34,6 +34,7 @@ import { TestResultsList } from "./TestResults";
 import { ROUTES } from "../shared/routes";
 import { Footer } from "../shared/Footer";
 import { rememberRole } from "../shared/role";
+import { isStaleBuild, reloadForBuild } from "../shared/build";
 // Monaco is most of this page's weight -- loaded only once a task is live,
 // so the join and waiting screens stay instant.
 const Workspace = lazy(() => import("./Workspace").then((m) => ({ default: m.Workspace })));
@@ -503,6 +504,12 @@ export default function App() {
   }
 
   function applyStatus(status: LectureStatus) {
+    // The page was updated on the server while this tab was open: reload to the new
+    // code. The code being written is safe (autosaved, and flushed on pagehide); wait
+    // for a submission in flight to come back first.
+    if (status.build && isStaleBuild(status.build) && !submittingRef.current && reloadForBuild(status.build)) {
+      return;
+    }
     // A different lecture than the one this tab joined (or a join saved
     // before lecture ids were tracked) -- the old join doesn't carry over.
     // Back to the join screen for the new lecture's code.

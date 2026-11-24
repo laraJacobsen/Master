@@ -99,6 +99,8 @@ export interface LectureStatus {
   // Where that entry sits in the screen queue (0-based index), for the
   // projector's Previous/Next; null before time is up or with nothing queued.
   shown_position: { index: number; total: number } | null;
+  // The frontend build the server serves now (shared/build.ts); null without a build.
+  build?: string | null;
 }
 
 // One thing the lecturer queued to show the class -- a raised discussion

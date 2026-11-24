@@ -97,11 +97,12 @@ def test_defaults_and_editable_defaults_to_every_starter_file():
     })
     spec = tf.parse_task(raw)
     assert spec.editable == ["solution.py"]
-    assert (spec.cpu_time_limit_s, spec.memory_limit_kb, spec.test_timeout_s, spec.duration_seconds) == (5, 128 * 1024, 2, 600)
+    assert (spec.cpu_time_limit_s, spec.memory_limit_kb, spec.test_timeout_s, spec.duration_seconds) == (5, 250 * 1024, 2, 600)
 
 
 def test_stdout_task_loads_visible_case_first_hidden_sorted():
     spec = tf.parse_task(stdout_task())
+    assert spec.memory_limit_kb == 128 * 1024  # stdout tasks keep the old default
     assert [(c.name, c.visible) for c in spec.stdout_cases] == [("example", True), ("a", False), ("b", False)]
     assert spec.stdout_cases[1].files == [{"name": "numbers.txt", "content": "1 2\n"}]
     assert spec.stdout_cases[1].stdin == ""

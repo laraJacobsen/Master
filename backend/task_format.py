@@ -22,7 +22,9 @@ task.yaml (only title, description and language are required):
     editable: [solution.py]     # starter files students may change; the rest are read-only.
                                 # Default: every starter file.
     time_limit_s: 5             # CPU time for one submission (the whole test run)
-    memory_limit_mb: 128        # MiB (x 1024 KB, as the setup page counts); at most 250
+    memory_limit_mb: 250        # MiB (x 1024 KB, as the setup page counts), at most 250. Default:
+                                # 250 for grading: tests (pandas + pytest alone can briefly
+                                # take ~115 MB), 128 for grading: stdout
     test_timeout_s: 2           # tests mode: per test (pytest-timeout)
     duration_minutes: 10        # how long the task runs in the lecture
     markers:                    # optional BEGIN/END mode: students edit only between
@@ -76,6 +78,10 @@ from packaging.requirements import InvalidRequirement, Requirement
 # --- limits ----------------------------------------------------------------------------
 
 MAX_FILES = 200
+# Default memory per grading mode, in MiB. A pytest run with pandas usually peaks around
+# 52 MB but has reached 110-115 MB on the first run after a pause, too close to 128;
+# 250 MiB (256000 KB) is the server's own cap (judge0_client.MAX_MEMORY_LIMIT_KB).
+DEFAULT_MEMORY_MB = {"stdout": 128, "tests": 250}
 MAX_CODE_FILE_BYTES = 1_000_000  # starter/tests/reference: the same 1 MB as a test case's files
 MAX_DATA_FILE_BYTES = 5_000_000
 # Judge0 refuses an additional_files zip that unpacks to more than max_extract_size
@@ -539,7 +545,8 @@ def parse_task(raw: dict[str, bytes], default_id: str = "task") -> TaskSpec:
         id=task_id, title=title, description=description, language=language or "python",
         grading=grading if grading in GRADING_MODES else "stdout", editable=[],
         cpu_time_limit_s=_number(meta, "time_limit_s", 5, problems, 0.5, 15),
-        memory_limit_kb=round(_number(meta, "memory_limit_mb", 128, problems, 16, 250) * 1024),
+        memory_limit_kb=round(_number(meta, "memory_limit_mb", DEFAULT_MEMORY_MB.get(grading, 128), problems,
+                                      16, 250) * 1024),
         test_timeout_s=_number(meta, "test_timeout_s", 2, problems, 0.5, 15),
         duration_seconds=int(_number(meta, "duration_minutes", 10, problems, 1, 180) * 60),
         allowed_packages=_string_list(meta, "allowed_packages", problems),

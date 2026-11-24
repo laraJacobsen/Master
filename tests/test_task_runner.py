@@ -1,5 +1,5 @@
 """JUnit parsing and crash mapping (backend/task_runner.py), against real Judge0 runs of
-the example task saved in tests/fixtures/junit/ (make_junit_fixtures.py regenerates them)."""
+the example task saved in tests/fixtures/judge0_runs.json (make_judge0_runs.py regenerates it)."""
 
 import json
 import os
@@ -9,7 +9,8 @@ import pytest
 
 from backend import hints, task_format, task_import, task_runner as tr
 
-FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "junit")
+with open(os.path.join(os.path.dirname(__file__), "fixtures", "judge0_runs.json")) as _f:
+    RUNS = json.load(_f)
 EXAMPLE = os.path.join(os.path.dirname(__file__), "fixtures", "pandas-sales-summary")
 
 TASK = task_import.question_fields(task_format.load_task_dir(EXAMPLE))
@@ -22,8 +23,7 @@ EXPECTED = [{"id": i, "visibility": "visible"} for i in VISIBLE] + [{"id": i, "v
 
 
 def run_of(scenario: str) -> dict:
-    with open(os.path.join(FIXTURES, f"{scenario}.json")) as f:
-        return json.load(f)["run"]
+    return RUNS[scenario]
 
 
 def results(scenario: str, expected=EXPECTED, include_hidden=True) -> list:
@@ -67,9 +67,9 @@ def test_starter_failures_have_short_messages_and_types():
 
 
 def test_hidden_only_failure_is_a_wrong_answer_with_one_failing_test():
-    rs = results("no_fillna")
+    rs = results("wrong_forgot_fillna")
     assert failing(rs) == {HIDDEN[0]}
-    assert classified("no_fillna") == ("wrong_answer", None)
+    assert classified("wrong_forgot_fillna") == ("wrong_answer", None)
 
 
 def test_exception_inside_a_test_maps_to_runtime_error_with_its_name():
@@ -149,7 +149,7 @@ def test_long_output_is_cut():
 
 
 def test_visible_only_run():
-    rs = results("no_fillna", include_hidden=False)
+    rs = results("wrong_forgot_fillna", include_hidden=False)
     assert [r.id for r in rs] == VISIBLE and all(r.passed for r in rs)
 
 

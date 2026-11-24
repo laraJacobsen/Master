@@ -1,10 +1,10 @@
-"""Regenerates tests/fixtures/junit/*.json from real runs: the example pandas task with one
+"""Regenerates tests/fixtures/judge0_runs.json from real runs: the example pandas task with one
 student solution per scenario, run through Judge0 on the judge0-pytest image. Each file
 keeps what Judge0 returned (the run dict, whose stdout holds the JUnit report behind the
 run's marker), so tests/test_task_runner.py checks the parser against real reports
 without needing Judge0.
 
-    python tests/fixtures/make_junit_fixtures.py      # needs the local Judge0 on that image
+    python tests/fixtures/make_judge0_runs.py      # needs the local Judge0 on that image
 """
 
 import json
@@ -26,7 +26,6 @@ starter = task_runner.starter_files(fields)["solution.py"]
 SCENARIOS = {
     "all_pass": reference,
     "starter": starter,
-    "no_fillna": reference.replace('    df["units"] = df["units"].fillna(0)\n', ""),
     "syntax_error": reference.replace("return df.groupby", "return (df.groupby"),
     "import_error": reference.replace("def load_sales(", "def load_sale("),
     "missing_package": "import seaborn\n" + reference,
@@ -40,11 +39,14 @@ SCENARIOS = {
     "prints": reference.replace("    return df\n", "    print('rows:', len(df))\n    return df\n", 1),
     "prints_top_level": reference + "\nprint('loading my solution')\n",
 }
+# The task folder's own wrong solutions (wrong/<name>/solution.py), recorded too: the
+# smoke test's fake Judge0 answers Check solution's runs of them from these.
+for _name, _files in task_runner.wrong_solutions(fields).items():
+    SCENARIOS[f"wrong_{_name}"] = _files["solution.py"]
 
 
 def main():
-    out_dir = os.path.join(HERE, "junit")
-    os.makedirs(out_dir, exist_ok=True)
+    runs = {}
     real = judge0_client.run_archive
     for name, code in SCENARIOS.items():
         captured = {}
@@ -58,11 +60,12 @@ def main():
             results = task_runner.run_tests(fields, {"solution.py": code})
         finally:
             judge0_client.run_archive = real
-        run = captured["run"]
-        with open(os.path.join(out_dir, f"{name}.json"), "w") as f:
-            json.dump({"scenario": name, "run": run}, f, indent=1)
+        run = runs[name] = captured["run"]
         summary = ", ".join(f"{r.name}={r.outcome}/{r.error_type}" for r in results)
         print(f"{name:17} {run['status_description']:24} cpu {run['time_s']}s {run['memory_kb']}KB  {summary}")
+
+    with open(os.path.join(HERE, "judge0_runs.json"), "w") as f:
+        json.dump(runs, f, indent=1, sort_keys=True)
 
 
 if __name__ == "__main__":

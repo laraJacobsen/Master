@@ -14,7 +14,6 @@ language: python
 grading: tests
 editable: [solution.py]
 time_limit_s: 5
-memory_limit_mb: 128
 test_timeout_s: 2
 duration_minutes: 10
 hints:
