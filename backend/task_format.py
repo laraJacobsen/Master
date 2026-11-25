@@ -41,6 +41,12 @@ task.yaml (only title, description and language are required):
     hidden_test_hints:          # optional: one sentence a student sees when that hidden test
       test_missing_units_count_as_zero: Checks a sale with no units recorded.   # fails. Only
                                 # what's written here is shown; other hidden tests stay a count.
+    hint_policy:                # optional (these are the defaults), see backend/hint_policy.py:
+      free_attempts: 1          #   counted attempts with results but no hint
+      unlock: both              #   next hint: attempt | timer | both (attempt after the wait)
+      interval_seconds: 60      #   the wait, for timer and both
+      duplicate_similarity: 1.0 #   1 = only the same code (after normalising) doesn't count
+      penalty: false            #   show students a penalty count (informational)
 
 Grading "stdout" is the app's original model, so a task created in the setup page can
 be exported and re-imported: each test is a folder with stdin.txt, expected_stdout.txt
