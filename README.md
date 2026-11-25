@@ -25,6 +25,8 @@ backend/
   auth.py              Lecturer login (LECTURER_PASSWORD): session cookie for the
                         lecturer pages, X-Lecturer-Token header for scripts; checked
                         for every /api/lecturer/* route by main.py's middleware
+  rate_limit.py        Rate limits for every /api/* call, applied by the same
+                        middleware: per join token, lecturer session, or address
   judge0_client.py   Judge0 SYNC submission wrapper (reuses the pattern from
                       the earlier latency/scaling benchmark scripts); per-question
                       cpu_time_limit/memory_limit are passed through here and capped
@@ -184,6 +186,18 @@ startup: fine on your own machine, never with students on the network.
 For real use, also run without `--reload`, with a single worker (the label
 caches and the SQLite lock live in the process), behind HTTPS -- with
 `--proxy-headers` so the session cookie is marked Secure.
+
+Every API call is rate limited (`backend/rate_limit.py`, where the numbers
+live). Students are limited per join token and the lecturer per session, so a
+whole class sharing one address (campus NAT) doesn't share one budget; only
+calls with neither fall back to the client address, with limits sized for a
+full class. Lecturer password guesses (login form or `X-Lecturer-Token`) lock
+an address out after 10 wrong ones in 15 minutes; wrong join codes after 50 in
+10 minutes. Every LLM call shares one budget (60 at once, then 1 a second); a
+refused label shows the generic line until its retry. Limits are in memory,
+which is why the single worker matters here too, and they need
+`--proxy-headers` behind a proxy to see real client addresses. Set
+`RATE_LIMITS=off` for load tests beyond a real class.
 
 Students don't log in: joining with the lecture code gives the browser a
 token for that lecture (kept in localStorage), and every student call sends

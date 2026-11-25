@@ -22,6 +22,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from datetime import datetime
 
 import anyio
@@ -44,7 +45,7 @@ from backend.aggregation import (
     session_summary,
     student_recap,
 )
-from backend import task_format, task_import, task_runner, test_files
+from backend import rate_limit, task_format, task_import, task_runner, test_files
 from backend.hint_ladder import clean_ladder, draft_hint_ladder
 from backend.ai_feedback import _traceback_for, judge_and_feedback
 from backend.judge0_client import Judge0Error, run_submission, run_test_cases
@@ -69,18 +70,132 @@ if _cors_origins:
 _LECTURER_PUBLIC_PATHS = {"/api/lecturer/login", "/api/lecturer/logout", "/api/lecturer/session"}
 
 
+# Routes with a tighter budget on top of the general one (see backend/rate_limit.py).
+_STUDENT_RUN_PATHS = {"/api/submit", "/api/run"}
+_AI_DRAFT_PATH = "/api/lecturer/hints/draft"
+
+
+def _is_lecturer_run(path: str) -> bool:
+    return path == "/api/lecturer/run" or (path.startswith("/api/lecturer/questions/") and path.endswith("/validate"))
+
+
+def _client_ip(request: Request) -> str:
+    # Behind a proxy this is the real client only with uvicorn's --proxy-headers
+    # (README.md); without it every request shares the proxy's address, which the
+    # per-address limits are sized to survive anyway.
+    return request.client.host if request.client else "unknown"
+
+
+def _wait_text(seconds: float) -> str:
+    seconds = max(1, int(seconds + 0.999))
+    if seconds < 90:
+        return f"{seconds} second{'s' if seconds != 1 else ''}"
+    minutes = int(seconds / 60 + 0.999)
+    return f"{minutes} minutes"
+
+
+def _too_many(wait: float, detail: str) -> JSONResponse:
+    return JSONResponse(
+        {"detail": detail}, status_code=429, headers={"Retry-After": str(max(1, int(wait + 0.999)))}
+    )
+
+
+def _too_many_error(wait: float, detail: str) -> HTTPException:
+    return HTTPException(status_code=429, detail=detail, headers={"Retry-After": str(max(1, int(wait + 0.999)))})
+
+
+def _login_wait(ip: str) -> float:
+    """Seconds this address must wait before another lecturer password guess (0: none)."""
+    if not rate_limit.enabled():
+        return 0.0
+    limits = rate_limit.LIMITS
+    return max(limits.login_failures_per_ip.retry_after(ip), limits.login_failures_global.retry_after("global"))
+
+
+def _login_failed(ip: str) -> None:
+    rate_limit.LIMITS.login_failures_per_ip.record(ip)
+    rate_limit.LIMITS.login_failures_global.record("global")
+
+
+def _login_wait_detail(wait: float) -> str:
+    return f"Too many wrong lecturer passwords. Try again in {_wait_text(wait)}."
+
+
+# Valid student tokens seen recently -> when to look them up again, so keying the
+# limits by token doesn't cost a database read per poll. Only valid tokens go in:
+# made-up ones fall back to the per-address limit.
+_known_tokens: dict = {}
+_KNOWN_TOKEN_SECONDS = 60
+_KNOWN_TOKENS_MAX = 20_000
+
+
+async def _valid_student_token(token: str | None) -> bool:
+    if not token:
+        return False
+    now = time.monotonic()
+    if _known_tokens.get(token, 0) > now:
+        return True
+    if not await anyio.to_thread.run_sync(store.student_for_token, token):
+        return False
+    if len(_known_tokens) >= _KNOWN_TOKENS_MAX:
+        _known_tokens.clear()
+    _known_tokens[token] = now + _KNOWN_TOKEN_SECONDS
+    return True
+
+
 @app.middleware("http")
-async def lecturer_auth(request: Request, call_next):
-    """Every /api/lecturer/* route is the lecturer's only (see backend/auth.py):
-    it exposes students' code, reference solutions and hidden tests, and runs
-    the lecture. Checked here once, so a new lecturer route can't forget it."""
+async def guard(request: Request, call_next):
+    """Lecturer access and rate limits for every /api/* call, in one place so a new
+    route can't forget either.
+
+    Every /api/lecturer/* route is the lecturer's only (see backend/auth.py): it
+    exposes students' code, reference solutions and hidden tests, and runs the
+    lecture. A wrong X-Lecturer-Token header counts as a wrong password, same as the
+    login form, so the header can't be used to guess around the login limit.
+
+    Rate limits (backend/rate_limit.py) are keyed by who's asking -- the lecturer's
+    session, else a student's join token, else the client address -- because a whole
+    class can share one address. Login and join count their wrong guesses in their
+    own routes, since only they know a guess was wrong."""
     path = request.scope["path"]
-    if (
-        path.startswith("/api/lecturer/")
-        and path not in _LECTURER_PUBLIC_PATHS
-        and not auth.is_lecturer(request.cookies.get(auth.COOKIE_NAME), request.headers.get(auth.HEADER_NAME))
-    ):
-        return JSONResponse({"detail": "Log in as the lecturer first."}, status_code=401)
+    if not path.startswith("/api/"):
+        return await call_next(request)
+    limiting = rate_limit.enabled()
+    limits = rate_limit.LIMITS
+    ip = _client_ip(request)
+
+    if path.startswith("/api/lecturer/") and path not in _LECTURER_PUBLIC_PATHS:
+        header = request.headers.get(auth.HEADER_NAME)
+        lecturer = not auth.auth_required() or auth.session_valid(request.cookies.get(auth.COOKIE_NAME))
+        if not lecturer and header is not None:
+            wait = _login_wait(ip)
+            if wait:
+                return _too_many(wait, _login_wait_detail(wait))
+            lecturer = auth.password_matches(header)
+            if not lecturer and limiting:
+                _login_failed(ip)
+        if not lecturer:
+            if limiting and (wait := limits.anonymous_per_ip.take(ip)):
+                return _too_many(wait, "Too many requests. Wait a few seconds and try again.")
+            return JSONResponse({"detail": "Log in as the lecturer first."}, status_code=401)
+        if limiting:
+            if wait := limits.lecturer_requests.take("lecturer"):
+                return _too_many(wait, "Too many requests. Wait a few seconds and try again.")
+            if path == _AI_DRAFT_PATH and (wait := limits.ai_drafts.take("lecturer")):
+                return _too_many(wait, f"Hints were drafted several times in a row. Try again in {_wait_text(wait)}.")
+            if _is_lecturer_run(path) and (wait := limits.lecturer_runs.take("lecturer")):
+                return _too_many(wait, f"Code was run many times in a row. Try again in {_wait_text(wait)}.")
+        return await call_next(request)
+
+    if limiting:
+        token = request.headers.get("X-Student-Token")
+        if await _valid_student_token(token):
+            if wait := limits.student_requests.take(token):
+                return _too_many(wait, "Too many requests. Wait a few seconds and try again.")
+            if path in _STUDENT_RUN_PATHS and (wait := limits.student_runs.take(token)):
+                return _too_many(wait, f"You're running code very quickly. Wait {_wait_text(wait)} and try again.")
+        elif wait := limits.anonymous_per_ip.take(ip):
+            return _too_many(wait, "Too many requests from this network. Wait a few seconds and try again.")
     return await call_next(request)
 
 
@@ -112,9 +227,16 @@ def api_lecturer_session(request: Request):
 async def api_lecturer_login(req: LecturerLoginRequest, request: Request, response: Response):
     if not auth.auth_required():
         return {"logged_in": True}
+    ip = _client_ip(request)
+    # Checked before the password, so a locked-out guesser learns nothing.
+    if wait := _login_wait(ip):
+        raise _too_many_error(wait, _login_wait_detail(wait))
     if not auth.password_matches(req.password):
+        if rate_limit.enabled():
+            _login_failed(ip)
         await anyio.sleep(1)  # makes guessing slow, without holding a thread
         raise HTTPException(status_code=401, detail="That password isn't right.")
+    rate_limit.LIMITS.login_failures_per_ip.reset(ip)
     response.set_cookie(
         auth.COOKIE_NAME,
         auth.new_session_cookie(),
@@ -437,6 +559,10 @@ def api_lecturer_draft_hints(req: HintDraftRequest):
         raise HTTPException(status_code=400, detail="Write the task text and a reference solution first.")
     try:
         hints = draft_hint_ladder(req.prompt, req.language, req.reference_solution, req.starter_code)
+    except rate_limit.RateLimited as e:
+        raise _too_many_error(
+            e.retry_after, f"The language model has had a lot of requests. Try again in {_wait_text(e.retry_after)}."
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     return {"hints": hints}
@@ -1211,7 +1337,7 @@ def api_lecture_attempts(question_id: str, student: dict = Depends(_student)):
 
 
 @app.post("/api/lecture/join")
-def api_lecture_join(req: LectureJoinRequest):
+def api_lecture_join(req: LectureJoinRequest, request: Request):
     """Kahoot-style entry gate for the student page (store.check_join_code's
     docstring) -- called once, before the student page starts polling
     /api/lecture/status. The right code gets the student a token (see
@@ -1222,7 +1348,17 @@ def api_lecture_join(req: LectureJoinRequest):
 
     A name already used in this lecture is refused (409), except for the
     browser that holds its token -- a refresh or reopened tab rejoins as the
-    same student."""
+    same student.
+
+    Rate limits (backend/rate_limit.py), per client address since there's no
+    identity yet: wrong codes (a 6-digit code is guessable given enough tries) and
+    joins themselves (each one is a new student identity)."""
+    limiting = rate_limit.enabled()
+    ip = _client_ip(request)
+    if limiting and (wait := rate_limit.LIMITS.join_failures_per_ip.retry_after(ip)):
+        raise _too_many_error(
+            wait, f"Too many wrong codes from this network. Wait {_wait_text(wait)}, then check the code with your lecturer."
+        )
     active = store.get_active_lecture()
     if not active:
         raise HTTPException(status_code=404, detail="No lecture is live right now.")
@@ -1232,10 +1368,14 @@ def api_lecture_join(req: LectureJoinRequest):
         )
     lecture = store.check_join_code(req.code)
     if not lecture:
+        if limiting:
+            rate_limit.LIMITS.join_failures_per_ip.record(ip)
         raise HTTPException(status_code=403, detail="That code didn't match. Check with your lecturer and try again.")
     student_name = req.student_name.strip()
     if not student_name:
         raise HTTPException(status_code=400, detail="Enter your name.")
+    if limiting and (wait := rate_limit.LIMITS.joins_per_ip.take(ip)):
+        raise _too_many_error(wait, f"Lots of people just joined from this network. Try again in {_wait_text(wait)}.")
     try:
         identity = store.join_student(lecture["id"], student_name, req.token)
     except store.NameTaken:

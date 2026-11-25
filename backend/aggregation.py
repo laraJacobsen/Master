@@ -258,6 +258,7 @@ import requests
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from backend.rate_limit import take_llm_call
 from backend import hints, store, task_import
 
 # Nothing else in this project configures logging -- without this, the per-stage
@@ -832,6 +833,7 @@ def _call_llm_subcluster_pattern(snippets: list, reference_solution: str = None)
         )
     parts.append("Snippets:\n\n" + "\n\n---\n\n".join(snippets))
     prompt = "\n\n".join(parts) + "\n\nRespond with the JSON object described in the system prompt."
+    take_llm_call()  # the server-wide LLM budget (backend/rate_limit.py); raises over it
     headers = {"Authorization": f"Bearer {LLM['api_key']}"} if LLM["api_key"] else {}
     resp = requests.post(
         f"{LLM['base_url']}/chat/completions",
@@ -968,6 +970,7 @@ def _call_llm_headline(category: str, discussion_point: str) -> dict:
     that text, never code: the note itself stays exactly the rated Label output
     (see the module docstring), and with nothing but the note to go on the model has
     nothing to invent a cause from. Raises on any failure; caller falls back to None."""
+    take_llm_call()  # the server-wide LLM budget (backend/rate_limit.py); raises over it
     headers = {"Authorization": f"Bearer {LLM['api_key']}"} if LLM["api_key"] else {}
     resp = requests.post(
         f"{LLM['base_url']}/chat/completions",

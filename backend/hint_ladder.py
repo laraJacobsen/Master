@@ -22,6 +22,7 @@ import uuid
 import requests
 
 from backend.aggregation import LLM, _llm_available
+from backend.rate_limit import RateLimited, take_llm_call
 
 LADDER_LENGTH = 3
 
@@ -82,6 +83,7 @@ def _call_llm(prompt: str, language: str, reference_solution: str, starter_code:
     # IDUN's gateway caches byte-identical requests, so without this a retry or the
     # lecturer's "Draft again" would just get the same draft back.
     parts.append(f"(draft {uuid.uuid4().hex[:8]})")
+    take_llm_call()  # the server-wide LLM budget (backend/rate_limit.py); raises over it
     headers = {"Authorization": f"Bearer {LLM['api_key']}"} if LLM["api_key"] else {}
     resp = requests.post(
         f"{LLM['base_url']}/chat/completions",
@@ -123,6 +125,8 @@ def draft_hint_ladder(prompt: str, language: str, reference_solution: str,
     for _attempt in range(3):
         try:
             return _call_llm(prompt, language, reference_solution, starter_code)
+        except RateLimited:
+            raise  # over the LLM budget: retrying now would only be refused again
         except Exception as e:
             last_error = e
     raise RuntimeError(f"Couldn't draft hints: {last_error}")
