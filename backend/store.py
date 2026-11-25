@@ -547,9 +547,18 @@ def update_question(question_id: str, fields: dict) -> None:
     if not fields:
         return
     row = _serialize_question(fields)
-    columns = ", ".join(f"{k} = ?" for k in row)
     with _lock:
         conn = _connect()
+        # Column names can't be bound as ? parameters, so they're interpolated
+        # below -- only after checking each one is a real, editable column.
+        # Today every caller passes a Pydantic model's fields or a fixed dict,
+        # but this keeps the query safe without relying on that.
+        editable = {r["name"] for r in conn.execute("PRAGMA table_info(questions)")} - {"id", "created_at"}
+        unknown = set(row) - editable
+        if unknown:
+            conn.close()
+            raise ValueError(f"update_question: not editable question columns: {sorted(unknown)}")
+        columns = ", ".join(f"{k} = ?" for k in row)
         conn.execute(
             f"UPDATE questions SET {columns} WHERE id = ?",
             (*row.values(), question_id),
