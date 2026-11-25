@@ -41,6 +41,10 @@ export interface LiveHeroProps {
   showActivity: boolean;
   // Where the "scroll for more" cue jumps to.
   contentId: string;
+  // Hints released to everyone so far (null = not known yet), and releasing the next.
+  releasedHintLevel: number | null;
+  releasingHint: boolean;
+  onReleaseHint: () => void;
 }
 
 // Same white-on-purple button as the home page's "Lecture in progress" panel.
@@ -76,6 +80,9 @@ export function LiveHero(props: LiveHeroProps) {
     tracks,
     showActivity,
     contentId,
+    releasedHintLevel,
+    releasingHint,
+    onReleaseHint,
   } = props;
   const [showTask, setShowTask] = useState(false);
   const [compact, setCompact] = useState(false);
@@ -159,6 +166,22 @@ export function LiveHero(props: LiveHeroProps) {
       </Button>
     );
 
+  // Releases the next hint to the whole class, whatever the task's hint policy. Only
+  // while students are working; a quieter button than the main one beside it.
+  const releaseButton =
+    controls && running && releasedHintLevel != null ? (
+      <Button
+        size="lg"
+        variant="secondary"
+        onClick={onReleaseHint}
+        disabled={releasingHint || advancing}
+        className="border-white/30 bg-white/10 text-white shadow-none hover:bg-white/20 active:bg-white/25 focus-visible:outline-white"
+        title={`Every student gets at least hint ${releasedHintLevel + 1} from now on, whatever the task's hint settings.`}
+      >
+        Release hint {releasedHintLevel + 1}
+      </Button>
+    ) : null;
+
   // White text on the band both while running (purple) and once ended (deep purple).
   const onBand = running || ended;
   const muted = onBand ? "text-white/75" : "text-zinc-500";
@@ -237,6 +260,7 @@ export function LiveHero(props: LiveHeroProps) {
               <h1 className="mt-2 text-4xl font-bold tracking-tight text-balance lg:text-5xl">{title}</h1>
             </div>
             <div className="flex items-center gap-2">
+              {releaseButton}
               {nextButton("lg")}
               {menu}
             </div>

@@ -207,3 +207,37 @@ def hint_state(policy: HintPolicy, attempt_times: list[float], releases: list[tu
         unlock_at = None
     return HintState(level=level, counted_attempts=counted, free_attempts_left=free_left,
                      needs_attempt=needs_attempt, unlock_at=unlock_at, released_level=released)
+
+
+# --- penalty and spam -------------------------------------------------------------------
+
+
+def penalty(policy: HintPolicy, counted_verdicts: list[str]) -> int:
+    """Counted wrong attempts after the free ones, up to the first correct one
+    (verdicts oldest first). Informational only: nothing else reads it."""
+    total = 0
+    for number, verdict in enumerate(counted_verdicts, 1):
+        if verdict == "correct":
+            break
+        if number > policy.free_attempts:
+            total += 1
+    return total
+
+
+# "Likely spamming" on the lecturer's dashboard. Shared settings, not per task: they
+# describe behaviour, not the task's pedagogy.
+SPAM_DUPLICATES = 3  # this many submissions that repeated earlier code
+SPAM_BURST_COUNT = 5  # or this many submits (any kind) ...
+SPAM_BURST_SECONDS = 60  # ... within this many seconds
+
+
+def spam_reason(submit_times: list[float], duplicate_count: int) -> str | None:
+    """Why a student looks like they're spamming Submit, or None. submit_times: every
+    submit, counted or not, any order."""
+    if duplicate_count >= SPAM_DUPLICATES:
+        return f"{duplicate_count} resubmissions of the same code"
+    times = sorted(submit_times)
+    for i in range(len(times) - SPAM_BURST_COUNT + 1):
+        if times[i + SPAM_BURST_COUNT - 1] - times[i] <= SPAM_BURST_SECONDS:
+            return f"{SPAM_BURST_COUNT} submits within {SPAM_BURST_SECONDS} s"
+    return None

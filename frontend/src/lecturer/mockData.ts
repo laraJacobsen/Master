@@ -235,6 +235,12 @@ export function buildMock(ended = false) {
     status: i % 7 === 3 ? "idle" : i >= 24 ? "away" : "active",
     idle_seconds: i % 7 === 3 ? 240 : i >= 24 ? null : 10,
     nudged: i === 3,
+    counted_attempts: subs.filter((s) => s.student_name === name).length,
+    rejected: 0,
+    // One student resubmitting the same code, to preview the spam flag.
+    duplicates: i === 5 ? 4 : 0,
+    penalty: null,
+    spam: i === 5 ? "4 resubmissions of the same code" : null,
   }));
 
   return {

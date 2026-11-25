@@ -43,6 +43,17 @@ export function orderStudents(tracks: StudentTrack[], only?: Set<string>): Stude
   return GROUP_ORDER.flatMap((g) => tracks.filter((t) => groupOf(t) === g)).filter((t) => !only || only.has(t.name));
 }
 
+/** "3 counted, 2 didn't count" -- the hint-policy view of a student's submits. */
+function attemptCounts(a: StudentActivity | null | undefined): string | null {
+  if (!a || a.counted_attempts + a.rejected + a.duplicates === 0) return null;
+  const skipped = a.rejected + a.duplicates;
+  return (
+    `${a.counted_attempts} counted` +
+    (skipped ? `, ${skipped} didn't count${a.duplicates ? ` (${a.duplicates} same code)` : ""}` : "") +
+    (a.penalty != null ? `, penalty ${a.penalty}` : "")
+  );
+}
+
 export interface ShowCodeControl {
   shownIds: Set<number>;
   busyId: number | null;
@@ -158,9 +169,20 @@ export function StudentGrid({
                     (t.best
                       ? `best ${LABEL[verdictOf(t.best)]}, ${t.best.tests_passed}/${t.best.tests_total} tests, ${t.attempts.length} attempt(s)`
                       : "no attempts yet") +
-                    (a ? ` · ${activityTitle(a)}` : "")
+                    (a ? ` · ${activityTitle(a)}` : "") +
+                    (attemptCounts(t.activity) ? ` · ${attemptCounts(t.activity)}` : "") +
+                    (t.activity?.spam ? ` · likely spamming Submit: ${t.activity.spam}` : "")
                   }
                 >
+                  {t.activity?.spam && (
+                    <span
+                      className="absolute top-1 right-4 font-mono text-[11px] leading-none font-bold text-zinc-900"
+                      role="img"
+                      aria-label="Likely spamming Submit"
+                    >
+                      !
+                    </span>
+                  )}
                   {dot && (
                     <span className="absolute top-1.5 right-1.5 flex" role="img" aria-label={activityText(dot)}>
                       <ActivityDot status={dot.status} />
@@ -227,6 +249,8 @@ export function StudentDrawer({ tracks, selected, onClose, label, activity, show
               {track.attempts.length} attempt{track.attempts.length === 1 ? "" : "s"}
             </span>
             {activity && track.activity && !isSolved(track) && <span>{activityTitle(track.activity)}</span>}
+            {attemptCounts(track.activity) && <span>{attemptCounts(track.activity)}</span>}
+            {track.activity?.spam && <Badge>Likely spamming Submit: {track.activity.spam}</Badge>}
           </>
         )
       }
