@@ -655,7 +655,18 @@ def _run_test_graded_checks(client):
     uma = replies["Uma"]
     assert (uma["verdict"], uma["tests_passed"]) == ("partially_correct", 4), uma
     assert uma["hidden_tests"] == {"total": 2, "failed": 1, "hints": ["Checks the sale with no units recorded."]}
-    assert uma["feedback"].startswith("Print df.head()")  # the task's own hint ladder
+    # The default hint policy's free attempt: results, no hint yet (backend/hint_policy.py).
+    assert uma["hint_tier"] == 0 and uma["feedback"].startswith("4/5 tests passed"), uma
+    assert uma["hint_state"]["level"] == 0 and uma["hint_state"]["counted_attempts"] == 1, uma["hint_state"]
+    # A second, changed attempt (a renamed variable: not a duplicate, but the same code
+    # shape, so Uma still groups with Vic) unlocks the task's own hint ladder.
+    changed = re.sub(r"\bdf\b", "sales", solutions["wrong_forgot_fillna"])
+    assert changed != solutions["wrong_forgot_fillna"]
+    PYTEST_RUNS[changed] = "wrong_forgot_fillna"  # same mistake, so the same recorded run
+    r = client.post("/api/submit", json={"student_name": "Uma", "question_id": qid, "source_code": "",
+                                         "files": {"solution.py": changed}})
+    assert r.status_code == 200 and r.json()["feedback"].startswith("Print df.head()"), r.json()
+    assert r.json()["hint_state"]["level"] == 1
     assert replies["Xan"]["verdict"] == "error"
     for reply in replies.values():
         text = json_lib.dumps(reply)
@@ -1823,7 +1834,8 @@ def _run_test_file_checks(client):
 
     mine = client.get("/api/lecture/attempts", params={"question_id": qid, "student_name": "Gus"}).json()
     assert [a["attempt_number"] for a in mine] == [2, 1], mine
-    assert set(mine[0]) == {"id", "attempt_number", "verdict", "tests_passed", "tests_total", "created_at", "feedback"}, mine[0]
+    assert set(mine[0]) == {"id", "attempt_number", "counted", "not_counted_reason", "verdict", "tests_passed",
+                         "tests_total", "created_at", "feedback"}, mine[0]
     assert "SECRET" not in json_lib.dumps(mine)
     print("Student attempts endpoint: own attempts only, no test data   OK")
 

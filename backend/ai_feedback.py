@@ -148,7 +148,7 @@ def judge_and_feedback(
     source_code: str,
     test_results: list,
     language: str = "python",
-    attempt_number: int = 1,
+    hint_level: int = 1,
     expected_function_name: str = None,
     hint_ladder: list = None,
     example_result: dict = None,
@@ -162,6 +162,11 @@ def judge_and_feedback(
     source_code are unused now that grading has no model to give them to -- kept as
     parameters so main.py's call site doesn't need to change based on which grading
     strategy is in use.
+
+    hint_level is how many hints the student has unlocked (backend/hint_policy.py's
+    hint_state()): the hint shown is that tier, capped at the family's ceiling. 0 = no
+    hint yet -- feedback is the plain pass count, hint_tier 0, hint_ceiling still set
+    so the page can say how many hints there are.
 
     hint_ladder is the task's own lecturer-approved wrong-answer hints (see
     backend/hint_ladder.py). When set, a wrong answer gets those, escalating by
@@ -188,18 +193,18 @@ def judge_and_feedback(
 
     try:
         exec_verdict, error_type = classify_submission(test_results, expected_function_name, language)
-        hint = hint_for_verdict(exec_verdict, error_type, attempt_number)
+        hint = hint_for_verdict(exec_verdict, error_type, max(hint_level, 1))
     except Exception:
         exec_verdict = "pass" if passed == total and total > 0 else "wrong_answer"
         error_type = None
         hint = {"hint_text": None, "hint_tier": None, "hint_ceiling": None}
 
     if exec_verdict == "wrong_answer" and hint_ladder:
-        tier = min(attempt_number, len(hint_ladder))
+        tier = min(max(hint_level, 1), len(hint_ladder))
         hint = {"hint_text": hint_ladder[tier - 1], "hint_tier": tier, "hint_ceiling": len(hint_ladder)}
     elif exec_verdict == "wrong_answer" and grading_mode == "tests":
         ladder = _tests_wrong_answer_hints(test_results)
-        tier = min(max(attempt_number, 1), len(ladder))
+        tier = min(max(hint_level, 1), len(ladder))
         hint = {"hint_text": ladder[tier - 1], "hint_tier": tier, "hint_ceiling": len(ladder)}
     elif (exec_verdict == "wrong_answer" and example_result is not None
           and hint["hint_tier"] is not None and hint["hint_tier"] == hint["hint_ceiling"]):
@@ -215,6 +220,8 @@ def judge_and_feedback(
         "tests_total": total,
     }
 
+    if hint_level < 1 and hint["hint_text"] is not None:
+        hint = {**hint, "hint_text": None, "hint_tier": 0}
     if hint["hint_text"] is not None:
         result["feedback"] = hint["hint_text"]
     result["hint_tier"] = hint["hint_tier"]

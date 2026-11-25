@@ -21,7 +21,7 @@ import secrets
 import sqlite3
 import threading
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend import hint_policy
 
@@ -267,6 +267,18 @@ def init_db():
         # took the examples off the students' screens mid-lecture.
         # `students` is the JSON list of student names in the issue when it
         # was raised; `submission_id` is the example shown.
+        # The lecturer's "release next hint to everyone" (backend/hint_policy.py):
+        # from created_at on, every student on the task has at least `level` hints.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hint_releases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                question_id TEXT NOT NULL,
+                level INTEGER NOT NULL
+            )
+            """
+        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS raised_issues (
@@ -1081,6 +1093,9 @@ def next_attempt_number(student_name: str, question_id: str) -> int:
 
 
 def save_submission(row: dict) -> int:
+    """`created_at` (a "YYYY-MM-DD HH:MM:SS" UTC string) is optional: the submit path
+    passes the time it computed the student's hint level for, so replaying it later
+    gives the same level. Default: now."""
     with _lock:
         conn = _connect()
         cur = conn.execute(
@@ -1088,8 +1103,8 @@ def save_submission(row: dict) -> int:
             INSERT INTO submissions
                 (student_name, question_id, language, source_code, attempt_number,
                  tests_passed, tests_total, verdict, error_type, exec_verdict,
-                 rejection_reason, feedback, discussion_point, raw_test_results, files)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rejection_reason, feedback, discussion_point, raw_test_results, files, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
             """,
             (
                 row["student_name"],
@@ -1107,12 +1122,81 @@ def save_submission(row: dict) -> int:
                 row["discussion_point"],
                 row["raw_test_results"],
                 json.dumps(row["files"]) if row.get("files") else None,
+                row.get("created_at"),
             ),
         )
         conn.commit()
         new_id = cur.lastrowid
         conn.close()
         return new_id
+
+
+def epoch_of(sqlite_ts: str) -> float:
+    """A stored "YYYY-MM-DD HH:MM:SS" (SQLite's datetime('now'), UTC) as epoch seconds."""
+    return datetime.strptime(sqlite_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).timestamp()
+
+
+def sqlite_ts(epoch: float) -> str:
+    """The inverse of epoch_of(), to the second."""
+    return datetime.fromtimestamp(int(epoch), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def counted_attempt_times(student_name: str, question_id: str) -> list:
+    """Epoch seconds of the student's counted attempts on a question, oldest first:
+    every stored submission except those rejected before running (empty code, too
+    long, ...), which never reach the grader and so never unlock a hint."""
+    with _lock:
+        conn = _connect()
+        rows = conn.execute(
+            "SELECT created_at FROM submissions WHERE student_name = ? AND question_id = ? "
+            "AND COALESCE(exec_verdict, '') != 'rejected' ORDER BY created_at, id",
+            (student_name, question_id),
+        ).fetchall()
+        conn.close()
+    return [epoch_of(r["created_at"]) for r in rows]
+
+
+def latest_counted_submission(student_name: str, question_id: str):
+    """The student's newest submission that ran (not rejected before running), or None."""
+    with _lock:
+        conn = _connect()
+        row = conn.execute(
+            "SELECT * FROM submissions WHERE student_name = ? AND question_id = ? "
+            "AND COALESCE(exec_verdict, '') != 'rejected' ORDER BY created_at DESC, id DESC LIMIT 1",
+            (student_name, question_id),
+        ).fetchone()
+        conn.close()
+    return dict(row) if row else None
+
+
+def hint_releases(question_id: str) -> list:
+    """[(epoch seconds, level)] of the lecturer's hint releases on a question, oldest first."""
+    with _lock:
+        conn = _connect()
+        rows = conn.execute(
+            "SELECT created_at, level FROM hint_releases WHERE question_id = ? ORDER BY id", (question_id,)
+        ).fetchall()
+        conn.close()
+    return [(epoch_of(r["created_at"]), r["level"]) for r in rows]
+
+
+MAX_RELEASED_HINT_LEVEL = 10
+
+
+def release_next_hint(question_id: str) -> int:
+    """Raises the question's released hint level by one (capped at
+    MAX_RELEASED_HINT_LEVEL) and returns it."""
+    with _lock:
+        conn = _connect()
+        current = conn.execute(
+            "SELECT COALESCE(MAX(level), 0) AS lv FROM hint_releases WHERE question_id = ?", (question_id,)
+        ).fetchone()["lv"]
+        level = min(current + 1, MAX_RELEASED_HINT_LEVEL)
+        if level > current:
+            conn.execute("INSERT INTO hint_releases (question_id, level) VALUES (?, ?)", (question_id, level))
+            conn.commit()
+        conn.close()
+    return level
 
 
 def all_submissions(question_id: str = None) -> list:

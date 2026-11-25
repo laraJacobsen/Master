@@ -161,7 +161,7 @@ def test_hidden_test_hint_shows_only_when_that_test_fails_and_never_its_name():
 
 
 def judge(failing: dict, attempt: int = 1, ladder=None) -> dict:
-    return judge_and_feedback("p", "code", results(failing), attempt_number=attempt, hint_ladder=ladder,
+    return judge_and_feedback("p", "code", results(failing), hint_level=attempt, hint_ladder=ladder,
                               grading_mode="tests")
 
 
