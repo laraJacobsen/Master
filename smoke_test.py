@@ -781,13 +781,30 @@ def _run_checks(client):
         assert r.status_code == 200, r.text
         print("GET submission detail          OK")
 
-        # Second attempt from the same student+question -- attempt_number increments.
+        # The same code again (only spacing and a comment changed) is a duplicate: not
+        # run, not stored, not counted -- the student gets attempt 1's result back.
         r = client.post(
             "/api/submit",
             json={
                 "student_name": "Test Student",
                 "question_id": "sum-ints",
-                "source_code": "print(sum(int(x) for x in input().split()))",
+                "source_code": "print( sum(int(x) for x in input().split()) )  # again",
+            },
+        )
+        assert r.status_code == 200, r.text
+        dup = r.json()
+        assert dup["counted"] is False and dup["not_counted_reason"] == "duplicate", dup
+        assert dup["duplicate_of"] == 1 and dup["verdict"] == "correct" and "didn't count" in dup["notice"], dup
+        assert len(client.get("/api/lecturer/submissions").json()) == 1
+        print("Duplicate resubmission not run or counted   OK")
+
+        # A real change from the same student+question -- attempt_number increments.
+        r = client.post(
+            "/api/submit",
+            json={
+                "student_name": "Test Student",
+                "question_id": "sum-ints",
+                "source_code": "print(sum(map(int, input().split())))",
             },
         )
         assert r.status_code == 200, r.text
