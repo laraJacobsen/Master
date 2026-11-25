@@ -105,3 +105,105 @@ def of_question(question: dict) -> HintPolicy:
         return from_dict(question.get("hint_policy"))
     except ValueError:
         return DEFAULT
+
+
+# --- unlocking ------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class HintState:
+    """Where one student stands on one task, at `now`."""
+
+    # Hints unlocked so far (0 = none). Not capped: the hint shown is
+    # min(level, the ceiling of whatever the student got wrong).
+    level: int
+    # Submissions that ran and weren't duplicates.
+    counted_attempts: int
+    # Counted attempts still to go before the first hint (0 once hints have started).
+    free_attempts_left: int
+    # The next unlock needs a new counted attempt (after unlock_at, if that's set).
+    needs_attempt: bool
+    # When the timer part of the next unlock is satisfied (epoch seconds), else None.
+    unlock_at: float | None
+    # The lecturer's released level (0 = none), already included in `level`.
+    released_level: int
+
+
+def hint_state(policy: HintPolicy, attempt_times: list[float], releases: list[tuple[float, int]],
+               now: float) -> HintState:
+    """Replays a student's counted attempts (epoch seconds) and the lecturer's releases
+    ((time, level), "everyone has at least this hint from now on") in time order.
+
+    - An attempt is eligible once the student has used their free attempts. The first
+      eligible attempt unlocks hint 1 (whatever the mode), unless a release got there
+      first.
+    - After that, per policy.unlock:
+        attempt  every eligible attempt unlocks the next hint;
+        timer    the next hint unlocks at max(last unlock + interval, the first eligible
+                 attempt after the last unlock) -- so it can unlock between submissions,
+                 but never without a try since the last one;
+        both     an eligible attempt made at least `interval` after the last unlock.
+    - A release lifts the level to the released one (if lower) and counts as an unlock,
+      so the timer runs from it. It works regardless of free attempts.
+    """
+    interval = policy.interval_seconds
+    events = sorted([(t, 1, None) for t in attempt_times] + [(t, 0, lv) for t, lv in releases])
+    level = 0
+    last_unlock = None  # time of the last unlock
+    tried_since = None  # time of the first eligible attempt after the last unlock
+    counted = 0
+    released = 0
+
+    def unlock(at):
+        nonlocal level, last_unlock, tried_since
+        level += 1
+        last_unlock = at
+        tried_since = None
+
+    def run_timer(until):
+        # "timer" unlocks that came due before `until`, one interval at a time.
+        while policy.unlock == "timer" and level >= 1 and tried_since is not None:
+            due = max(last_unlock + interval, tried_since)
+            if due > until:
+                return
+            unlock(due)
+
+    for t, is_attempt, release_level in events:
+        run_timer(t)
+        if not is_attempt:
+            released = max(released, release_level)
+            if level < release_level:
+                level = release_level - 1
+                unlock(t)
+            continue
+        counted += 1
+        if counted <= policy.free_attempts:
+            continue
+        if level == 0:
+            unlock(t)
+        elif policy.unlock == "attempt":
+            unlock(t)
+        elif policy.unlock == "both":
+            if t >= last_unlock + interval:
+                unlock(t)
+        elif tried_since is None:  # timer
+            tried_since = t
+            run_timer(t)
+    run_timer(now)
+
+    free_left = 0 if level >= 1 else max(policy.free_attempts + 1 - counted, 1)
+    if level == 0:
+        needs_attempt, unlock_at = True, None
+    elif policy.unlock == "attempt":
+        needs_attempt, unlock_at = True, None
+    elif policy.unlock == "both":
+        due = last_unlock + interval
+        needs_attempt, unlock_at = True, (due if due > now else None)
+    elif tried_since is None:  # timer, nothing tried since the last unlock
+        needs_attempt, unlock_at = True, last_unlock + interval
+    else:  # timer, tried: unlocks on its own at the due time
+        needs_attempt, unlock_at = False, max(last_unlock + interval, tried_since)
+    if unlock_at is not None and unlock_at <= now:
+        unlock_at = None
+    return HintState(level=level, counted_attempts=counted, free_attempts_left=free_left,
+                     needs_attempt=needs_attempt, unlock_at=unlock_at, released_level=released)
