@@ -384,3 +384,17 @@ def test_hidden_test_hints():
                                                   "  test_type: " + "x" * 300 + "\n"})
     assert_problem(bad, "hidden_test_hints lists test_sum, which isn't a test in hidden_tests/",
                    "hidden_test_hints.test_type is longer than 200 characters")
+
+
+# re.match(r"^...$") lets a trailing newline through ($ matches before a final
+# "\n"); the id ends up in the export's Content-Disposition header and names
+# end up as file paths, so validation must match the whole string.
+def test_task_id_with_trailing_newline_is_refused():
+    yaml = TASK_YAML + 'id: "revenue\\n"\n'
+    assert_problem(pytest_task(**{"task.yaml": yaml}), "id must be lowercase letters")
+
+
+def test_file_name_with_trailing_newline_is_refused():
+    from backend import test_files
+    assert test_files.check_output_file("result.txt\n", []) is not None
+    assert test_files.check_output_file("result.txt", []) is None

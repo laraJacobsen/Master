@@ -44,7 +44,7 @@ def check_output_file(name: str | None, test_cases: list) -> str | None:
     graded on the lecturer's file."""
     if name is None:
         return None
-    if len(name) > MAX_NAME_LENGTH or not _NAME_RE.match(name) or ".." in name.split("/"):
+    if len(name) > MAX_NAME_LENGTH or not _NAME_RE.fullmatch(name) or ".." in name.split("/"):
         return (
             f'"{name}" can\'t be used as the output file name. Use letters, digits, ".", "-" and "_", '
             f'with "/" between folder names.'
@@ -71,7 +71,7 @@ def check_test_files(test_cases: list) -> str | None:
         seen = set()
         for f in files:
             name = f["name"]
-            if len(name) > MAX_NAME_LENGTH or not _NAME_RE.match(name) or ".." in name.split("/"):
+            if len(name) > MAX_NAME_LENGTH or not _NAME_RE.fullmatch(name) or ".." in name.split("/"):
                 return (
                     f'Test {number}: "{name}" can\'t be used as a file name. Use letters, digits, '
                     f'".", "-" and "_", with "/" between folder names.'

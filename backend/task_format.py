@@ -237,7 +237,7 @@ def _check_path(rel: str) -> str | None:
     parts = rel.split("/")
     if rel.startswith("/") or any(p in ("", ".", "..") for p in parts) or "\\" in rel:
         return f"{rel}: not a plain relative path."
-    if any(not _PART_RE.match(p) for p in parts):
+    if any(not _PART_RE.fullmatch(p) for p in parts):
         return (f'{rel}: use only letters, digits, ".", "-" and "_" in file and folder names '
                 f'(no spaces, no names starting with "." or "-").')
     if len(rel) > 200:
@@ -340,7 +340,7 @@ def load_task_zip(data: bytes, default_id: str = "task") -> TaskSpec:
     name is the stable one: a browser saves a second download as "task (1).zip", and the
     id is what makes a re-import replace the earlier draft."""
     folder = _zip_folder_name(data)
-    if folder and re.match(r"^[a-z0-9][a-z0-9-]*$", folder):
+    if folder and re.fullmatch(r"[a-z0-9][a-z0-9-]*", folder):
         default_id = folder
     return parse_task(read_zip(data), default_id=default_id)
 
@@ -537,7 +537,7 @@ def parse_task(raw: dict[str, bytes], default_id: str = "task") -> TaskSpec:
         )
 
     task_id = meta.get("id", default_id)
-    if not isinstance(task_id, str) or not re.match(r"^[a-z0-9][a-z0-9-]*$", task_id or ""):
+    if not isinstance(task_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", task_id or ""):
         problems.append(f"task.yaml: id must be lowercase letters, digits and '-' (got {task_id!r}).")
         task_id = "task"
 
