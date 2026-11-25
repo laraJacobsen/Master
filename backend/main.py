@@ -24,6 +24,7 @@ import logging
 import os
 import time
 import uuid
+from collections import defaultdict
 from datetime import datetime
 
 import anyio
@@ -1624,6 +1625,10 @@ def _hint_state_view(question: dict, state: hint_policy.HintState, student_name:
         "released_level": state.released_level,
         # Submissions that repeated earlier code (backend/code_normalize.py).
         "duplicates": len(store.duplicates(question["id"], student_name)),
+        # Only when the task shows one (informational; changes nothing else).
+        "penalty": hint_policy.penalty(
+            policy, [r["verdict"] for r in reversed(store.counted_submissions(student_name, question["id"]))]
+        ) if policy.penalty else None,
         "policy": {"free_attempts": policy.free_attempts, "unlock": policy.unlock,
                    "interval_seconds": policy.interval_seconds, "penalty": policy.penalty},
     }
@@ -2213,6 +2218,7 @@ def api_lecturer_question_activity(question_id: str):
     if not question:
         raise HTTPException(status_code=404, detail="Not found")
     threshold = question["idle_nudge_seconds"] or DEFAULT_IDLE_SECONDS
+    attempts = _attempt_stats(question)
     rows = {r["student_name"]: r for r in store.activity_rows(question_id)}
     names = set(rows)
     if question.get("lecture_id") is not None:
@@ -2221,7 +2227,8 @@ def api_lecturer_question_activity(question_id: str):
     for name in sorted(names):
         row = rows.get(name)
         if not row:
-            result.append({"student_name": name, "status": "away", "idle_seconds": None, "nudged": False})
+            result.append({"student_name": name, "status": "away", "idle_seconds": None, "nudged": False,
+                           **attempts.get(name, _NO_ATTEMPTS)})
             continue
         idle_for = _seconds_since(row["last_edit_at"] or row["first_seen_at"])
         if _seconds_since(row["last_seen_at"]) > AWAY_AFTER_SECONDS:
@@ -2236,9 +2243,38 @@ def api_lecturer_question_activity(question_id: str):
                 "status": status,
                 "idle_seconds": int(idle_for),
                 "nudged": row["nudge_count"] > 0,
+                **attempts.get(name, _NO_ATTEMPTS),
             }
         )
     return result
+
+
+_NO_ATTEMPTS = {"counted_attempts": 0, "rejected": 0, "duplicates": 0, "penalty": None, "spam": None}
+
+
+def _attempt_stats(question: dict) -> dict:
+    """Per student on this question: counted attempts, submissions that didn't count
+    (rejected before running, duplicates), the penalty when the task shows one, and why
+    they look like they're spamming Submit (backend/hint_policy.py), if they do."""
+    policy = hint_policy.of_question(question)
+    subs = defaultdict(list)
+    for row in reversed(store.all_submissions(question["id"])):  # oldest first
+        subs[row["student_name"]].append(row)
+    dups = defaultdict(list)
+    for row in store.duplicates(question["id"]):
+        dups[row["student_name"]].append(row)
+    stats = {}
+    for name in set(subs) | set(dups):
+        counted = [r for r in subs[name] if r.get("exec_verdict") != "rejected"]
+        times = [store.epoch_of(r["created_at"]) for r in subs[name] + dups[name]]
+        stats[name] = {
+            "counted_attempts": len(counted),
+            "rejected": len(subs[name]) - len(counted),
+            "duplicates": len(dups[name]),
+            "penalty": hint_policy.penalty(policy, [r["verdict"] for r in counted]) if policy.penalty else None,
+            "spam": hint_policy.spam_reason(times, len(dups[name])),
+        }
+    return stats
 
 
 @app.get("/api/lecturer/clusters")

@@ -505,6 +505,21 @@ export interface StudentActivity {
   // Seconds since they last typed (or opened the task, if they never have).
   idle_seconds: number | null;
   nudged: boolean;
+  // Submissions that ran and weren't duplicates.
+  counted_attempts: number;
+  // Didn't count: rejected before running (empty, too long...), or the same code again.
+  rejected: number;
+  duplicates: number;
+  // null unless the task shows a penalty counter.
+  penalty: number | null;
+  // Why they look like they're spamming Submit, or null.
+  spam: string | null;
+}
+
+// GET/POST /api/lecturer/questions/{id}/hint_release
+export interface HintRelease {
+  // Every student has at least this many hints (0 = none released).
+  released_level: number;
 }
 
 // GET /api/lecturer/questions/{id}/progress

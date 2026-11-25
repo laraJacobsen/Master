@@ -21,6 +21,8 @@ import {
   fetchSubmissionDetail,
   fetchSubmissions,
   endQuestionNow,
+  fetchHintRelease,
+  releaseHint,
   finishLecture,
   nextTask,
   raiseIssue,
@@ -122,6 +124,9 @@ export default function App() {
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
   // Who's typing / idle / away -- see ClassProgress and api_lecturer_question_activity.
   const [activity, setActivity] = useState<StudentActivity[]>([]);
+  // Hints released to the whole class on this task (null until loaded).
+  const [releasedHint, setReleasedHint] = useState<number | null>(null);
+  const [releasingHint, setReleasingHint] = useState(false);
   // Issues whose code is expanded inline (by issueKey), plus any submissions
   // an open issue needed that weren't in the polled list -- see toggleIssue.
   const [openIssues, setOpenIssues] = useState<Set<string>>(new Set());
@@ -392,6 +397,19 @@ export default function App() {
     };
   }, []);
 
+  // The released hint level only changes when this page releases one, so it's
+  // loaded once rather than polled.
+  useEffect(() => {
+    if (!QUESTION_ID) return;
+    if (MOCK) {
+      setReleasedHint(0);
+      return;
+    }
+    fetchHintRelease(QUESTION_ID)
+      .then((r) => setReleasedHint(r.released_level))
+      .catch(() => setReleasedHint(0));
+  }, []);
+
   // Ticks the "Time remaining" banner once a second, anchored to the
   // question's server-side started_at/duration_seconds (re-synced whenever
   // pollQuestion above refreshes `question`) rather than counting down from
@@ -438,6 +456,24 @@ export default function App() {
   // short on time, ...). Lands on the same "time's up" state as a timer that
   // ran out by itself: students go to their waiting screen and the lecturer
   // can show them examples before clicking "Next task".
+  async function handleReleaseHint() {
+    if (!QUESTION_ID) return;
+    if (MOCK) {
+      setReleasedHint((lv) => (lv ?? 0) + 1);
+      return;
+    }
+    setReleasingHint(true);
+    try {
+      const { released_level } = await releaseHint(QUESTION_ID);
+      setReleasedHint(released_level);
+      toast(`Hint ${released_level} released to everyone`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not release the hint.", "danger");
+    } finally {
+      setReleasingHint(false);
+    }
+  }
+
   async function handleEndTaskNow() {
     if (!QUESTION_ID) return;
     if (MOCK) {
@@ -827,6 +863,9 @@ export default function App() {
           tracks={tracks}
           showActivity={taskRunning}
           contentId="live-content"
+          releasedHintLevel={releasedHint}
+          releasingHint={releasingHint}
+          onReleaseHint={() => void handleReleaseHint()}
         />
       )}
       <Page width={QUESTION_ID && !LECTURE_ID ? "full" : "wide"}>
