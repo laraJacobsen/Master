@@ -29,6 +29,9 @@ export interface VisibleTestFile {
 export interface StudentAttempt {
   id: number;
   attempt_number: number;
+  // false: rejected before running (empty, too long...), so it didn't count.
+  counted?: boolean;
+  not_counted_reason?: NotCountedReason | null;
   verdict: Verdict | null;
   tests_passed: number;
   tests_total: number;
@@ -191,6 +194,8 @@ export interface QuestionRow {
   starter_code: string | null;
   // The task's own wrong-answer hints, attempt 1 first; null = generic hints.
   hint_ladder: string[] | null;
+  // When hints unlock and what counts as an attempt; always complete (defaults filled in).
+  hint_policy: HintPolicy;
   // "stdout": compare printed output per test case (the setup page's own tasks).
   // "tests": pytest files from an imported task folder (backend/task_format.py).
   grading_mode: GradingMode;
@@ -272,6 +277,22 @@ export interface QuestionPayload {
   // null = the built-in default starter (shared/starterCode.ts).
   starter_code?: string | null;
   hint_ladder?: string[] | null;
+  hint_policy?: HintPolicy;
+}
+
+// How a task's next hint unlocks after the free attempts (backend/hint_policy.py):
+// "attempt" every counted attempt; "timer" once the interval has passed, if the
+// student made a counted attempt since; "both" a counted attempt made after it.
+export type HintUnlock = "attempt" | "timer" | "both";
+
+export interface HintPolicy {
+  free_attempts: number;
+  unlock: HintUnlock;
+  interval_seconds: number;
+  // 1 = only identical code (after normalisation) is a duplicate.
+  duplicate_similarity: number;
+  // Show students a penalty counter (informational only).
+  penalty: boolean;
 }
 
 // POST /api/lecturer/hints/draft
@@ -487,6 +508,21 @@ export interface StudentActivity {
   // Seconds since they last typed (or opened the task, if they never have).
   idle_seconds: number | null;
   nudged: boolean;
+  // Submissions that ran and weren't duplicates.
+  counted_attempts: number;
+  // Didn't count: rejected before running (empty, too long...), or the same code again.
+  rejected: number;
+  duplicates: number;
+  // null unless the task shows a penalty counter.
+  penalty: number | null;
+  // Why they look like they're spamming Submit, or null.
+  spam: string | null;
+}
+
+// GET/POST /api/lecturer/questions/{id}/hint_release
+export interface HintRelease {
+  // Every student has at least this many hints (0 = none released).
+  released_level: number;
 }
 
 // GET /api/lecturer/questions/{id}/progress
@@ -497,8 +533,39 @@ export interface ProgressResponse {
 }
 
 // POST /api/submit
+// Why a submission didn't count towards hints: rejected before running, the same
+// code as an earlier attempt (not run again), or near-identical code (it ran).
+export type NotCountedReason = "rejected" | "duplicate" | "similar";
+
+// The student's attempts and next-hint state (backend/main.py's _hint_state_view).
+export interface HintStateView {
+  // Hints unlocked so far (0 = none yet).
+  level: number;
+  counted_attempts: number;
+  // Counted attempts still to go before the first hint.
+  free_attempts_left: number;
+  // The next hint needs a new attempt (after the countdown, if there is one).
+  needs_attempt: boolean;
+  seconds_until_unlock: number | null;
+  // Hints the lecturer released to everyone (0 = none).
+  released_level: number;
+  duplicates: number;
+  // null unless the task shows a penalty counter.
+  penalty: number | null;
+  policy: { free_attempts: number; unlock: HintUnlock; interval_seconds: number; penalty: boolean };
+}
+
+// GET /api/lecture/hint_state
+export interface HintStateResponse {
+  state: HintStateView;
+  // The hint for the latest counted submission at the level unlocked now; null when
+  // there's none, or it was correct.
+  hint: { submission_id: number; feedback: string; hint_tier: number | null; hint_ceiling: number | null } | null;
+}
+
 export interface SubmitResponse {
-  submission_id: number;
+  // null: a near-identical submission that ran but wasn't stored.
+  submission_id: number | null;
   tests_passed: number;
   tests_total: number;
   verdict: Verdict;
@@ -516,6 +583,13 @@ export interface SubmitResponse {
   test_results?: TestRunResult[];
   hidden_tests?: HiddenTestsSummary;
   load_output?: LoadOutput[];
+  // false: it didn't count towards hints (see not_counted_reason and notice).
+  counted?: boolean;
+  not_counted_reason?: NotCountedReason | null;
+  // The attempt number it repeated (duplicate/similar).
+  duplicate_of?: number | null;
+  notice?: string | null;
+  hint_state?: HintStateView;
 }
 
 // POST /api/run -- one ungraded run on the student's own stdin (never stored).

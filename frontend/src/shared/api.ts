@@ -5,6 +5,8 @@ import type {
   ClusterRow,
   HintDraftRequest,
   HintDraftResponse,
+  HintRelease,
+  HintStateResponse,
   JoinedCountResponse,
   LectureFinishResponse,
   LectureHistoryRow,
@@ -354,6 +356,27 @@ export function nextTask(currentQuestionId: string | null): Promise<LectureNextR
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ current_question_id: currentQuestionId }),
+  }).then((res) => asJson(res));
+}
+
+// The student's attempts and next-hint state, and the hint unlocked now for their
+// latest counted submission (a timer or the lecturer can unlock one between submits).
+export function fetchHintState(questionId: string): Promise<HintStateResponse> {
+  return apiFetch(`${API_BASE}/api/lecture/hint_state?question_id=${encodeURIComponent(questionId)}`).then((res) =>
+    asJson(res),
+  );
+}
+
+export function fetchHintRelease(questionId: string): Promise<HintRelease> {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/hint_release`).then((res) =>
+    asJson(res),
+  );
+}
+
+// "Release next hint to everyone", whatever the task's hint policy.
+export function releaseHint(questionId: string): Promise<HintRelease> {
+  return apiFetch(`${API_BASE}/api/lecturer/questions/${encodeURIComponent(questionId)}/hint_release`, {
+    method: "POST",
   }).then((res) => asJson(res));
 }
 

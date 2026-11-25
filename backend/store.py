@@ -21,7 +21,9 @@ import secrets
 import sqlite3
 import threading
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
+
+from backend import hint_policy
 
 DB_PATH = os.environ.get(
     "PROTOTYPE_DB_PATH",
@@ -136,6 +138,10 @@ def init_db():
         # in setup. NULL: wrong answers get feedback.py's generic hints.
         if "hint_ladder" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN hint_ladder TEXT")
+        # JSON hint policy (backend/hint_policy.py): free attempts, how hints unlock,
+        # duplicates, penalty. NULL: the defaults -- every task from before policies.
+        if "hint_policy" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN hint_policy TEXT")
         # How the task is graded: 'stdout' (compare printed output per test case,
         # every task before test-graded tasks existed) or 'tests' (pytest; see
         # backend/task_runner.py).
@@ -261,6 +267,42 @@ def init_db():
         # took the examples off the students' screens mid-lecture.
         # `students` is the JSON list of student names in the issue when it
         # was raised; `submission_id` is the example shown.
+        # Submissions that didn't count because they repeat the student's own earlier
+        # code (backend/code_normalize.py). Kept apart from `submissions` on purpose:
+        # clustering, discussion points, summaries and stats read `submissions`
+        # only, so a duplicate can never stand in for a student there.
+        #   kind 'same': identical after normalisation -- not run; the student got
+        #     the result of `duplicate_of` again.
+        #   kind 'similar': above the task's duplicate_similarity (< 1) -- it ran,
+        #     `result` holds what the student was shown.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS duplicate_submissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                student_name TEXT NOT NULL,
+                question_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                duplicate_of INTEGER NOT NULL,
+                similarity REAL NOT NULL,
+                source_code TEXT NOT NULL,
+                files TEXT,
+                result TEXT
+            )
+            """
+        )
+        # The lecturer's "release next hint to everyone" (backend/hint_policy.py):
+        # from created_at on, every student on the task has at least `level` hints.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hint_releases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                question_id TEXT NOT NULL,
+                level INTEGER NOT NULL
+            )
+            """
+        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS raised_issues (
@@ -473,7 +515,7 @@ def _serialize_question(fields: dict) -> dict:
         row["test_cases"] = json.dumps(row["test_cases"])
     if "extra_packages" in row and not isinstance(row["extra_packages"], str):
         row["extra_packages"] = json.dumps(row["extra_packages"])
-    for key in ("hint_ladder", "task_files", "task_meta"):
+    for key in ("hint_ladder", "task_files", "task_meta", "hint_policy"):
         if row.get(key) is not None and not isinstance(row[key], str):
             row[key] = json.dumps(row[key])
     return row
@@ -488,6 +530,10 @@ def _deserialize_question(row: dict) -> dict:
     q["task_files"] = json.loads(q["task_files"]) if q.get("task_files") else None
     q["task_meta"] = json.loads(q["task_meta"]) if q.get("task_meta") else {}
     q["grading_mode"] = q.get("grading_mode") or "stdout"
+    # Always the full policy, defaults filled in (NULL = a task from before policies).
+    q["hint_policy"] = hint_policy.of_question(
+        {"hint_policy": json.loads(q["hint_policy"]) if q.get("hint_policy") else None}
+    ).to_dict()
     return q
 
 
@@ -509,8 +555,8 @@ def create_question(fields: dict) -> str:
                 (id, title, prompt, language, test_cases, reference_solution,
                  cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
                  expected_students, duration_seconds, idle_nudge_seconds, output_file, starter_code,
-                 hint_ladder, grading_mode, task_files, task_meta)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 hint_ladder, grading_mode, task_files, task_meta, hint_policy)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 question_id,
@@ -532,6 +578,7 @@ def create_question(fields: dict) -> str:
                 row.get("grading_mode") or "stdout",
                 row.get("task_files"),
                 row.get("task_meta"),
+                row.get("hint_policy"),
             ),
         )
         conn.commit()
@@ -1070,6 +1117,9 @@ def next_attempt_number(student_name: str, question_id: str) -> int:
 
 
 def save_submission(row: dict) -> int:
+    """`created_at` (a "YYYY-MM-DD HH:MM:SS" UTC string) is optional: the submit path
+    passes the time it computed the student's hint level for, so replaying it later
+    gives the same level. Default: now."""
     with _lock:
         conn = _connect()
         cur = conn.execute(
@@ -1077,8 +1127,8 @@ def save_submission(row: dict) -> int:
             INSERT INTO submissions
                 (student_name, question_id, language, source_code, attempt_number,
                  tests_passed, tests_total, verdict, error_type, exec_verdict,
-                 rejection_reason, feedback, discussion_point, raw_test_results, files)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rejection_reason, feedback, discussion_point, raw_test_results, files, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
             """,
             (
                 row["student_name"],
@@ -1096,12 +1146,125 @@ def save_submission(row: dict) -> int:
                 row["discussion_point"],
                 row["raw_test_results"],
                 json.dumps(row["files"]) if row.get("files") else None,
+                row.get("created_at"),
             ),
         )
         conn.commit()
         new_id = cur.lastrowid
         conn.close()
         return new_id
+
+
+def epoch_of(sqlite_ts: str) -> float:
+    """A stored "YYYY-MM-DD HH:MM:SS" (SQLite's datetime('now'), UTC) as epoch seconds."""
+    return datetime.strptime(sqlite_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).timestamp()
+
+
+def sqlite_ts(epoch: float) -> str:
+    """The inverse of epoch_of(), to the second."""
+    return datetime.fromtimestamp(int(epoch), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def counted_attempt_times(student_name: str, question_id: str) -> list:
+    """Epoch seconds of the student's counted attempts on a question, oldest first:
+    every stored submission except those rejected before running (empty code, too
+    long, ...), which never reach the grader and so never unlock a hint."""
+    with _lock:
+        conn = _connect()
+        rows = conn.execute(
+            "SELECT created_at FROM submissions WHERE student_name = ? AND question_id = ? "
+            "AND COALESCE(exec_verdict, '') != 'rejected' ORDER BY created_at, id",
+            (student_name, question_id),
+        ).fetchall()
+        conn.close()
+    return [epoch_of(r["created_at"]) for r in rows]
+
+
+def latest_counted_submission(student_name: str, question_id: str):
+    """The student's newest submission that ran (not rejected before running), or None."""
+    with _lock:
+        conn = _connect()
+        row = conn.execute(
+            "SELECT * FROM submissions WHERE student_name = ? AND question_id = ? "
+            "AND COALESCE(exec_verdict, '') != 'rejected' ORDER BY created_at DESC, id DESC LIMIT 1",
+            (student_name, question_id),
+        ).fetchone()
+        conn.close()
+    return dict(row) if row else None
+
+
+def counted_submissions(student_name: str, question_id: str) -> list:
+    """The student's counted submissions on a question (not rejected before running),
+    newest first -- what a new submission is compared against for duplicates."""
+    with _lock:
+        conn = _connect()
+        rows = conn.execute(
+            "SELECT * FROM submissions WHERE student_name = ? AND question_id = ? "
+            "AND COALESCE(exec_verdict, '') != 'rejected' ORDER BY created_at DESC, id DESC",
+            (student_name, question_id),
+        ).fetchall()
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def save_duplicate(row: dict) -> int:
+    with _lock:
+        conn = _connect()
+        cur = conn.execute(
+            "INSERT INTO duplicate_submissions (student_name, question_id, kind, duplicate_of, similarity, "
+            "source_code, files, result, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
+            (row["student_name"], row["question_id"], row["kind"], row["duplicate_of"], row["similarity"],
+             row["source_code"], json.dumps(row["files"]) if row.get("files") else None,
+             json.dumps(row["result"]) if row.get("result") is not None else None, row.get("created_at")),
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+        conn.close()
+    return new_id
+
+
+def duplicates(question_id: str, student_name: str = None) -> list:
+    """Duplicate submissions on a question (one student's, or everyone's), oldest first."""
+    query = "SELECT * FROM duplicate_submissions WHERE question_id = ?"
+    params = [question_id]
+    if student_name is not None:
+        query += " AND student_name = ?"
+        params.append(student_name)
+    with _lock:
+        conn = _connect()
+        rows = conn.execute(query + " ORDER BY created_at, id", params).fetchall()
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def hint_releases(question_id: str) -> list:
+    """[(epoch seconds, level)] of the lecturer's hint releases on a question, oldest first."""
+    with _lock:
+        conn = _connect()
+        rows = conn.execute(
+            "SELECT created_at, level FROM hint_releases WHERE question_id = ? ORDER BY id", (question_id,)
+        ).fetchall()
+        conn.close()
+    return [(epoch_of(r["created_at"]), r["level"]) for r in rows]
+
+
+MAX_RELEASED_HINT_LEVEL = 10
+
+
+def release_next_hint(question_id: str) -> int:
+    """Raises the question's released hint level by one (capped at
+    MAX_RELEASED_HINT_LEVEL) and returns it."""
+    with _lock:
+        conn = _connect()
+        current = conn.execute(
+            "SELECT COALESCE(MAX(level), 0) AS lv FROM hint_releases WHERE question_id = ?", (question_id,)
+        ).fetchone()["lv"]
+        level = min(current + 1, MAX_RELEASED_HINT_LEVEL)
+        if level > current:
+            conn.execute("INSERT INTO hint_releases (question_id, level) VALUES (?, ?)", (question_id, level))
+            conn.commit()
+        conn.close()
+    return level
 
 
 def all_submissions(question_id: str = None) -> list:

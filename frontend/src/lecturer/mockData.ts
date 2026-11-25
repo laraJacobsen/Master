@@ -1,4 +1,5 @@
 import type { ClusterRow, ProgressResponse, QuestionRow, StudentActivity, SubmissionRow, Verdict } from "../shared/types";
+import { DEFAULT_HINT_POLICY } from "../shared/hintPolicy";
 
 // Fake data for previewing the live dashboard without a backend:
 // lecturer.html?question_id=mock&mock. Nothing here is sent anywhere.
@@ -217,6 +218,7 @@ export function buildMock(ended = false) {
     output_file: null,
     starter_code: null,
     hint_ladder: null,
+    hint_policy: DEFAULT_HINT_POLICY,
     grading_mode: "stdout",
     task_files: null,
     task_meta: {},
@@ -233,6 +235,12 @@ export function buildMock(ended = false) {
     status: i % 7 === 3 ? "idle" : i >= 24 ? "away" : "active",
     idle_seconds: i % 7 === 3 ? 240 : i >= 24 ? null : 10,
     nudged: i === 3,
+    counted_attempts: subs.filter((s) => s.student_name === name).length,
+    rejected: 0,
+    // One student resubmitting the same code, to preview the spam flag.
+    duplicates: i === 5 ? 4 : 0,
+    penalty: null,
+    spam: i === 5 ? "4 resubmissions of the same code" : null,
   }));
 
   return {

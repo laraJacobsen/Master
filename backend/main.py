@@ -24,6 +24,7 @@ import logging
 import os
 import time
 import uuid
+from collections import defaultdict
 from datetime import datetime
 
 import anyio
@@ -47,7 +48,7 @@ from backend.aggregation import (
     session_summary,
     student_recap,
 )
-from backend import rate_limit, task_format, task_import, task_runner, test_files
+from backend import code_normalize, hint_policy, rate_limit, task_format, task_import, task_runner, test_files
 from backend.hint_ladder import clean_ladder, draft_hint_ladder
 from backend.ai_feedback import _traceback_for, judge_and_feedback
 from backend.judge0_client import Judge0Error, run_submission, run_test_cases
@@ -364,6 +365,9 @@ class QuestionCreateRequest(BaseModel):
     # The task's own wrong-answer hints, attempt 1 first; None = generic hints.
     # See backend/hint_ladder.py.
     hint_ladder: list[str] | None = None
+    # When hints unlock and what counts as an attempt (backend/hint_policy.py);
+    # None = the defaults. Missing keys take the defaults too.
+    hint_policy: dict | None = None
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -386,6 +390,17 @@ class QuestionUpdateRequest(BaseModel):
     # The task's own wrong-answer hints, attempt 1 first; None = generic hints.
     # See backend/hint_ladder.py.
     hint_ladder: list[str] | None = None
+    hint_policy: dict | None = None
+
+
+def _checked_hint_policy(raw) -> dict | None:
+    """A hint_policy from the setup page, complete with defaults; 400 listing what's wrong."""
+    if raw is None:
+        return None
+    problems = hint_policy.problems_of(raw)
+    if problems:
+        raise HTTPException(status_code=400, detail=" ".join(problems))
+    return hint_policy.from_dict(raw).to_dict()
 
 
 class LectureAdvanceRequest(BaseModel):
@@ -470,6 +485,7 @@ def api_lecturer_create_question(req: QuestionCreateRequest):
     fields["test_cases"] = [tc.model_dump() for tc in req.test_cases]
     fields["output_file"] = (fields.get("output_file") or "").strip() or None
     fields["hint_ladder"] = clean_ladder(fields.get("hint_ladder"))
+    fields["hint_policy"] = _checked_hint_policy(fields.get("hint_policy"))
     _check_test_files_or_400(fields["test_cases"], fields["output_file"])
     question_id = store.create_question(fields)
     return store.get_question_row(question_id)
@@ -586,6 +602,8 @@ def api_lecturer_update_question(question_id: str, req: QuestionUpdateRequest):
         fields["output_file"] = (fields["output_file"] or "").strip() or None
     if "hint_ladder" in fields:
         fields["hint_ladder"] = clean_ladder(fields["hint_ladder"])
+    if "hint_policy" in fields:
+        fields["hint_policy"] = _checked_hint_policy(fields["hint_policy"])
     if "test_cases" in fields or "output_file" in fields:
         _check_test_files_or_400(
             fields.get("test_cases", row["test_cases"]), fields.get("output_file", row.get("output_file"))
@@ -1379,6 +1397,9 @@ def api_lecture_attempts(question_id: str, student: dict = Depends(_student)):
         {
             "id": row["id"],
             "attempt_number": row["attempt_number"],
+            # Rejected before running (empty, too long, ...): shown, but it didn't count.
+            "counted": row.get("exec_verdict") != "rejected",
+            "not_counted_reason": "rejected" if row.get("exec_verdict") == "rejected" else None,
             "verdict": row["verdict"],
             "tests_passed": row["tests_passed"],
             "tests_total": row["tests_total"],
@@ -1393,6 +1414,43 @@ def api_lecture_attempts(question_id: str, student: dict = Depends(_student)):
         for row in store.all_submissions(question_id)
         if row["student_name"] == name
     ]
+
+
+@app.get("/api/lecture/hint_state")
+def api_lecture_hint_state(question_id: str, student: dict = Depends(_student)):
+    """The asking student's attempts and hint unlock state on a question, and the hint
+    for their latest counted submission at the level unlocked now. Polled by the
+    student page while a hint is pending (timer, lecturer release)."""
+    question = store.get_question_row(question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail="Not found")
+    _check_student_question(student, question)
+    name = student["student_name"]
+    state = _hint_state_now(question, name)
+    return {
+        "state": _hint_state_view(question, state, name),
+        "hint": _current_hint(question, store.latest_counted_submission(name, question_id), state.level),
+    }
+
+
+@app.get("/api/lecturer/questions/{question_id}/hint_release")
+def api_lecturer_hint_release(question_id: str):
+    if not store.get_question_row(question_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    releases = store.hint_releases(question_id)
+    return {"released_level": max((lv for _, lv in releases), default=0)}
+
+
+@app.post("/api/lecturer/questions/{question_id}/hint_release")
+def api_lecturer_release_hint(question_id: str):
+    """"Release next hint to everyone": from now on every student on the task has at
+    least one more hint, whatever the task's hint policy (backend/hint_policy.py)."""
+    question = store.get_question_row(question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail="Not found")
+    if question["status"] != "live":
+        raise HTTPException(status_code=409, detail="Hints can only be released while the task is running.")
+    return {"released_level": store.release_next_hint(question_id)}
 
 
 @app.post("/api/lecture/join")
@@ -1544,78 +1602,145 @@ async def api_submit(req: SubmitRequest, student: dict = Depends(_student)):
     return await anyio.to_thread.run_sync(_submit, req, student, limiter=_submit_limiter)
 
 
-def _submit(req: SubmitRequest, student: dict):
-    question = get_question(req.question_id)
-    if not question:
-        raise HTTPException(status_code=404, detail=f"Unknown question_id: {req.question_id!r}")
-    if question["status"] != "live":
-        raise HTTPException(status_code=409, detail="This question isn't live (not started yet, or already closed).")
-    _check_student_question(student, question)
-    student_name = student["student_name"]
+def _hint_state_now(question: dict, student_name: str, attempt_at: float | None = None) -> hint_policy.HintState:
+    """The student's hint state on this question (backend/hint_policy.py). attempt_at:
+    a counted attempt being graded right now, not stored yet -- its own time is "now"."""
+    times = store.counted_attempt_times(student_name, question["id"])
+    if attempt_at is not None:
+        times.append(attempt_at)
+    now = attempt_at if attempt_at is not None else time.time()
+    return hint_policy.hint_state(hint_policy.of_question(question), times, store.hint_releases(question["id"]), now)
 
-    # Submitting counts as working on it: reset the idle timer (and any nudge)
-    # like typing does, so reading the feedback doesn't read as idle straight away.
-    store.record_activity(req.question_id, student_name, edited=True)
 
-    attempt_number = store.next_attempt_number(student_name, req.question_id)
+def _hint_state_view(question: dict, state: hint_policy.HintState, student_name: str) -> dict:
+    """What the student page shows about attempts and the next hint."""
+    policy = hint_policy.of_question(question)
+    left = None if state.unlock_at is None else max(1, int(state.unlock_at - time.time() + 0.999))
+    return {
+        "level": state.level,
+        "counted_attempts": state.counted_attempts,
+        "free_attempts_left": state.free_attempts_left,
+        "needs_attempt": state.needs_attempt,
+        "seconds_until_unlock": left,
+        "released_level": state.released_level,
+        # Submissions that repeated earlier code (backend/code_normalize.py).
+        "duplicates": len(store.duplicates(question["id"], student_name)),
+        # Only when the task shows one (informational; changes nothing else).
+        "penalty": hint_policy.penalty(
+            policy, [r["verdict"] for r in reversed(store.counted_submissions(student_name, question["id"]))]
+        ) if policy.penalty else None,
+        "policy": {"free_attempts": policy.free_attempts, "unlock": policy.unlock,
+                   "interval_seconds": policy.interval_seconds, "penalty": policy.penalty},
+    }
+
+
+def _current_hint(question: dict, row: dict | None, level: int) -> dict | None:
+    """The hint for the student's latest counted submission at the level unlocked now
+    (a timer or the lecturer may have unlocked more since it was graded). None when
+    there's no such submission or it was correct."""
+    if not row or row["verdict"] == "correct":
+        return None
+    results = json.loads(row.get("raw_test_results") or "[]")
     if question["grading_mode"] == "tests":
-        return _submit_tests_mode(req, question, student_name, attempt_number)
-    tests_total = len(_graded(question["test_cases"]))
+        feedback = _tests_feedback(question, row["source_code"], results, level)
+    else:
+        feedback = _stdout_feedback(question, row["source_code"], results, level)
+    return {"submission_id": row["id"], "feedback": feedback["feedback"],
+            "hint_tier": feedback.get("hint_tier"), "hint_ceiling": feedback.get("hint_ceiling")}
 
-    rejection_reason = pre_execution_check(
-        req.source_code, line_limit=question["line_limit"], extra_packages=question["extra_packages"],
-        language=question["language"],
-    )
-    if rejection_reason:
-        # Rejected before ever reaching Judge0/Claude -- still recorded as a
-        # real attempt, just tagged so it doesn't get mistaken for a graded one.
-        sub_id = store.save_submission(
-            {
-                "student_name": student_name,
-                "question_id": req.question_id,
-                "language": question["language"],
-                "source_code": req.source_code,
-                "attempt_number": attempt_number,
-                "tests_passed": 0,
-                "tests_total": tests_total,
-                "verdict": "error",
-                "error_type": None,
-                "exec_verdict": "rejected",
-                "rejection_reason": rejection_reason,
-                "feedback": f"Submission rejected before running: {rejection_reason}.",
-                "discussion_point": None,
-                "raw_test_results": json.dumps([]),
-            }
-        )
-        return {
-            "submission_id": sub_id,
-            "tests_passed": 0,
-            "tests_total": tests_total,
-            "verdict": "error",
-            "feedback": f"Your submission wasn't run: {rejection_reason}.",
-        }
 
-    try:
-        test_results = run_test_cases(
-            req.source_code,
-            question["test_cases"],
-            language=question["language"],
-            cpu_time_limit=question["cpu_time_limit_s"],
-            memory_limit_kb=question["memory_limit_kb"],
-            output_file=question.get("output_file"),
-        )
-    except Judge0Error as e:
-        # Judge0 itself is unreachable/broken -- distinct from the student's
-        # code failing, which is a normal 200 response below.
-        raise _runner_unavailable(e)
+DUPLICATE_NOTICE = "Same code as your attempt #{n}, so it didn't count. Change something before resubmitting."
+SIMILAR_NOTICE = ("Almost the same code as your attempt #{n}, so it didn't count towards hints. "
+                  "Change something more before resubmitting.")
 
+
+def _find_duplicate(question: dict, student_name: str, source_code: str, files: dict | None):
+    """(kind, earlier submission row, similarity) when this repeats one of the student's
+    own counted submissions (backend/code_normalize.py), else None. Compared with all of
+    them, not just the last, so alternating two versions doesn't get through. "same":
+    identical after normalisation. "similar": at or above the task's
+    duplicate_similarity, when that's below 1."""
+    policy = hint_policy.of_question(question)
+    language = question["language"]
+    mine = code_normalize.normalize_submission(source_code, files, language)
+    best = None
+    my_tokens = code_normalize.submission_tokens(source_code, files, language)
+    for row in store.counted_submissions(student_name, question["id"]):
+        their_files = json.loads(row["files"]) if row.get("files") else None
+        if code_normalize.normalize_submission(row["source_code"], their_files, language) == mine:
+            return "same", row, 1.0
+        if policy.duplicate_similarity < 1:
+            score = code_normalize.similarity(
+                my_tokens, code_normalize.submission_tokens(row["source_code"], their_files, language)
+            )
+            if score >= policy.duplicate_similarity and (best is None or score > best[2]):
+                best = ("similar", row, score)
+    return best
+
+
+def _same_code_reply(question: dict, student_name: str, earlier: dict, source_code: str,
+                     files: dict | None, now: float) -> dict:
+    """A resubmission of identical code: not run, not counted. The student gets the
+    earlier attempt's result again, with the hint at the level they're at now."""
+    state = _hint_state_now(question, student_name)
+    results = json.loads(earlier.get("raw_test_results") or "[]")
+    if question["grading_mode"] == "tests":
+        feedback = _tests_feedback(question, earlier["source_code"], results, state.level)
+        extra = {"traceback": None, "hidden_crash": False, "hidden_error": None,
+                 **_student_test_view(results, (question.get("task_meta") or {}).get("hidden_test_hints"))}
+    else:
+        feedback = _stdout_feedback(question, earlier["source_code"], results, state.level)
+        extra = _student_error_output(results, feedback)
+    store.save_duplicate({
+        "student_name": student_name, "question_id": question["id"], "kind": "same",
+        "duplicate_of": earlier["id"], "similarity": 1.0, "source_code": source_code, "files": files,
+        "created_at": store.sqlite_ts(now),
+    })
+    return {
+        "submission_id": earlier["id"],
+        "tests_passed": earlier["tests_passed"],
+        "tests_total": earlier["tests_total"],
+        "verdict": earlier["verdict"],
+        "feedback": feedback["feedback"],
+        "attempt_number": earlier["attempt_number"],
+        "hint_tier": feedback.get("hint_tier"),
+        "hint_ceiling": feedback.get("hint_ceiling"),
+        "counted": False,
+        "not_counted_reason": "duplicate",
+        "duplicate_of": earlier["attempt_number"],
+        "notice": DUPLICATE_NOTICE.format(n=earlier["attempt_number"]),
+        "hint_state": _hint_state_view(question, state, student_name),
+        **extra,
+    }
+
+
+def _similar_code_reply(question: dict, student_name: str, near: tuple, reply: dict, source_code: str,
+                        files: dict | None, now: float) -> dict:
+    """A near-duplicate that ran: the student sees its real result, but it isn't stored
+    as a submission and doesn't count (reply was graded at the current level)."""
+    _, earlier, score = near
+    reply = {**reply, "submission_id": None, "attempt_number": None, "counted": False,
+             "not_counted_reason": "similar", "duplicate_of": earlier["attempt_number"],
+             "notice": SIMILAR_NOTICE.format(n=earlier["attempt_number"])}
+    store.save_duplicate({
+        "student_name": student_name, "question_id": question["id"], "kind": "similar",
+        "duplicate_of": earlier["id"], "similarity": round(score, 4), "source_code": source_code, "files": files,
+        "result": reply, "created_at": store.sqlite_ts(now),
+    })
+    return reply
+
+
+def _stdout_feedback(question: dict, source_code: str, test_results: list, hint_level: int) -> dict:
+    """judge_and_feedback() for a stdout task, plus the two issue types decided here
+    (missing output file, hard-coded output). Used when a submission is graded and
+    again when its hint is shown at a level unlocked later (timer, lecturer release)."""
     try:
         feedback = judge_and_feedback(
             question["prompt"],
-            req.source_code,
+            source_code,
             _graded(test_results),
             language=question["language"],
-            attempt_number=attempt_number,
+            hint_level=hint_level,
             hint_ladder=question.get("hint_ladder"),
             example_result=test_results[0] if test_results else None,
             output_file=question.get("output_file"),
@@ -1652,7 +1777,7 @@ def _submit(req: SubmitRequest, student: dict):
     if (
         takes_input
         and feedback["exec_verdict"] in ("pass", "wrong_answer")
-        and not reads_input(req.source_code, question["language"], question.get("starter_code"))
+        and not reads_input(source_code, question["language"], question.get("starter_code"))
     ):
         feedback.update(
             verdict="incorrect",
@@ -1663,6 +1788,97 @@ def _submit(req: SubmitRequest, student: dict):
             hint_ceiling=None,
             traceback=None,
         )
+
+    return feedback
+
+
+def _submit(req: SubmitRequest, student: dict):
+    question = get_question(req.question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail=f"Unknown question_id: {req.question_id!r}")
+    if question["status"] != "live":
+        raise HTTPException(status_code=409, detail="This question isn't live (not started yet, or already closed).")
+    _check_student_question(student, question)
+    student_name = student["student_name"]
+
+    # Submitting counts as working on it: reset the idle timer (and any nudge)
+    # like typing does, so reading the feedback doesn't read as idle straight away.
+    store.record_activity(req.question_id, student_name, edited=True)
+
+    # One timestamp for this submission: its hint level is computed for it, and it's
+    # stored as created_at, so replaying the attempts later gives the same level.
+    now = float(int(time.time()))
+    attempt_number = store.next_attempt_number(student_name, req.question_id)
+    if question["grading_mode"] == "tests":
+        return _submit_tests_mode(req, question, student_name, attempt_number, now)
+    tests_total = len(_graded(question["test_cases"]))
+
+    rejection_reason = pre_execution_check(
+        req.source_code, line_limit=question["line_limit"], extra_packages=question["extra_packages"],
+        language=question["language"],
+    )
+    if rejection_reason:
+        # Rejected before ever reaching Judge0 -- recorded, tagged so it doesn't get
+        # mistaken for a graded one, and not counted towards hints.
+        sub_id = store.save_submission(
+            {
+                "student_name": student_name,
+                "question_id": req.question_id,
+                "language": question["language"],
+                "source_code": req.source_code,
+                "attempt_number": attempt_number,
+                "tests_passed": 0,
+                "tests_total": tests_total,
+                "verdict": "error",
+                "error_type": None,
+                "exec_verdict": "rejected",
+                "rejection_reason": rejection_reason,
+                "feedback": f"Submission rejected before running: {rejection_reason}.",
+                "discussion_point": None,
+                "raw_test_results": json.dumps([]),
+                "created_at": store.sqlite_ts(now),
+            }
+        )
+        return {
+            "submission_id": sub_id,
+            "tests_passed": 0,
+            "tests_total": tests_total,
+            "verdict": "error",
+            "feedback": f"Your submission wasn't run: {rejection_reason}.",
+            "attempt_number": attempt_number,
+            "counted": False,
+            "not_counted_reason": "rejected",
+            "hint_state": _hint_state_view(question, _hint_state_now(question, student_name), student_name),
+        }
+
+    duplicate = _find_duplicate(question, student_name, req.source_code, None)
+    if duplicate and duplicate[0] == "same":
+        return _same_code_reply(question, student_name, duplicate[1], req.source_code, None, now)
+    near = duplicate  # "similar" or None: it runs, but a near-duplicate doesn't count
+
+    try:
+        test_results = run_test_cases(
+            req.source_code,
+            question["test_cases"],
+            language=question["language"],
+            cpu_time_limit=question["cpu_time_limit_s"],
+            memory_limit_kb=question["memory_limit_kb"],
+            output_file=question.get("output_file"),
+        )
+    except Judge0Error as e:
+        # Judge0 itself is unreachable/broken -- distinct from the student's
+        # code failing, which is a normal 200 response below.
+        raise _runner_unavailable(e)
+
+    state = _hint_state_now(question, student_name, attempt_at=None if near else now)
+    feedback = _stdout_feedback(question, req.source_code, test_results, state.level)
+    if near:
+        return _similar_code_reply(question, student_name, near, {
+            "tests_passed": feedback["tests_passed"], "tests_total": feedback["tests_total"],
+            "verdict": feedback["verdict"], "feedback": feedback["feedback"],
+            "hint_tier": feedback.get("hint_tier"), "hint_ceiling": feedback.get("hint_ceiling"),
+            "hint_state": _hint_state_view(question, state, student_name), **_student_error_output(test_results, feedback),
+        }, req.source_code, None, now)
 
     sub_id = store.save_submission(
         {
@@ -1683,6 +1899,7 @@ def _submit(req: SubmitRequest, student: dict):
             # aggregation.cluster_submissions(). Nothing to store per row.
             "discussion_point": None,
             "raw_test_results": json.dumps(test_results),
+            "created_at": store.sqlite_ts(now),
         }
     )
 
@@ -1695,6 +1912,8 @@ def _submit(req: SubmitRequest, student: dict):
         "attempt_number": attempt_number,
         "hint_tier": feedback.get("hint_tier"),
         "hint_ceiling": feedback.get("hint_ceiling"),
+        "counted": True,
+        "hint_state": _hint_state_view(question, state, student_name),
         **_student_error_output(test_results, feedback),
     }
 
@@ -1729,7 +1948,20 @@ def _student_test_view(test_results: list, hidden_hints: dict | None = None) -> 
     }
 
 
-def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, attempt_number: int) -> dict:
+def _tests_feedback(question: dict, source_code: str, test_results: list, hint_level: int) -> dict:
+    """judge_and_feedback() for a test-graded task -- at submit time and when a hint
+    unlocked later is shown for the student's latest submission."""
+    try:
+        return judge_and_feedback(
+            question["prompt"], source_code, test_results, language=question["language"],
+            hint_level=hint_level, hint_ladder=question.get("hint_ladder"), grading_mode="tests",
+        )
+    except Exception:
+        raise _internal_error("grading feedback failed")
+
+
+def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, attempt_number: int,
+                       now: float) -> dict:
     """/api/submit for a test-graded task: the same steps as a stdout task (pre-execution
     checks, run, classify + hint, store), with pytest results in place of per-test-case
     output. Every test counts toward the verdict, visible ones included."""
@@ -1746,10 +1978,12 @@ def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, at
             "attempt_number": attempt_number, "tests_passed": 0, "tests_total": tests_total,
             "verdict": "error", "error_type": None, "exec_verdict": "rejected", "rejection_reason": reason_code,
             "feedback": f"Submission rejected before running: {message}.", "discussion_point": None,
-            "raw_test_results": json.dumps([]), "files": files,
+            "raw_test_results": json.dumps([]), "files": files, "created_at": store.sqlite_ts(now),
         })
         return {"submission_id": sub_id, "tests_passed": 0, "tests_total": tests_total, "verdict": "error",
-                "feedback": f"Your submission wasn't run: {message}.", "attempt_number": attempt_number}
+                "feedback": f"Your submission wasn't run: {message}.", "attempt_number": attempt_number,
+                "counted": False, "not_counted_reason": "rejected",
+                "hint_state": _hint_state_view(question, _hint_state_now(question, student_name), student_name)}
 
     try:
         prepared = task_runner.prepare_submission(question, files)
@@ -1761,19 +1995,28 @@ def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, at
     if reason:
         return rejected(reason, reason.replace("_", " "))
 
+    duplicate = _find_duplicate(question, student_name, source_code, prepared)
+    if duplicate and duplicate[0] == "same":
+        return _same_code_reply(question, student_name, duplicate[1], source_code, prepared, now)
+    near = duplicate
+
     try:
         results = task_runner.run_tests(question, prepared)
     except Judge0Error as e:
         raise _runner_unavailable(e)
     test_results = task_runner.as_dicts(results)
 
-    try:
-        feedback = judge_and_feedback(
-            question["prompt"], source_code, test_results, language=question["language"],
-            attempt_number=attempt_number, hint_ladder=question.get("hint_ladder"), grading_mode="tests",
-        )
-    except Exception:
-        raise _internal_error("grading feedback failed")
+    state = _hint_state_now(question, student_name, attempt_at=None if near else now)
+    feedback = _tests_feedback(question, source_code, test_results, state.level)
+    if near:
+        return _similar_code_reply(question, student_name, near, {
+            "tests_passed": feedback["tests_passed"], "tests_total": feedback["tests_total"],
+            "verdict": feedback["verdict"], "feedback": feedback["feedback"],
+            "hint_tier": feedback.get("hint_tier"), "hint_ceiling": feedback.get("hint_ceiling"),
+            "hint_state": _hint_state_view(question, state, student_name), "traceback": None, "hidden_crash": False,
+            "hidden_error": None,
+            **_student_test_view(test_results, (question.get("task_meta") or {}).get("hidden_test_hints")),
+        }, source_code, prepared, now)
 
     sub_id = store.save_submission({
         "student_name": student_name, "question_id": req.question_id, "language": question["language"],
@@ -1782,6 +2025,7 @@ def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, at
         "verdict": feedback["verdict"], "error_type": feedback["error_type"],
         "exec_verdict": feedback["exec_verdict"], "rejection_reason": None, "feedback": feedback["feedback"],
         "discussion_point": None, "raw_test_results": json.dumps(test_results), "files": prepared,
+        "created_at": store.sqlite_ts(now),
     })
     return {
         "submission_id": sub_id,
@@ -1792,6 +2036,8 @@ def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, at
         "attempt_number": attempt_number,
         "hint_tier": feedback.get("hint_tier"),
         "hint_ceiling": feedback.get("hint_ceiling"),
+        "counted": True,
+        "hint_state": _hint_state_view(question, state, student_name),
         # Visible tests carry their own tracebacks; a hidden crash says nothing more
         # than the hidden count does.
         "traceback": None,
@@ -1972,6 +2218,7 @@ def api_lecturer_question_activity(question_id: str):
     if not question:
         raise HTTPException(status_code=404, detail="Not found")
     threshold = question["idle_nudge_seconds"] or DEFAULT_IDLE_SECONDS
+    attempts = _attempt_stats(question)
     rows = {r["student_name"]: r for r in store.activity_rows(question_id)}
     names = set(rows)
     if question.get("lecture_id") is not None:
@@ -1980,7 +2227,8 @@ def api_lecturer_question_activity(question_id: str):
     for name in sorted(names):
         row = rows.get(name)
         if not row:
-            result.append({"student_name": name, "status": "away", "idle_seconds": None, "nudged": False})
+            result.append({"student_name": name, "status": "away", "idle_seconds": None, "nudged": False,
+                           **attempts.get(name, _NO_ATTEMPTS)})
             continue
         idle_for = _seconds_since(row["last_edit_at"] or row["first_seen_at"])
         if _seconds_since(row["last_seen_at"]) > AWAY_AFTER_SECONDS:
@@ -1995,9 +2243,38 @@ def api_lecturer_question_activity(question_id: str):
                 "status": status,
                 "idle_seconds": int(idle_for),
                 "nudged": row["nudge_count"] > 0,
+                **attempts.get(name, _NO_ATTEMPTS),
             }
         )
     return result
+
+
+_NO_ATTEMPTS = {"counted_attempts": 0, "rejected": 0, "duplicates": 0, "penalty": None, "spam": None}
+
+
+def _attempt_stats(question: dict) -> dict:
+    """Per student on this question: counted attempts, submissions that didn't count
+    (rejected before running, duplicates), the penalty when the task shows one, and why
+    they look like they're spamming Submit (backend/hint_policy.py), if they do."""
+    policy = hint_policy.of_question(question)
+    subs = defaultdict(list)
+    for row in reversed(store.all_submissions(question["id"])):  # oldest first
+        subs[row["student_name"]].append(row)
+    dups = defaultdict(list)
+    for row in store.duplicates(question["id"]):
+        dups[row["student_name"]].append(row)
+    stats = {}
+    for name in set(subs) | set(dups):
+        counted = [r for r in subs[name] if r.get("exec_verdict") != "rejected"]
+        times = [store.epoch_of(r["created_at"]) for r in subs[name] + dups[name]]
+        stats[name] = {
+            "counted_attempts": len(counted),
+            "rejected": len(subs[name]) - len(counted),
+            "duplicates": len(dups[name]),
+            "penalty": hint_policy.penalty(policy, [r["verdict"] for r in counted]) if policy.penalty else None,
+            "spam": hint_policy.spam_reason(times, len(dups[name])),
+        }
+    return stats
 
 
 @app.get("/api/lecturer/clusters")

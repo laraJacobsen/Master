@@ -493,6 +493,48 @@ grades 1/5 (partially correct, since one hidden test never calls it), so the scr
 reported those 38 verdicts as unexpected; the script now uses a syntax error, which
 fails every test (checked at 20 students: 28/28 as expected).
 
+## Hints and resubmitting
+
+Hints used to escalate with every submit, so pressing Submit repeatedly unlocked them.
+Each task now has a **hint policy** (`backend/hint_policy.py`):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `free_attempts` | 1 | counted attempts that get results and the traceback, but no hint |
+| `unlock` | `both` | how later hints unlock: `attempt` (every counted attempt), `timer` (once `interval_seconds` have passed since the last unlock, if the student submitted something in between; it can unlock while they work), `both` (a counted attempt made after the wait) |
+| `interval_seconds` | 60 | the wait for `timer` and `both` |
+| `duplicate_similarity` | 1.0 | 1 = only code identical after normalising is a duplicate; lower also refuses near-identical code (it still runs) |
+| `penalty` | false | show students a penalty count: wrong attempts after the free ones, until the first correct one. Informational only |
+
+**Setting it.** In the setup page's third step, "Timing & class" (under "Hints & attempts"; the
+duplicate threshold is under Advanced), or in a task folder's `task.yaml` as a
+`hint_policy:` block with any of the keys above (the rest take the defaults). Tasks from
+before this have no policy stored and get the defaults.
+
+**What counts as an attempt.** A submission that ran. Not counted:
+- code rejected before running (empty, too long, a disallowed package);
+- the same code as any of the student's earlier counted attempts on the task, after
+  normalising: Python by its AST (comments, spacing and formatting don't matter), C/C++/
+  Java by tokens without comments (string contents do matter); test-graded tasks file by
+  file. Renaming a variable is a change. A duplicate isn't run again: the student gets
+  that attempt's result back with "Same code as your attempt #n";
+- with `duplicate_similarity` below 1, code at least that similar to an earlier attempt
+  (it runs and the student sees the real result, but it doesn't count).
+
+A crash from a typo is a normal counted attempt, and so is its fix. Duplicates are kept
+in their own table (`duplicate_submissions`), so clustering, discussion points, the
+summary and stats never see them.
+
+**Students** see under their result how many attempts counted, how many were resubmitted
+unchanged, the penalty if shown, and when the next hint comes ("after 1 more attempt",
+"your next attempt unlocks it", or a countdown), plus why a submit didn't count.
+
+**Lecturer.** While the task runs, **Release hint N** on the live band gives every
+student at least that many hints, whatever the policy; it shows up on their pages without
+a resubmit. A student's tile shows a small **!** when they look like they're spamming
+Submit (3+ resubmissions of the same code, or 5+ submits within 60 s); the tile's tooltip
+and drawer show counted attempts, what didn't count, the penalty and the reason.
+
 ## Known simplifications (MVP, not final)
 
 - Question authoring now goes through `frontend/setup.html`, but the student
