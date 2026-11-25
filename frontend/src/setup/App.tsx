@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import type {
   GradingMode,
+  HintPolicy,
   LectureRow,
   QuestionPayload,
   QuestionRow,
@@ -38,6 +39,9 @@ import { ROUTES, liveTaskUrl, lobbyUrl } from "../shared/routes";
 import { Footer } from "../shared/Footer";
 import { toast } from "../shared/toast";
 import { TaskFolderSummary, TestCheckResults } from "./TaskFolderPanel";
+import { HintPolicyFields } from "./HintPolicyFields";
+import type { HintPolicyForm } from "./HintPolicyFields";
+import { DEFAULT_HINT_POLICY } from "../shared/hintPolicy";
 
 // Lecture preparation. Top: the lecture itself and its one next action (open
 // the lobby, or go back to it / the live dashboard). Left: the questions in
@@ -194,6 +198,34 @@ function FilePickLabel({ children, inputLabel, multiple = false, onFiles }: File
 
 const HINT_ATTEMPT_LABELS = ["1st wrong answer", "2nd wrong answer", "3rd and later"];
 
+function hintPolicyForm(p: HintPolicy): HintPolicyForm {
+  return {
+    freeAttempts: String(p.free_attempts),
+    unlock: p.unlock,
+    intervalSeconds: String(p.interval_seconds),
+    duplicateSimilarity: String(p.duplicate_similarity),
+    penalty: p.penalty,
+  };
+}
+
+// Out-of-range or blank fields fall back to the defaults; the backend checks the ranges.
+function hintPolicyOf(f: HintPolicyForm): HintPolicy {
+  const whole = (text: string, fallback: number) => {
+    const n = parseInt(text, 10);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  };
+  const similarity = parseFloat(f.duplicateSimilarity);
+  return {
+    free_attempts: Math.min(whole(f.freeAttempts, DEFAULT_HINT_POLICY.free_attempts), 20),
+    unlock: f.unlock,
+    interval_seconds: Math.min(whole(f.intervalSeconds, DEFAULT_HINT_POLICY.interval_seconds), 3600),
+    duplicate_similarity: Number.isFinite(similarity)
+      ? Math.min(Math.max(similarity, 0.5), 1)
+      : DEFAULT_HINT_POLICY.duplicate_similarity,
+    penalty: f.penalty,
+  };
+}
+
 export interface HintLadderEditorProps {
   /** null: no hints of the task's own, wrong answers get the generic ones. */
   hints: string[] | null;
@@ -314,6 +346,7 @@ export default function App() {
   // string is the lecturer's own, kept exactly as typed ("" = start empty).
   const [starterCode, setStarterCode] = useState<string | null>(null);
   const [hintLadder, setHintLadder] = useState<string[] | null>(null);
+  const [hintPolicy, setHintPolicy] = useState<HintPolicyForm>(() => hintPolicyForm(DEFAULT_HINT_POLICY));
   const [draftingHints, setDraftingHints] = useState(false);
   const [hintError, setHintError] = useState<string | null>(null);
   // Graded on a file the program writes (outputFile) instead of what it prints.
@@ -531,6 +564,7 @@ export default function App() {
     setReferenceSolution("");
     setStarterCode(null);
     setHintLadder(null);
+    setHintPolicy(hintPolicyForm(DEFAULT_HINT_POLICY));
     setHintError(null);
     setCodeFileNote(null);
     setGradeFile(false);
@@ -569,6 +603,7 @@ export default function App() {
     setReferenceSolution(q.reference_solution || "");
     setStarterCode(q.starter_code ?? null);
     setHintLadder(q.hint_ladder);
+    setHintPolicy(hintPolicyForm(q.hint_policy ?? DEFAULT_HINT_POLICY));
     if (!keepStep) {
       setCodeFileNote(null);
       setHintError(null);
@@ -721,6 +756,7 @@ export default function App() {
       duration_seconds: Math.round(parseFloat(durationMinutes) * 60),
       // Blank counts as off, same as 0.
       idle_nudge_seconds: Math.max(0, Math.round((parseFloat(idleNudgeMinutes) || 0) * 60)),
+      hint_policy: hintPolicyOf(hintPolicy),
     };
   }
 
@@ -1618,6 +1654,8 @@ export default function App() {
                     />
                   </div>
 
+                  <HintPolicyFields value={hintPolicy} onChange={setHintPolicy} />
+
                   <div>
                     <button
                       type="button"
@@ -1684,6 +1722,25 @@ export default function App() {
                             value={packages}
                             onChange={(e) => setPackages(e.target.value)}
                           />
+                        </div>
+                        <div>
+                          <Label htmlFor="f-dup-similarity" hint="0.5 to 1">
+                            Duplicate threshold
+                          </Label>
+                          <Input
+                            type="number"
+                            id="f-dup-similarity"
+                            mono
+                            min={0.5}
+                            max={1}
+                            step={0.01}
+                            value={hintPolicy.duplicateSimilarity}
+                            onChange={(e) => setHintPolicy({ ...hintPolicy, duplicateSimilarity: e.target.value })}
+                          />
+                          <p className="mt-1.5 text-[13px] text-zinc-500">
+                            1 = only the same code (ignoring spacing and comments) doesn&apos;t count as an attempt.
+                            Lower also refuses near-identical code, which still runs.
+                          </p>
                         </div>
                       </div>
                     )}

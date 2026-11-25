@@ -191,6 +191,8 @@ export interface QuestionRow {
   starter_code: string | null;
   // The task's own wrong-answer hints, attempt 1 first; null = generic hints.
   hint_ladder: string[] | null;
+  // When hints unlock and what counts as an attempt; always complete (defaults filled in).
+  hint_policy: HintPolicy;
   // "stdout": compare printed output per test case (the setup page's own tasks).
   // "tests": pytest files from an imported task folder (backend/task_format.py).
   grading_mode: GradingMode;
@@ -272,6 +274,22 @@ export interface QuestionPayload {
   // null = the built-in default starter (shared/starterCode.ts).
   starter_code?: string | null;
   hint_ladder?: string[] | null;
+  hint_policy?: HintPolicy;
+}
+
+// How a task's next hint unlocks after the free attempts (backend/hint_policy.py):
+// "attempt" every counted attempt; "timer" once the interval has passed, if the
+// student made a counted attempt since; "both" a counted attempt made after it.
+export type HintUnlock = "attempt" | "timer" | "both";
+
+export interface HintPolicy {
+  free_attempts: number;
+  unlock: HintUnlock;
+  interval_seconds: number;
+  // 1 = only identical code (after normalisation) is a duplicate.
+  duplicate_similarity: number;
+  // Show students a penalty counter (informational only).
+  penalty: boolean;
 }
 
 // POST /api/lecturer/hints/draft

@@ -13,6 +13,7 @@ folder in task_files, plus:
 
 from __future__ import annotations
 
+from backend import hint_policy
 from backend.task_format import StdoutCase, TaskFile, TaskSpec
 
 # The file a setup-page task's code lives in when it's exported.
@@ -71,6 +72,7 @@ def question_fields(spec: TaskSpec) -> dict:
         "line_limit": spec.line_limit,
         "extra_packages": spec.extra_packages,
         "hint_ladder": spec.hints or None,
+        "hint_policy": spec.hint_policy,
         "grading_mode": spec.grading,
         "task_meta": {
             "id": spec.id,
@@ -131,6 +133,8 @@ def spec_of_question(q: dict) -> TaskSpec:
         allowed_packages=list(meta.get("allowed_packages") or []),
         wrong_solutions={k: list(v or []) for k, v in (meta.get("wrong_solutions") or {}).items()},
         hidden_test_hints=dict(meta.get("hidden_test_hints") or {}),
+        # The defaults stay unwritten (None), as in a task.yaml without the block.
+        hint_policy=None if hint_policy.of_question(q) == hint_policy.DEFAULT else hint_policy.of_question(q).to_dict(),
     )
     if spec.grading == "tests":
         spec.files = [TaskFile(f["path"], f["role"], f["content"]) for f in q.get("task_files") or []]

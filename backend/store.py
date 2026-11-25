@@ -23,6 +23,8 @@ import threading
 from collections import defaultdict
 from datetime import datetime
 
+from backend import hint_policy
+
 DB_PATH = os.environ.get(
     "PROTOTYPE_DB_PATH",
     os.path.join(os.path.dirname(__file__), "prototype.db"),
@@ -136,6 +138,10 @@ def init_db():
         # in setup. NULL: wrong answers get feedback.py's generic hints.
         if "hint_ladder" not in existing_q_columns:
             conn.execute("ALTER TABLE questions ADD COLUMN hint_ladder TEXT")
+        # JSON hint policy (backend/hint_policy.py): free attempts, how hints unlock,
+        # duplicates, penalty. NULL: the defaults -- every task from before policies.
+        if "hint_policy" not in existing_q_columns:
+            conn.execute("ALTER TABLE questions ADD COLUMN hint_policy TEXT")
         # How the task is graded: 'stdout' (compare printed output per test case,
         # every task before test-graded tasks existed) or 'tests' (pytest; see
         # backend/task_runner.py).
@@ -473,7 +479,7 @@ def _serialize_question(fields: dict) -> dict:
         row["test_cases"] = json.dumps(row["test_cases"])
     if "extra_packages" in row and not isinstance(row["extra_packages"], str):
         row["extra_packages"] = json.dumps(row["extra_packages"])
-    for key in ("hint_ladder", "task_files", "task_meta"):
+    for key in ("hint_ladder", "task_files", "task_meta", "hint_policy"):
         if row.get(key) is not None and not isinstance(row[key], str):
             row[key] = json.dumps(row[key])
     return row
@@ -488,6 +494,10 @@ def _deserialize_question(row: dict) -> dict:
     q["task_files"] = json.loads(q["task_files"]) if q.get("task_files") else None
     q["task_meta"] = json.loads(q["task_meta"]) if q.get("task_meta") else {}
     q["grading_mode"] = q.get("grading_mode") or "stdout"
+    # Always the full policy, defaults filled in (NULL = a task from before policies).
+    q["hint_policy"] = hint_policy.of_question(
+        {"hint_policy": json.loads(q["hint_policy"]) if q.get("hint_policy") else None}
+    ).to_dict()
     return q
 
 
@@ -509,8 +519,8 @@ def create_question(fields: dict) -> str:
                 (id, title, prompt, language, test_cases, reference_solution,
                  cpu_time_limit_s, memory_limit_kb, extra_packages, line_limit,
                  expected_students, duration_seconds, idle_nudge_seconds, output_file, starter_code,
-                 hint_ladder, grading_mode, task_files, task_meta)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 hint_ladder, grading_mode, task_files, task_meta, hint_policy)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 question_id,
@@ -532,6 +542,7 @@ def create_question(fields: dict) -> str:
                 row.get("grading_mode") or "stdout",
                 row.get("task_files"),
                 row.get("task_meta"),
+                row.get("hint_policy"),
             ),
         )
         conn.commit()
