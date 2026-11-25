@@ -2,6 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react";
 import type {
   GradingMode,
+  HintStateResponse,
+  HintStateView,
   LectureStatus,
   SharedExample,
   StudentAttempt,
@@ -15,6 +17,7 @@ import type {
 import {
   fetchLectureStatus,
   fetchMyAttempts,
+  fetchHintState,
   fetchStudentRecap,
   fetchWorkspace,
   joinLecture as joinLectureApi,
@@ -31,6 +34,7 @@ import { cx } from "../shared/cx";
 import type { Tone } from "../shared/ui";
 import type { WorkspaceHandle } from "./Workspace";
 import { TestResultsList } from "./TestResults";
+import { HintStatus } from "./HintStatus";
 import { ROUTES } from "../shared/routes";
 import { Footer } from "../shared/Footer";
 import { rememberRole } from "../shared/role";
@@ -129,6 +133,10 @@ const POLL_MS = 2000;
 // marks a student "away" after a few missed heartbeats (AWAY_AFTER_SECONDS
 // in backend/main.py), and the reply is where an idle nudge arrives.
 const HEARTBEAT_MS = 10000;
+
+// How often the page asks whether a hint unlocked since the last submit (a timer,
+// or the lecturer releasing one) while the student is working on a wrong answer.
+const HINT_POLL_MS = 5000;
 
 // Kahoot-style entry gate (POST /api/lecture/join): the right code gets the
 // student a token, which every student call sends (setStudentToken) -- the
@@ -297,6 +305,8 @@ export default function App() {
   const [wasAutoSubmitted, setWasAutoSubmitted] = useState(false);
 
   const [history, setHistory] = useState<StudentAttempt[] | null>(null);
+  // Attempts counted and the next hint's unlock (backend/hint_policy.py).
+  const [hintState, setHintState] = useState<HintStateView | null>(null);
   // The hint card in the task panel -- scrolled into view when a new one arrives.
   const hintRef = useRef<HTMLDivElement>(null);
   // The task panel's file list opens files in the workspace through this.
@@ -389,6 +399,25 @@ export default function App() {
   // After a reload the page knows nothing about this task's earlier submits:
   // put the latest one back as the result, and if it solved the task, lock it
   // again instead of sending the student back to the editor.
+  // The latest hint state, and the hint it unlocked for the result on screen if
+  // that's the submission it's about (a duplicate's reply can show an older one).
+  async function refreshHintState(qId: string) {
+    let r: HintStateResponse;
+    try {
+      r = await fetchHintState(qId);
+    } catch {
+      return; // Next poll tries again.
+    }
+    if (questionIdRef.current !== qId) return;
+    setHintState(r.state);
+    const current = resultRef.current;
+    if (r.hint && current && current.submission_id === r.hint.submission_id && (r.hint.hint_tier ?? 0) > (current.hint_tier ?? 0)) {
+      const updated = { ...current, feedback: r.hint.feedback, hint_tier: r.hint.hint_tier, hint_ceiling: r.hint.hint_ceiling };
+      setResult(updated);
+      resultRef.current = updated;
+    }
+  }
+
   async function restoreAttempts(qId: string) {
     let rows: StudentAttempt[];
     try {
@@ -414,6 +443,7 @@ export default function App() {
     };
     setResult(restored);
     resultRef.current = restored;
+    void refreshHintState(qId);
     if (latest.verdict === "correct" && phaseRef.current === "answering") {
       autoSubmittedRef.current = true; // nothing to auto-submit at time-up
       setPhase("waiting");
@@ -458,6 +488,7 @@ export default function App() {
       });
       setResult(data);
       resultRef.current = data;
+      setHintState(data.hint_state ?? null);
       window.requestAnimationFrame(() => hintRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
       loadHistory(qId);
       // Solved it -- nothing left to do on this task, so off to the waiting
@@ -602,6 +633,7 @@ export default function App() {
       resultRef.current = null;
       setErrorMessage(null);
       setHistory(null);
+      setHintState(null);
       if (q.grading_mode === "tests") void loadTaskWorkspace(q.id);
       restoreAttempts(q.id);
       setPhase(q.seconds_remaining > 0 ? "answering" : "waiting");
@@ -657,6 +689,15 @@ export default function App() {
     const t = window.setInterval(beat, HEARTBEAT_MS);
     return () => window.clearInterval(t);
   }, [phase, questionId]);
+
+  // While working on a wrong answer, a hint can unlock without a new submit (the
+  // timer, or the lecturer releasing one): ask now and then.
+  const awaitingHint = phase === "answering" && !!questionId && !!result && result.verdict !== "correct";
+  useEffect(() => {
+    if (!awaitingHint || !questionId) return;
+    const t = window.setInterval(() => void refreshHintState(questionId), HINT_POLL_MS);
+    return () => window.clearInterval(t);
+  }, [awaitingHint, questionId]);
 
   async function handleJoin() {
     const trimmedName = joinNameInput.trim();
@@ -1158,12 +1199,26 @@ export default function App() {
                         ))}
                       </div>
                     ) : null}
+                    {result.counted === false && (
+                      <p className="mt-3 rounded-md bg-white/70 px-3 py-2 text-[13px] leading-relaxed font-medium text-zinc-900 ring-1 ring-black/5">
+                        {result.notice ??
+                          "It wasn't run, so it didn't count as an attempt and didn't unlock a hint."}
+                      </p>
+                    )}
                     <p className="mt-3 text-sm leading-relaxed text-zinc-900">{result.feedback}</p>
                     {result.test_results && (
                       <TestResultsList
                         className="mt-3 border-t border-black/5 pt-3"
                         results={result.test_results}
                         hidden={result.hidden_tests}
+                      />
+                    )}
+                    {hintState && result.verdict !== "correct" && (
+                      <HintStatus
+                        state={hintState}
+                        hintTier={result.hint_tier}
+                        hintCeiling={result.hint_ceiling}
+                        onCountdownDone={() => questionId && void refreshHintState(questionId)}
                       />
                     )}
                   </div>
@@ -1255,8 +1310,16 @@ export default function App() {
                       return (
                         <li
                           key={row.id}
-                          title={`Attempt ${row.attempt_number}: ${row.verdict || "unknown"}, ${row.tests_passed}/${row.tests_total} tests`}
-                          className={cx("flex h-12 flex-col justify-between rounded-md border px-2 pt-1.5 pb-2", TILE_TONE[v])}
+                          title={
+                            row.counted === false
+                              ? `Attempt ${row.attempt_number}: not run, didn't count`
+                              : `Attempt ${row.attempt_number}: ${row.verdict || "unknown"}, ${row.tests_passed}/${row.tests_total} tests`
+                          }
+                          className={cx(
+                            "flex h-12 flex-col justify-between rounded-md border px-2 pt-1.5 pb-2",
+                            TILE_TONE[v],
+                            row.counted === false && "border-dashed opacity-60",
+                          )}
                         >
                           <span className="font-mono text-xs leading-tight">#{row.attempt_number}</span>
                           <span className="block h-[3px] overflow-hidden rounded-sm bg-black/10" aria-hidden="true">

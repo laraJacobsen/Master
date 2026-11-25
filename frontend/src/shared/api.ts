@@ -6,6 +6,7 @@ import type {
   HintDraftRequest,
   HintDraftResponse,
   HintRelease,
+  HintStateResponse,
   JoinedCountResponse,
   LectureFinishResponse,
   LectureHistoryRow,
@@ -356,6 +357,14 @@ export function nextTask(currentQuestionId: string | null): Promise<LectureNextR
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ current_question_id: currentQuestionId }),
   }).then((res) => asJson(res));
+}
+
+// The student's attempts and next-hint state, and the hint unlocked now for their
+// latest counted submission (a timer or the lecturer can unlock one between submits).
+export function fetchHintState(questionId: string): Promise<HintStateResponse> {
+  return apiFetch(`${API_BASE}/api/lecture/hint_state?question_id=${encodeURIComponent(questionId)}`).then((res) =>
+    asJson(res),
+  );
 }
 
 export function fetchHintRelease(questionId: string): Promise<HintRelease> {
