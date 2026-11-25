@@ -1,6 +1,11 @@
 fastapi
 uvicorn
-requests
+# Security minimums: older releases have known CVEs (proxy and .netrc credential
+# leaks, TLS verification left off, unsafe redirect and decompression handling).
+# Ubuntu's apt-installed copies are far older than these, so installing from this
+# file must not settle for them.
+requests>=2.33.0
+urllib3>=2.8.0
 scikit-learn
 pyyaml
 packaging
