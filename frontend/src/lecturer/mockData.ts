@@ -1,4 +1,5 @@
 import type { ClusterRow, ProgressResponse, QuestionRow, StudentActivity, SubmissionRow, Verdict } from "../shared/types";
+import { DEFAULT_HINT_POLICY } from "../shared/hintPolicy";
 
 // Fake data for previewing the live dashboard without a backend:
 // lecturer.html?question_id=mock&mock. Nothing here is sent anywhere.
@@ -217,6 +218,7 @@ export function buildMock(ended = false) {
     output_file: null,
     starter_code: null,
     hint_ladder: null,
+    hint_policy: DEFAULT_HINT_POLICY,
     grading_mode: "stdout",
     task_files: null,
     task_meta: {},

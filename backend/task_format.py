@@ -75,6 +75,8 @@ from dataclasses import dataclass, field
 import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 
+from backend import hint_policy
+
 # --- limits ----------------------------------------------------------------------------
 
 MAX_FILES = 200
@@ -110,7 +112,7 @@ _IGNORED_PARTS = {"__MACOSX", "__pycache__", ".DS_Store", ".pytest_cache", "Thum
 _KNOWN_KEYS = {
     "id", "title", "description", "language", "grading", "editable", "time_limit_s",
     "memory_limit_mb", "test_timeout_s", "duration_minutes", "markers", "allowed_packages",
-    "line_limit", "hints", "output_file", "wrong_solutions", "hidden_test_hints",
+    "line_limit", "hints", "output_file", "wrong_solutions", "hidden_test_hints", "hint_policy",
 }
 
 VERSIONS_ENV = os.path.join(os.path.dirname(__file__), "..", "runner", "judge0-python", "versions.env")
@@ -167,6 +169,9 @@ class TaskSpec:
     wrong_solutions: dict[str, list[str]] = field(default_factory=dict)
     # hidden test name -> the sentence students see when it fails.
     hidden_test_hints: dict[str, str] = field(default_factory=dict)
+    # When hints unlock and what counts as an attempt (backend/hint_policy.py);
+    # None = the defaults.
+    hint_policy: dict | None = None
     requirements: list[str] = field(default_factory=list)
     allowed_packages: list[str] = field(default_factory=list)
     files: list[TaskFile] = field(default_factory=list)
@@ -554,6 +559,11 @@ def parse_task(raw: dict[str, bytes], default_id: str = "task") -> TaskSpec:
         hints=_string_list(meta, "hints", problems),
     )
 
+    policy_problems = hint_policy.problems_of(meta.get("hint_policy"))
+    problems.extend(f"task.yaml: {p}" for p in policy_problems)
+    if meta.get("hint_policy") is not None and not policy_problems:
+        spec.hint_policy = hint_policy.from_dict(meta["hint_policy"]).to_dict()
+
     output_file = meta.get("output_file")
     if output_file is not None:
         if not isinstance(output_file, str) or _check_path(output_file.strip()):
@@ -809,6 +819,8 @@ def task_yaml(spec: TaskSpec) -> str:
         meta["hints"] = spec.hints
     if spec.output_file:
         meta["output_file"] = spec.output_file
+    if spec.hint_policy and hint_policy.from_dict(spec.hint_policy) != hint_policy.DEFAULT:
+        meta["hint_policy"] = hint_policy.from_dict(spec.hint_policy).to_dict()
 
     class _Dumper(yaml.SafeDumper):
         pass
