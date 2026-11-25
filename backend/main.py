@@ -23,11 +23,13 @@ import json
 import logging
 import os
 import time
+import uuid
 from datetime import datetime
 
 import anyio
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -65,6 +67,60 @@ if _cors_origins:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# --- Errors ----------------------------------------------------------------------
+# What reaches the client is a plain sentence for the person using the page; what
+# went wrong inside (exception text, tracebacks, Judge0/LLM/database details, internal
+# URLs) only goes to the server log. HTTPException details in this file are written
+# for the user; an exception's own text never becomes one, except the exception types
+# made for it (task_format.TaskFormatError, store.LectureStateError,
+# task_runner.SubmissionFilesError).
+log = logging.getLogger("uvicorn.error")
+
+RUNNER_UNAVAILABLE = "The code runner isn't responding right now. Try again in a moment."
+
+
+def _runner_unavailable(e: Exception) -> HTTPException:
+    """Judge0 down or misbehaving -- not the student's code failing, which is a
+    normal graded result."""
+    log.error("Judge0 request failed: %s", e)
+    return HTTPException(status_code=502, detail=RUNNER_UNAVAILABLE)
+
+
+def _internal_error(what: str) -> HTTPException:
+    """For a caught exception that's a bug, not the user's doing. Call from inside
+    the except block, so the traceback is logged."""
+    error_id = uuid.uuid4().hex[:8]
+    log.exception("%s [error %s]", what, error_id)
+    return HTTPException(
+        status_code=500,
+        detail=f"Something went wrong on the server. Try again; if it keeps happening, report error {error_id}.",
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    """Anything no route caught (a database error, a bug): logged in full with an id,
+    answered with JSON the pages can show instead of a bare "Internal Server Error"."""
+    error_id = uuid.uuid4().hex[:8]
+    log.error("Unhandled error on %s %s [error %s]", request.method, request.url.path, error_id,
+              exc_info=(type(exc), exc, exc.__traceback__))
+    return JSONResponse(
+        {"detail": f"Something went wrong on the server. Try again; if it keeps happening, report error {error_id}.",
+         "error_id": error_id},
+        status_code=500,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request: Request, exc: RequestValidationError):
+    """A request body/query that doesn't fit the route. FastAPI's default answer is a
+    list echoing the input back (a whole submission's code, say), which the pages
+    can't show; this names the fields only, and logs the rest."""
+    log.info("Invalid request to %s: %s", request.url.path, exc.errors())
+    fields = sorted({".".join(str(p) for p in err.get("loc", ()) if p != "body") or "request" for err in exc.errors()})
+    return JSONResponse({"detail": f"The request wasn't valid ({', '.join(fields)})."}, status_code=422)
+
 
 # Reachable without being logged in: logging in, and asking whether you need to.
 _LECTURER_PUBLIC_PATHS = {"/api/lecturer/login", "/api/lecturer/logout", "/api/lecturer/session"}
@@ -564,7 +620,10 @@ def api_lecturer_draft_hints(req: HintDraftRequest):
             e.retry_after, f"The language model has had a lot of requests. Try again in {_wait_text(e.retry_after)}."
         )
     except RuntimeError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        log.warning("hint draft failed: %s", e)
+        raise HTTPException(
+            status_code=502, detail="Couldn't draft hints right now. Try again in a moment, or write them yourself."
+        )
     return {"hints": hints}
 
 
@@ -617,12 +676,12 @@ def api_lecturer_validate_question(question_id: str):
             output_file=question.get("output_file"),
         )
     except Judge0Error as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise _runner_unavailable(e)
 
     try:
         starter_problem = _starter_problem(question)
     except Judge0Error as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise _runner_unavailable(e)
 
     all_passed = bool(results) and all(r["passed"] for r in results)
     validated = all_passed and not (starter_problem and starter_problem["blocking"])
@@ -650,7 +709,7 @@ def _validate_tests_mode(question: dict) -> dict:
         results = task_runner.run_tests(unvalidated, reference)
         starter_problem = _starter_problem(unvalidated)
     except Judge0Error as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise _runner_unavailable(e)
     # r.passed, as grading uses: a test the task's author skips counts as passing.
     all_passed = bool(results) and all(r.passed for r in results)
     test_ids = task_runner.expected_test_ids(results)
@@ -660,7 +719,7 @@ def _validate_tests_mode(question: dict) -> dict:
         wrong_checks = _check_wrong_solutions(
             {**question, "task_meta": {**question["task_meta"], "test_ids": test_ids}}) if all_passed else []
     except Judge0Error as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise _runner_unavailable(e)
     validated = (all_passed and not (starter_problem and starter_problem["blocking"])
                  and all(c["ok"] for c in wrong_checks))
     store.update_question(question["id"], {
@@ -804,7 +863,7 @@ def api_lecturer_start_question(question_id: str):
         )
     try:
         store.start_question(question_id)
-    except ValueError as e:
+    except store.LectureStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return store.get_question_row(question_id)
 
@@ -911,7 +970,7 @@ def api_lecturer_create_lecture(req: LectureCreateRequest):
     lecture" instead in that case."""
     try:
         return store.create_lecture(req.label)
-    except ValueError as e:
+    except store.LectureStateError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
 
@@ -1055,7 +1114,7 @@ def api_lecturer_lecture_next(req: LectureAdvanceRequest):
 
     try:
         store.start_question(next_question["id"])
-    except ValueError as e:
+    except store.LectureStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"started": store.get_question_row(next_question["id"])}
 
@@ -1548,7 +1607,7 @@ def _submit(req: SubmitRequest, student: dict):
     except Judge0Error as e:
         # Judge0 itself is unreachable/broken -- distinct from the student's
         # code failing, which is a normal 200 response below.
-        raise HTTPException(status_code=502, detail=str(e))
+        raise _runner_unavailable(e)
 
     try:
         feedback = judge_and_feedback(
@@ -1561,8 +1620,8 @@ def _submit(req: SubmitRequest, student: dict):
             example_result=test_results[0] if test_results else None,
             output_file=question.get("output_file"),
         )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI feedback failed: {e}")
+    except Exception:
+        raise _internal_error("grading feedback failed")
 
     # Graded output file never created: the program ran fine but didn't write
     # the file the task asks for -- its own issue type, with feedback that says
@@ -1705,7 +1764,7 @@ def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, at
     try:
         results = task_runner.run_tests(question, prepared)
     except Judge0Error as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise _runner_unavailable(e)
     test_results = task_runner.as_dicts(results)
 
     try:
@@ -1713,8 +1772,8 @@ def _submit_tests_mode(req: SubmitRequest, question: dict, student_name: str, at
             question["prompt"], source_code, test_results, language=question["language"],
             attempt_number=attempt_number, hint_ladder=question.get("hint_ladder"), grading_mode="tests",
         )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI feedback failed: {e}")
+    except Exception:
+        raise _internal_error("grading feedback failed")
 
     sub_id = store.save_submission({
         "student_name": student_name, "question_id": req.question_id, "language": question["language"],
@@ -1799,7 +1858,7 @@ def _run(req: RunRequest, student: dict | None):
             output_file=output_file,
         )
     except Judge0Error as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise _runner_unavailable(e)
 
     return {
         "rejected": None,
@@ -1835,7 +1894,7 @@ def _run_tests_mode(req: RunRequest, question: dict, lecturer: bool) -> dict:
     try:
         results = task_runner.as_dicts(task_runner.run_tests(question, prepared, include_hidden=lecturer))
     except Judge0Error as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise _runner_unavailable(e)
     view = _student_test_view(results)
     if lecturer:
         view["hidden_test_results"] = [
@@ -1956,7 +2015,8 @@ def api_lecturer_clusters_raise(req: RaiseIssueRequest):
             req.question_id, req.exec_verdict, req.error_type, req.submission_ids, req.raised, req.example_submission_id
         )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        log.info("raise_issue refused: %s", e)
+        raise HTTPException(status_code=404, detail="That issue isn't on the dashboard any more. Refresh the page.")
     return cluster_submissions(req.question_id)
 
 

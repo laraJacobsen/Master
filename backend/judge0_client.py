@@ -16,11 +16,14 @@ something a question's setup page exposes.
 
 import base64
 import io
+import logging
 import os
 import secrets
 import zipfile
 
 import requests
+
+logger = logging.getLogger("uvicorn.error")
 
 JUDGE0_BASE_URL = os.environ.get("JUDGE0_BASE_URL", "http://localhost:2358")
 
@@ -108,6 +111,20 @@ class Judge0Error(RuntimeError):
     """
 
 
+# Judge0's own failures ("Internal Error", "Exec Format Error"): its message is about
+# the sandbox (isolate's paths and errors), not the student's program, and can reach
+# a student through a test's details -- so it's logged here and replaced.
+_INTERNAL_STATUS_IDS = {13, 14}
+_INTERNAL_MESSAGE = "The code runner had an internal problem with this run."
+
+
+def _public_message(status: dict, message: str | None) -> str | None:
+    if status.get("id") in _INTERNAL_STATUS_IDS:
+        logger.error("Judge0 %s: %s", status.get("description"), message)
+        return _INTERNAL_MESSAGE
+    return message
+
+
 def run_submission(
     source_code: str,
     stdin: str,
@@ -175,8 +192,10 @@ def run_submission(
         resp.raise_for_status()
     except requests.RequestException as e:
         raise Judge0Error(f"Could not reach Judge0 at {JUDGE0_BASE_URL}: {e}") from e
-
-    data = resp.json()
+    try:
+        data = resp.json()
+    except ValueError as e:
+        raise Judge0Error(f"Judge0 at {JUDGE0_BASE_URL} sent a non-JSON response: {resp.text[:200]!r}") from e
     status = data.get("status") or {}
 
     stdout = _un_b64(data.get("stdout"))
@@ -197,7 +216,7 @@ def run_submission(
         "stdout": stdout,
         "stderr": _un_b64(data.get("stderr")),
         "compile_output": _un_b64(data.get("compile_output")),
-        "message": _un_b64(data.get("message")),
+        "message": _public_message(status, _un_b64(data.get("message"))),
         "time_s": data.get("time"),
         "memory_kb": data.get("memory"),
         "exit_code": data.get("exit_code"),
@@ -246,7 +265,10 @@ def run_archive(
         resp.raise_for_status()
     except requests.RequestException as e:
         raise Judge0Error(f"Could not reach Judge0 at {JUDGE0_BASE_URL}: {e}") from e
-    data = resp.json()
+    try:
+        data = resp.json()
+    except ValueError as e:
+        raise Judge0Error(f"Judge0 at {JUDGE0_BASE_URL} sent a non-JSON response: {resp.text[:200]!r}") from e
     status = data.get("status") or {}
     return {
         "status_id": status.get("id"),
@@ -254,7 +276,7 @@ def run_archive(
         "stdout": _un_b64(data.get("stdout")),
         "stderr": _un_b64(data.get("stderr")),
         "compile_output": _un_b64(data.get("compile_output")),
-        "message": _un_b64(data.get("message")),
+        "message": _public_message(status, _un_b64(data.get("message"))),
         "time_s": data.get("time"),
         "wall_time_s": data.get("wall_time"),
         "memory_kb": data.get("memory"),

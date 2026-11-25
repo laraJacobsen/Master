@@ -603,10 +603,10 @@ def start_question(question_id: str) -> None:
         ).fetchone()
         if not active:
             conn.close()
-            raise ValueError("No active lecture. Start one from the home dashboard first.")
+            raise LectureStateError("No active lecture. Start one from the home dashboard first.")
         if not active["lobby_opened_at"]:
             conn.close()
-            raise ValueError("Open the lobby before starting the lecture.")
+            raise LectureStateError("Open the lobby before starting the lecture.")
         conn.execute("UPDATE questions SET status = 'closed' WHERE status = 'live' AND id != ?", (question_id,))
         conn.execute(
             "UPDATE questions SET status = 'live', started_at = ?, lecture_id = ? WHERE id = ?",
@@ -718,7 +718,7 @@ def create_lecture(label: str = None) -> dict:
         conn = _connect()
         if conn.execute("SELECT 1 FROM lectures WHERE ended_at IS NULL").fetchone():
             conn.close()
-            raise ValueError("A lecture is already in progress.")
+            raise LectureStateError("A lecture is already in progress.")
         cur = conn.execute(
             "INSERT INTO lectures (started_at, label, join_code) VALUES (datetime('now'), ?, ?)",
             (label, _generate_join_code()),
@@ -767,6 +767,12 @@ def open_lobby(lecture_id: int) -> dict:
 
 class NameTaken(ValueError):
     """Another student in this lecture already joined under that name."""
+
+
+class LectureStateError(ValueError):
+    """The lecture isn't in a state that allows this (none active, lobby not open,
+    one already running). The message is written for the lecturer and is shown as
+    is -- unlike any other ValueError, whose text main.py keeps to the server log."""
 
 
 def join_student(lecture_id: int, student_name: str, token: str | None = None) -> dict:

@@ -925,7 +925,8 @@ def _label_now(cache_key, snippets: list, reference, fallback: str) -> str:
         try:
             result = _call_llm_subcluster_pattern(snippets, reference)
             break
-        except Exception:
+        except Exception as e:
+            logger.warning("sub-cluster Label call failed: %r", e)
             continue
     logger.info(
         "wrong_answer sub-cluster LLM call (%s): %d snippets, %.3fs, used_model=%s",
@@ -1023,7 +1024,8 @@ def _headline_now(key, category: str, discussion_point: str):
         try:
             result = _call_llm_headline(category, discussion_point)
             break
-        except Exception:
+        except Exception as e:
+            logger.warning("headline call failed: %r", e)
             continue
     logger.info("headline LLM call (%s): %.3fs, ok=%s", LLM["provider"], time.monotonic() - t0, result is not None)
     if result is None:

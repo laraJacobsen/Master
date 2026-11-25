@@ -102,10 +102,21 @@ function apiFetch(input: string, init?: RequestInit): Promise<Response> {
 }
 
 async function asJson<T>(res: Response): Promise<T> {
-  const data = await res.json();
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    // Not JSON: an error page from a proxy in front of the server, or a cut-off
+    // response. The parser's own message ("Unexpected token '<'...") means nothing
+    // to a lecturer or student.
+    throw new Error(
+      res.ok ? "The server sent an unexpected response. Try again." : "Something went wrong on the server. Try again.",
+    );
+  }
   if (!res.ok) {
     const detail = (data as ApiErrorBody)?.detail;
-    throw new Error(detail || "Request failed.");
+    // Only a sentence: anything else (a list, an object) would show as "[object Object]".
+    throw new Error(typeof detail === "string" && detail ? detail : "Request failed.");
   }
   return data as T;
 }
