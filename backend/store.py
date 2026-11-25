@@ -267,6 +267,30 @@ def init_db():
         # took the examples off the students' screens mid-lecture.
         # `students` is the JSON list of student names in the issue when it
         # was raised; `submission_id` is the example shown.
+        # Submissions that didn't count because they repeat the student's own earlier
+        # code (backend/code_normalize.py). Kept apart from `submissions` on purpose:
+        # clustering, discussion points, summaries and stats read `submissions`
+        # only, so a duplicate can never stand in for a student there.
+        #   kind 'same': identical after normalisation -- not run; the student got
+        #     the result of `duplicate_of` again.
+        #   kind 'similar': above the task's duplicate_similarity (< 1) -- it ran,
+        #     `result` holds what the student was shown.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS duplicate_submissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                student_name TEXT NOT NULL,
+                question_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                duplicate_of INTEGER NOT NULL,
+                similarity REAL NOT NULL,
+                source_code TEXT NOT NULL,
+                files TEXT,
+                result TEXT
+            )
+            """
+        )
         # The lecturer's "release next hint to everyone" (backend/hint_policy.py):
         # from created_at on, every student on the task has at least `level` hints.
         conn.execute(
@@ -1167,6 +1191,50 @@ def latest_counted_submission(student_name: str, question_id: str):
         ).fetchone()
         conn.close()
     return dict(row) if row else None
+
+
+def counted_submissions(student_name: str, question_id: str) -> list:
+    """The student's counted submissions on a question (not rejected before running),
+    newest first -- what a new submission is compared against for duplicates."""
+    with _lock:
+        conn = _connect()
+        rows = conn.execute(
+            "SELECT * FROM submissions WHERE student_name = ? AND question_id = ? "
+            "AND COALESCE(exec_verdict, '') != 'rejected' ORDER BY created_at DESC, id DESC",
+            (student_name, question_id),
+        ).fetchall()
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def save_duplicate(row: dict) -> int:
+    with _lock:
+        conn = _connect()
+        cur = conn.execute(
+            "INSERT INTO duplicate_submissions (student_name, question_id, kind, duplicate_of, similarity, "
+            "source_code, files, result, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
+            (row["student_name"], row["question_id"], row["kind"], row["duplicate_of"], row["similarity"],
+             row["source_code"], json.dumps(row["files"]) if row.get("files") else None,
+             json.dumps(row["result"]) if row.get("result") is not None else None, row.get("created_at")),
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+        conn.close()
+    return new_id
+
+
+def duplicates(question_id: str, student_name: str = None) -> list:
+    """Duplicate submissions on a question (one student's, or everyone's), oldest first."""
+    query = "SELECT * FROM duplicate_submissions WHERE question_id = ?"
+    params = [question_id]
+    if student_name is not None:
+        query += " AND student_name = ?"
+        params.append(student_name)
+    with _lock:
+        conn = _connect()
+        rows = conn.execute(query + " ORDER BY created_at, id", params).fetchall()
+        conn.close()
+    return [dict(r) for r in rows]
 
 
 def hint_releases(question_id: str) -> list:
