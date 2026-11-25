@@ -227,3 +227,24 @@ def test_sandbox_layout():
     assert files == {"solution.py": "mine\n", "helpers.py": "H = 1\n", "tests/test_a.py": "def test_a(): pass\n",
                      "data/d.csv": "x\n"}
     assert "hidden_tests/test_b.py" in tr.sandbox_files(MARKED, {}, include_hidden=True)
+
+
+# --- code-review fixes ---------------------------------------------------------------------
+
+
+def test_one_broken_test_file_does_not_fail_the_others():
+    """A hidden test file importing a function the student doesn't have: the visible
+    test still runs and passes (pytest --continue-on-collection-errors)."""
+    expected = [{"id": "tests/test_a.py::test_a", "visibility": "visible"},
+                {"id": "hidden_tests/test_b.py::test_b", "visibility": "hidden"}]
+    rs = results("collection_error_in_one_file", expected=expected)
+    assert [(r.name, r.outcome) for r in rs] == [("test_a", "passed"), ("test_b", "error")]
+    assert rs[1].error_type == "ImportError"
+    assert hints.classify_submission(tr.as_dicts(rs), language="python") == ("runtime_error", "ImportError")
+
+
+def test_lecturer_run_of_whole_files_skips_the_marker_splice():
+    shown = {"solution.py": "import x\nreturn 42\nprint(1)\n"}  # markers stripped with the comments
+    with pytest.raises(tr.SubmissionFilesError):
+        tr.prepare_submission(MARKED, shown)
+    assert tr.prepare_submission(MARKED, shown, splice_markers=False) == shown

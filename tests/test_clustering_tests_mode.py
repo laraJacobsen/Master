@@ -200,3 +200,19 @@ def test_crash_keeps_the_error_specific_hint():
 def test_stdout_groups_have_no_failing_tests():
     stdout_row = {"raw_test_results": json.dumps([{"case_index": 0, "passed": False, "stdout": "5"}])}
     assert ag._failing_tests_of_group([stdout_row]) is None
+
+
+
+def test_shown_multi_file_attempt_keeps_file_headers_without_comments(monkeypatch):
+    """The projector's Run splits a shown attempt back into files on the headers, so
+    stripping comments must not take the headers with them."""
+    files = {"solution.py": "def a():  # my note\n    return 1\n", "helpers.py": "# helper\nB = 2\n"}
+    sub = {"source_code": "joined", "language": "python", "verdict": "partially_correct",
+           "files": json.dumps(files), "raw_test_results": json.dumps(results({V1: "assert 0 == 1"}))}
+    monkeypatch.setattr(ag.store, "get_submission", lambda _id: sub)
+    shown = ag._shared_example(1)["source_code"]
+    assert "# ===== solution.py =====" in shown and "# ===== helpers.py =====" in shown
+    assert "my note" not in shown and "# helper" not in shown
+    from backend import task_import
+    assert task_import.split_files(shown, ["solution.py", "helpers.py"], "python") == {
+        "solution.py": "def a():\n    return 1\n", "helpers.py": "B = 2\n"}

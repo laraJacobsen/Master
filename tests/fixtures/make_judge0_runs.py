@@ -44,11 +44,24 @@ SCENARIOS = {
 for _name, _files in task_runner.wrong_solutions(fields).items():
     SCENARIOS[f"wrong_{_name}"] = _files["solution.py"]
 
+# A second, tiny task whose visible and hidden test files import different functions:
+# a solution missing only the hidden test's function breaks just that file's import.
+TWO_FILES = task_import.question_fields(task_format.parse_task({
+    "task.yaml": b"title: Two files\ndescription: d\nlanguage: python\ngrading: tests\n",
+    "starter/solution.py": b"def a():\n    pass\n\n\ndef b():\n    pass\n",
+    "reference/solution.py": b"def a():\n    return 1\n\n\ndef b():\n    return 2\n",
+    "tests/test_a.py": b"from solution import a\n\n\ndef test_a():\n    assert a() == 1\n",
+    "hidden_tests/test_b.py": b"from solution import b\n\n\ndef test_b():\n    assert b() == 2\n",
+}, default_id="two-files"))
+OTHER_TASKS = {"collection_error_in_one_file": (TWO_FILES, "def a():\n    return 1\n")}
+
 
 def main():
     runs = {}
     real = judge0_client.run_archive
-    for name, code in SCENARIOS.items():
+    jobs = [(name, fields, code) for name, code in SCENARIOS.items()]
+    jobs += [(name, task, code) for name, (task, code) in OTHER_TASKS.items()]
+    for name, task, code in jobs:
         captured = {}
 
         def recording(*args, **kwargs):
@@ -57,7 +70,7 @@ def main():
 
         judge0_client.run_archive = recording
         try:
-            results = task_runner.run_tests(fields, {"solution.py": code})
+            results = task_runner.run_tests(task, {"solution.py": code})
         finally:
             judge0_client.run_archive = real
         run = runs[name] = captured["run"]

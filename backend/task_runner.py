@@ -412,7 +412,7 @@ def wrong_solutions(task: dict) -> dict[str, dict[str, str]]:
     return out
 
 
-def prepare_submission(task: dict, files: dict[str, str]) -> dict[str, str]:
+def prepare_submission(task: dict, files: dict[str, str], splice_markers: bool = True) -> dict[str, str]:
     """The editable files that will be graded: only files the task lets students edit,
     each one present (a missing one is taken from the starter), and in BEGIN/END marker
     mode the student's region spliced into the starter file, so edits outside the
@@ -423,7 +423,9 @@ def prepare_submission(task: dict, files: dict[str, str]) -> dict[str, str]:
     if unknown:
         raise SubmissionFilesError(f"{', '.join(unknown)} isn't a file you can edit in this task.")
     out = {}
-    markers = (task.get("task_meta") or {}).get("markers")
+    # splice_markers=False: the lecturer's run (projector) of whole files as shown --
+    # their marker lines went with the comments, and the lecturer may edit anywhere.
+    markers = (task.get("task_meta") or {}).get("markers") if splice_markers else None
     for path in editable:
         content = files.get(path, starter.get(path, ""))
         if markers and path in starter and path in files:
@@ -476,6 +478,9 @@ class Judge0PytestRunner:
             f"export CLASSLOOP_COLLECT_OUT={loaded}\n"
             f"{PYTHON} -m pytest -q -p no:cacheprovider -p {COLLECT_PLUGIN} --rootdir=. --tb=short "
             "-o junit_family=xunit1 "
+            # A test file that can't be imported (a hidden test importing a function the
+            # student renamed) mustn't stop the rest: without this pytest runs nothing.
+            "--continue-on-collection-errors "
             # Each test's captured prints go into the report, so students see their
             # print() output under the (visible) test that ran it.
             "-o junit_logging=system-out -o junit_log_passing_tests=true "

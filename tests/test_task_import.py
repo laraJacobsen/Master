@@ -171,7 +171,8 @@ def fake_runner(failing_by_code):
     from backend.task_runner import TestResult
     names = [("tests/test_sales.py", "test_revenue_column", "visible"),
              ("tests/test_sales.py", "test_largest_region_first", "visible"),
-             ("hidden_tests/test_sales_hidden.py", "test_missing_units_count_as_zero", "hidden")]
+             ("hidden_tests/test_sales_hidden.py", "test_missing_units_count_as_zero", "hidden"),
+             ("hidden_tests/test_sales_hidden.py", "test_uses_the_dataframe_it_is_given", "hidden")]
 
     def run(task, files, include_hidden=True):
         failing = failing_by_code.get(files.get("solution.py"), set())
@@ -226,3 +227,63 @@ def test_example_task_download(monkeypatch):
     from backend import main
     monkeypatch.setattr(main, "EXAMPLE_TASK_DIR", "/nonexistent")
     assert client.get("/api/lecturer/example_task").status_code == 404
+
+
+
+# --- code-review fixes ---------------------------------------------------------------------
+
+
+def _example_question(**overrides):
+    raw = tf.read_dir(EXAMPLE)
+    raw.update({k: v.encode() for k, v in overrides.items()})
+    qid = store.create_question(ti.question_fields(tf.parse_task(raw, default_id="pandas-sales-summary")))
+    return qid, store.get_question_row(qid)
+
+
+def _caught(q, starter_fails=True):
+    from backend import task_runner
+    must = q["task_meta"]["wrong_solutions"]
+    caught = {w["solution.py"]: set(must[name]) for name, w in task_runner.wrong_solutions(q).items()}
+    if starter_fails:
+        caught[task_runner.starter_files(q)["solution.py"]] = {"test_revenue_column"}
+    return caught
+
+
+def test_validation_counts_a_skipped_test_as_passing(monkeypatch):
+    from backend import task_runner
+    from backend.task_runner import TestResult
+    qid, q = _example_question()
+    caught = _caught(q)
+
+    def run(task, files, include_hidden=True):
+        out = fake_runner(caught)(task, files, include_hidden)
+        if files.get("solution.py") not in caught:  # the reference: one test is skipped
+            out[1] = TestResult(id=out[1].id, name=out[1].name, file=out[1].file, visibility="visible",
+                                outcome="skipped")
+        return out
+    monkeypatch.setattr(task_runner, "run_tests", run)
+    out = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert out["validated"] is True, out
+    assert len(store.get_question_row(qid)["task_meta"]["test_ids"]) == 4
+    store.delete_question(qid)
+
+
+def test_an_empty_starter_that_passes_everything_is_caught(monkeypatch):
+    from backend import task_runner
+    qid, q = _example_question(**{"starter/solution.py": ""})
+    assert q["starter_code"] == ""
+    # Every test passes on the empty starter (unknown code passes in the fake runner).
+    monkeypatch.setattr(task_runner, "run_tests", fake_runner(_caught(q, starter_fails=False)))
+    out = client.post(f"/api/lecturer/questions/{qid}/validate").json()
+    assert out["validated"] is False
+    assert out["starter_problem"]["blocking"] and "already pass every test" in out["starter_problem"]["message"]
+    store.delete_question(qid)
+
+
+def test_workspace_only_for_tasks_that_ran():
+    qid, _q = _example_question()
+    for status, code in (("draft", 404), ("skipped", 404), ("live", 200), ("closed", 200)):
+        store.update_question(qid, {"status": status})
+        assert client.get(f"/api/lecture/questions/{qid}/workspace").status_code == code, status
+        assert client.get(f"/api/lecture/questions/{qid}/workspace/tests/test_sales.py").status_code == code, status
+    store.delete_question(qid)

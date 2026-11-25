@@ -258,7 +258,7 @@ import requests
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from backend import hints, store
+from backend import hints, store, task_import
 
 # Nothing else in this project configures logging -- without this, the per-stage
 # latency numbers below (the actual research question: is this fast enough to run
@@ -1290,10 +1290,17 @@ def _shared_example(submission_id: int):
     if _is_test_graded(results):
         # Students see this (their waiting screen) and so does the class (projector):
         # the first failing visible test in full, hidden tests only as a count.
+        # The code: comments stripped per file, then joined with the file headers
+        # (task_import.join_files) -- stripping the joined text would drop those header
+        # lines (they're comments), and the projector's Run splits the files on them.
+        files = json.loads(row["files"]) if row.get("files") else None
+        source = (task_import.join_files({p: _strip_comments(c) for p, c in files.items()}, list(files),
+                                         row.get("language") or "python")
+                  if files else _strip_comments(row["source_code"]))
         failing_visible = next((r for r in results if not r.get("passed") and r.get("visibility") != "hidden"), None)
         hidden = [r for r in results if r.get("visibility") == "hidden"]
         return {
-            "source_code": _strip_comments(row["source_code"]),
+            "source_code": source,
             "correct": row.get("verdict") == "correct",
             "failing_test": (
                 {"stdin": "", "expected_stdout": "", "stdout": "", "stderr": failing_visible.get("details") or "",

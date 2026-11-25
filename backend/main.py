@@ -525,7 +525,8 @@ def _validate_tests_mode(question: dict) -> dict:
         starter_problem = _starter_problem(unvalidated)
     except Judge0Error as e:
         raise HTTPException(status_code=502, detail=str(e))
-    all_passed = bool(results) and all(r.outcome == "passed" for r in results)
+    # r.passed, as grading uses: a test the task's author skips counts as passing.
+    all_passed = bool(results) and all(r.passed for r in results)
     test_ids = task_runner.expected_test_ids(results)
     if all_passed and not any(t["visibility"] == "visible" for t in test_ids):
         all_passed = False
@@ -578,10 +579,14 @@ def _starter_problem(question: dict) -> dict | None:
     are meant to complete legitimately doesn't run yet.
 
     Only the lecturer's own starter is checked; the built-in defaults are known
-    to be fine."""
+    to be fine.
+
+    Test-graded tasks: also blocking when the starter files already pass every test
+    -- checked even when they're empty (students writing from scratch), since tests
+    that pass on nothing are just as broken."""
     starter = question.get("starter_code")
     if not starter or not starter.strip():
-        return None
+        return _starter_passes_everything(question) if question["grading_mode"] == "tests" else None
 
     reason = pre_execution_check(
         starter, line_limit=question["line_limit"], extra_packages=question["extra_packages"],
@@ -607,13 +612,7 @@ def _starter_problem(question: dict) -> dict | None:
         return {"blocking": True, "message": f"The starter code can't be submitted as it is ({reason.replace('_', ' ')})."}
 
     if question["grading_mode"] == "tests":
-        editable = task_runner.editable_files(question)
-        starter = {p: c for p, c in task_runner.starter_files(question).items() if p in editable}
-        results = task_runner.run_tests(question, starter)
-        if results and all(r.passed for r in results):
-            return {"blocking": True, "message": "The starter files already pass every test, so students would be "
-                                                 "correct without changing anything. Check the tests."}
-        return None
+        return _starter_passes_everything(question)
 
     example = question["test_cases"][0]
     r = run_submission(
@@ -634,6 +633,18 @@ def _starter_problem(question: dict) -> dict | None:
             "That's fine if students are meant to complete it."
         ),
     }
+
+
+def _starter_passes_everything(question: dict) -> dict | None:
+    """Test-graded tasks: blocking when the editable starter files (as students get
+    them, empty ones included) already pass every test."""
+    editable = task_runner.editable_files(question)
+    starter = task_runner.starter_files(question)
+    results = task_runner.run_tests(question, {p: starter.get(p, "") for p in editable})
+    if results and all(r.passed for r in results):
+        return {"blocking": True, "message": "The starter files already pass every test, so students would be "
+                                             "correct without changing anything. Check the tests."}
+    return None
 
 
 def _error_summary(result: dict) -> str:
@@ -1145,7 +1156,9 @@ def api_lecture_workspace(question_id: str):
     tests; data files by name and size), fetched once when the task opens. Same audience
     as the status poll that announces the task."""
     question = get_question(question_id)
-    if not question or question["status"] == "draft" or question["grading_mode"] != "tests":
+    # Like api_lecture_test_file: only a task that is or was live -- a draft, or one
+    # skipped at the end of a lecture, stays private until it actually runs.
+    if not question or question["status"] not in ("live", "closed") or question["grading_mode"] != "tests":
         raise HTTPException(status_code=404, detail="Not found")
     return {"files": _workspace(question, with_content=True), "markers": question["task_meta"].get("markers")}
 
@@ -1154,7 +1167,9 @@ def api_lecture_workspace(question_id: str):
 def api_lecture_workspace_file(question_id: str, path: str):
     """One file of a test-graded task's workspace with its content (data files open here)."""
     question = get_question(question_id)
-    if not question or question["status"] == "draft" or question["grading_mode"] != "tests":
+    # Like api_lecture_test_file: only a task that is or was live -- a draft, or one
+    # skipped at the end of a lecture, stays private until it actually runs.
+    if not question or question["status"] not in ("live", "closed") or question["grading_mode"] != "tests":
         raise HTTPException(status_code=404, detail="Not found")
     for f in question.get("task_files") or []:
         shown = {"test": "tests/", "data": "data/"}.get(f["role"], "") + f["path"]
@@ -1669,7 +1684,7 @@ def _run_tests_mode(req: RunRequest, question: dict, lecturer: bool) -> dict:
     files = req.files if req.files is not None else task_import.split_files(req.source_code, editable,
                                                                             question["language"])
     try:
-        prepared = task_runner.prepare_submission(question, files)
+        prepared = task_runner.prepare_submission(question, files, splice_markers=not lecturer)
     except task_runner.SubmissionFilesError as e:
         return {"rejected": str(e)}
     reason = pre_execution_check(task_import.join_files(prepared, editable, question["language"]),
